@@ -176,61 +176,52 @@ function useMarketData() {
   return { data, lastUpdate, loading, refresh: fetchData };
 }
 
-// ─── REAL NEWS HOOK ───────────────────────────────────────────────────────────
-const RSS_FEEDS = {
-  "GLOBAL/GEOPOLÍTICA": [
-    "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "https://rss.dw.com/rdf/rss-en-world",
-  ],
-  "EUA": [
-    "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml",
-  ],
-  "BRASIL": [
-    "https://g1.globo.com/rss/g1/economia/rss.xml",
-    "https://www.infomoney.com.br/feed/",
-  ],
-  "ECONOMIA": [
-    "https://feeds.bbci.co.uk/news/business/rss.xml",
-    "https://g1.globo.com/rss/g1/economia/rss.xml",
-  ],
-  "CRIPTO": [
-    "https://cointelegraph.com/rss",
-    "https://decrypt.co/feed",
-  ],
-  "TECNOLOGIA": [
-    "https://feeds.bbci.co.uk/news/technology/rss.xml",
-  ],
-  "COMMODITIES": [
-    "https://feeds.bbci.co.uk/news/business/rss.xml",
-  ],
-  "BOLSA": [
-    "https://www.infomoney.com.br/feed/",
-    "https://feeds.bbci.co.uk/news/business/rss.xml",
-  ],
-  "GUERRAS": [
-    "https://feeds.bbci.co.uk/news/world/rss.xml",
-  ],
-  "GERAL": [
-    "https://g1.globo.com/rss/g1/rss.xml",
-    "https://feeds.bbci.co.uk/news/rss.xml",
-  ],
+// ─── REAL NEWS HOOK — NewsData.io ────────────────────────────────────────────
+const NEWSDATA_KEY = "pub_c5f714f2551048358747f9016a0e8a7f";
+
+const NEWSDATA_QUERIES = {
+  "GLOBAL/GEOPOLÍTICA": { q: "geopolitica guerra diplomacia",         category: "world"        },
+  "EUA":                { q: "estados unidos trump economia eua",      category: "business"     },
+  "BRASIL":             { q: "brasil governo politica economia",       category: "politics"     },
+  "ECONOMIA":           { q: "economia mercado financeiro inflacao",   category: "business"     },
+  "BOLSA":              { q: "ibovespa bolsa acoes b3 bovespa",        category: "business"     },
+  "MOEDA":              { q: "dolar real euro cambio moeda",           category: "business"     },
+  "COMMODITIES":        { q: "petroleo ouro soja commodities",         category: "business"     },
+  "CRIPTO":             { q: "bitcoin cripto ethereum blockchain",      category: "technology"   },
+  "GUERRAS":            { q: "guerra conflito militar ucr\u00e2nia oriente",   category: "world" },
+  "TECNOLOGIA":         { q: "tecnologia inteligencia artificial ia",  category: "technology"   },
+  "GERAL":              { q: "brasil noticias destaque",               category: "top"          },
 };
 
-const PROXY = "https://api.allorigins.win/raw?url=";
+const newsCache = {};
 
-async function fetchRSS(url) {
+async function fetchNewsData(category) {
+  if (newsCache[category] && Date.now() - newsCache[category].ts < 15 * 60 * 1000) {
+    return newsCache[category].data;
+  }
+  const { q, cat } = { ...NEWSDATA_QUERIES[category], cat: NEWSDATA_QUERIES[category]?.category };
+  const params = new URLSearchParams({
+    apikey:   NEWSDATA_KEY,
+    language: "pt",
+    country:  "br",
+    size:     "5",
+  });
+  if (q)   params.set("q", q);
+  if (cat && cat !== "top") params.set("category", cat);
+
   try {
-    const res = await fetch(PROXY + encodeURIComponent(url));
-    const text = await res.text();
-    const parser = new DOMParser();
-    const xml = parser.parseFromString(text, "text/xml");
-    const items = [...xml.querySelectorAll("item")].slice(0, 4);
-    return items.map(item => ({
-      title: item.querySelector("title")?.textContent?.trim() || "",
-      link:  item.querySelector("link")?.textContent?.trim() || "#",
-      date:  item.querySelector("pubDate")?.textContent?.trim() || "",
-      src:   new URL(url).hostname.replace("www.", "").replace("feeds.", ""),
+    const res = await fetch(`https://newsdata.io/api/1/news?${params}`);
+    const data = await res.json();
+    if (data.status !== "success") return [];
+    const results = (data.results || []).map(a => ({
+      title: a.title || "",
+      link:  a.link  || "#",
+      date:  a.pubDate || "",
+      src:   a.source_name || a.source_id || "",
+      desc:  a.description || "",
     }));
+    newsCache[category] = { data: results, ts: Date.now() };
+    return results;
   } catch { return []; }
 }
 
@@ -239,12 +230,9 @@ function useNews(category) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const feeds = RSS_FEEDS[category] || [];
-    if (!feeds.length) { setLoading(false); return; }
     setLoading(true);
-    Promise.all(feeds.map(fetchRSS)).then(results => {
-      const all = results.flat().filter(n => n.title);
-      setNews(all.slice(0, 6));
+    fetchNewsData(category).then(results => {
+      setNews(results);
       setLoading(false);
     });
   }, [category]);
