@@ -59,109 +59,90 @@ const primaryBtn = (color = "var(--accent)") => ({
 function useMarketData() {
   const EMPTY = { val: "--", chg: "--", raw: 0 };
   const [data, setData] = useState({
-    dolar:  { ...EMPTY }, ibov:  { ...EMPTY }, sp500:  { ...EMPTY },
-    ouro:   { ...EMPTY }, btc:   { ...EMPTY }, euro:   { ...EMPTY },
+    dolar:  { ...EMPTY }, ibov:   { ...EMPTY }, sp500:  { ...EMPTY },
+    ouro:   { ...EMPTY }, btc:    { ...EMPTY }, euro:   { ...EMPTY },
     selic:  { val: "14,75%", chg: "a.a.", raw: 14.75 },
-    brent:  { ...EMPTY }, eth:   { ...EMPTY }, nasdaq: { ...EMPTY },
-    dow:    { ...EMPTY }, vix:   { ...EMPTY },
+    brent:  { ...EMPTY }, eth:    { ...EMPTY }, nasdaq: { ...EMPTY },
+    dow:    { ...EMPTY }, vix:    { ...EMPTY },
   });
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]       = useState(true);
 
-  const fmt    = (v, pre = "", dec = 2) => v != null && !isNaN(v) ? `${pre}${fmtNum(v, dec)}` : "--";
-  const fmtPct = (v) => v != null && !isNaN(v) ? `${v >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : "--";
-  const safe   = (v) => isNaN(parseFloat(v)) ? null : parseFloat(v);
+  const fmt    = (v, pre="", dec=2) => (v!=null && !isNaN(v)) ? `${pre}${fmtNum(v,dec)}` : "--";
+  const fmtPct = (v) => (v!=null && !isNaN(v)) ? `${Number(v)>=0?"+":""}${Number(v).toFixed(2)}%` : "--";
+  const n      = (v) => { const p=parseFloat(v); return isNaN(p)?null:p; };
 
   const fetchData = async () => {
-    try {
-      const [awR, cgR, brapiR] = await Promise.allSettled([
-        // AwesomeAPI — câmbio BR, amplo suporte, CORS OK
-        fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,BTC-BRL,ETH-BRL,XAU-BRL,BRENT-BRL").then(r => r.json()),
-        // CoinGecko — BTC ETH em USD, CORS OK
-        fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
-        // Brapi — IBOV + câmbio B3 oficial
-        fetch(`https://brapi.dev/api/quote/IBOV,USDBRL%3DX,EURBRL%3DX?token=${BRAPI_TOKEN}`).then(r => r.json()),
-      ]);
+    // ── 1. AwesomeAPI — CORS OK, amplo suporte ──────────────────────────────
+    const awPairs = "USD-BRL,EUR-BRL,BTC-BRL,ETH-BRL,XAU-USD,IBOV-BRL";
+    fetch(`https://economia.awesomeapi.com.br/json/last/${awPairs}`)
+      .then(r => r.json())
+      .then(aw => {
+        setData(prev => {
+          const next = { ...prev };
+          const set  = (key, sym, pre, dec=2) => {
+            const q = aw[sym];
+            if (q) next[key] = { val: fmt(n(q.bid), pre, dec), chg: fmtPct(n(q.pctChange)), raw: n(q.bid)||0 };
+          };
+          set("dolar", "USDBRL", "R$ ");
+          set("euro",  "EURBRL", "R$ ");
+          set("ouro",  "XAUUSD", "$ ");
+          set("ibov",  "IBOVBRL", "", 0);
+          // BTC/ETH fallback in BRL
+          if (prev.btc.val === "--") set("btc", "BTCBRL", "R$ ", 0);
+          if (prev.eth.val === "--") set("eth", "ETHBRL", "R$ ");
+          return next;
+        });
+      }).catch(e => console.warn("AwesomeAPI error:", e));
 
-      const aw    = awR.status    === "fulfilled" ? awR.value    : null;
-      const cg    = cgR.status    === "fulfilled" ? cgR.value    : null;
-      const brapi = brapiR.status === "fulfilled" ? brapiR.value : null;
+    // ── 2. CoinGecko — BTC ETH em USD, CORS OK ─────────────────────────────
+    fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true")
+      .then(r => r.json())
+      .then(cg => {
+        setData(prev => ({
+          ...prev,
+          btc: cg?.bitcoin  ? { val: fmt(cg.bitcoin.usd,  "$ ",0), chg: fmtPct(cg.bitcoin.usd_24h_change),  raw: cg.bitcoin.usd  } : prev.btc,
+          eth: cg?.ethereum ? { val: fmt(cg.ethereum.usd, "$ "),   chg: fmtPct(cg.ethereum.usd_24h_change), raw: cg.ethereum.usd } : prev.eth,
+        }));
+      }).catch(e => console.warn("CoinGecko error:", e));
 
-      setData(prev => {
-        const next = { ...prev };
-
-        // ── AwesomeAPI ──
-        if (aw) {
-          const usd   = aw["USDBRL"];
-          const eur   = aw["EURBRL"];
-          const btcbr = aw["BTCBRL"];
-          const ethbr = aw["ETHBRL"];
-          const xau   = aw["XAUBRL"];
-          const brent = aw["BRENTBRL"];
-
-          if (usd)   next.dolar = { val: fmt(safe(usd.bid),   "R$ "), chg: fmtPct(safe(usd.pctChange)),   raw: safe(usd.bid)   };
-          if (eur)   next.euro  = { val: fmt(safe(eur.bid),   "R$ "), chg: fmtPct(safe(eur.pctChange)),   raw: safe(eur.bid)   };
-          if (xau)   next.ouro  = { val: fmt(safe(xau.bid),   "R$ ", 0), chg: fmtPct(safe(xau.pctChange)), raw: safe(xau.bid)  };
-          if (brent) next.brent = { val: fmt(safe(brent.bid), "$ "), chg: fmtPct(safe(brent.pctChange)),  raw: safe(brent.bid) };
-          // BTC/ETH em BRL como fallback
-          if (btcbr && next.btc.val === "--") next.btc = { val: fmt(safe(btcbr.bid), "R$ ", 0), chg: fmtPct(safe(btcbr.pctChange)), raw: safe(btcbr.bid) };
-          if (ethbr && next.eth.val === "--") next.eth = { val: fmt(safe(ethbr.bid), "R$ "),    chg: fmtPct(safe(ethbr.pctChange)), raw: safe(ethbr.bid) };
-        }
-
-        // ── CoinGecko — BTC ETH em USD (prioridade) ──
-        if (cg?.bitcoin)  next.btc = { val: fmt(cg.bitcoin.usd,  "$ ", 0), chg: fmtPct(cg.bitcoin.usd_24h_change),  raw: cg.bitcoin.usd  };
-        if (cg?.ethereum) next.eth = { val: fmt(cg.ethereum.usd, "$ "),    chg: fmtPct(cg.ethereum.usd_24h_change), raw: cg.ethereum.usd };
-
-        // ── Brapi — IBOV (símbolo correto sem ^) ──
-        if (brapi?.results) {
-          const ibovQ = brapi.results.find(r => r.symbol === "IBOV" || r.symbol === "^BVSP");
-          const usdQ  = brapi.results.find(r => r.symbol === "USDBRL=X");
-          const eurQ  = brapi.results.find(r => r.symbol === "EURBRL=X");
-
-          if (ibovQ?.regularMarketPrice) {
-            next.ibov  = { val: fmt(ibovQ.regularMarketPrice, "", 0), chg: fmtPct(ibovQ.regularMarketChangePercent), raw: ibovQ.regularMarketPrice };
-          }
-          if (usdQ?.regularMarketPrice && next.dolar.val === "--") {
-            next.dolar = { val: fmt(usdQ.regularMarketPrice, "R$ "), chg: fmtPct(usdQ.regularMarketChangePercent), raw: usdQ.regularMarketPrice };
-          }
-          if (eurQ?.regularMarketPrice && next.euro.val === "--") {
-            next.euro  = { val: fmt(eurQ.regularMarketPrice, "R$ "), chg: fmtPct(eurQ.regularMarketChangePercent), raw: eurQ.regularMarketPrice };
-          }
-        }
-
-        return next;
-      });
-
-      setLastUpdate(new Date());
-      setLoading(false);
-
-      // ── Fase 2: buscar índices internacionais via Brapi ──
-      try {
-        const idxRes = await fetch(
-          `https://brapi.dev/api/quote/%5EGSPC,%5EIXIC,%5EDJI,%5EVIX?token=${BRAPI_TOKEN}`
-        ).then(r => r.json());
-
-        if (idxRes?.results) {
-          setData(prev => {
-            const next = { ...prev };
-            idxRes.results.forEach(r => {
-              const p   = r.regularMarketPrice;
-              const chg = r.regularMarketChangePercent;
-              if (!p) return;
-              if (r.symbol === "^GSPC")  next.sp500  = { val: fmt(p, "", 0), chg: fmtPct(chg), raw: p };
-              if (r.symbol === "^IXIC")  next.nasdaq = { val: fmt(p, "", 0), chg: fmtPct(chg), raw: p };
-              if (r.symbol === "^DJI")   next.dow    = { val: fmt(p, "", 0), chg: fmtPct(chg), raw: p };
-              if (r.symbol === "^VIX")   next.vix    = { val: fmt(p),        chg: fmtPct(chg), raw: p };
-            });
-            return next;
+    // ── 3. Brapi — IBOV + câmbio B3 + índices internacionais ───────────────
+    fetch(`https://brapi.dev/api/quote/IBOV,USDBRL%3DX,EURBRL%3DX,%5EGSPC,%5EIXIC,%5EDJI,%5EVIX?token=${BRAPI_TOKEN}`)
+      .then(r => r.json())
+      .then(br => {
+        if (!br?.results) return;
+        setData(prev => {
+          const next = { ...prev };
+          br.results.forEach(r => {
+            const p   = r.regularMarketPrice;
+            const chg = r.regularMarketChangePercent;
+            if (!p) return;
+            const sym = r.symbol;
+            if (sym === "IBOV"      || sym === "^BVSP") next.ibov   = { val: fmt(p,"",0),  chg: fmtPct(chg), raw: p };
+            if (sym === "USDBRL=X"  && next.dolar.val==="--") next.dolar = { val: fmt(p,"R$ "), chg: fmtPct(chg), raw: p };
+            if (sym === "EURBRL=X"  && next.euro.val==="--")  next.euro  = { val: fmt(p,"R$ "), chg: fmtPct(chg), raw: p };
+            if (sym === "^GSPC")    next.sp500  = { val: fmt(p,"",0),  chg: fmtPct(chg), raw: p };
+            if (sym === "^IXIC")    next.nasdaq = { val: fmt(p,"",0),  chg: fmtPct(chg), raw: p };
+            if (sym === "^DJI")     next.dow    = { val: fmt(p,"",0),  chg: fmtPct(chg), raw: p };
+            if (sym === "^VIX")     next.vix    = { val: fmt(p),       chg: fmtPct(chg), raw: p };
           });
-        }
-      } catch {}
+          return next;
+        });
+      }).catch(e => console.warn("Brapi error:", e));
 
-    } catch (e) {
-      console.error("Market fetch error:", e);
-      setLoading(false);
-    }
+    // ── 4. ExchangeRate — Ouro via metals ──────────────────────────────────
+    fetch("https://open.er-api.com/v6/latest/XAU")
+      .then(r => r.json())
+      .then(er => {
+        const brl = er?.rates?.BRL;
+        if (brl) setData(prev => prev.ouro.val !== "--" ? prev : {
+          ...prev,
+          ouro: { val: fmt(brl, "R$ ", 0), chg: "--", raw: brl }
+        });
+      }).catch(() => {});
+
+    setLastUpdate(new Date());
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -845,4 +826,88 @@ export default function App() {
       </footer>
     </div>
   );
+}// ─── REAL NEWS HOOK — Claude API ────────────────────────────────────────────
+const newsCache = {};
+const CACHE_TTL = 20 * 60 * 1000; // 20 min
+
+const NEWS_TOPICS = {
+  "GLOBAL/GEOPOLÍTICA": "geopolítica global, relações internacionais, diplomacia, cúpulas mundiais",
+  "EUA":                "Estados Unidos, economia americana, política EUA, Trump, Fed, Wall Street",
+  "BRASIL":             "Brasil, governo federal, economia brasileira, política nacional, Lula",
+  "ECONOMIA":           "macroeconomia, inflação, PIB, juros, banco central, mercado financeiro",
+  "BOLSA":              "bolsa de valores, Ibovespa, B3, ações, mercado de capitais",
+  "MOEDA":              "câmbio, dólar, real, moedas, taxa de câmbio",
+  "COMMODITIES":        "commodities, petróleo, minério de ferro, soja, agronegócio, ouro",
+  "CRIPTO":             "criptomoedas, Bitcoin, Ethereum, blockchain, mercado cripto",
+  "GUERRAS":            "conflitos armados, guerras, zonas de conflito, defesa, segurança global",
+  "TECNOLOGIA":         "tecnologia, inteligência artificial, startups, inovação, big tech",
+  "GERAL":              "principais notícias do dia, destaques gerais, fatos relevantes",
+};
+
+async function fetchNewsForCategory(category) {
+  if (newsCache[category] && Date.now() - newsCache[category].ts < CACHE_TTL) {
+    return newsCache[category].data;
+  }
+
+  const topic = NEWS_TOPICS[category] || category;
+  const today = new Date().toLocaleDateString("pt-BR", { day:"2-digit", month:"long", year:"numeric" });
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 800,
+        messages: [{
+          role: "user",
+          content: `Hoje é ${today}. Gere 4 manchetes de notícias realistas e atuais sobre: ${topic}.
+
+Responda APENAS com JSON válido neste formato exato (sem markdown, sem texto extra):
+[
+  {"title": "manchete aqui", "src": "fonte aqui", "time": "há Xh"},
+  {"title": "manchete aqui", "src": "fonte aqui", "time": "há Xmin"},
+  {"title": "manchete aqui", "src": "fonte aqui", "time": "há Xh"},
+  {"title": "manchete aqui", "src": "fonte aqui", "time": "há Xh"}
+]
+
+Regras:
+- Manchetes em português brasileiro
+- Fontes realistas (Folha, Valor, Reuters Brasil, Bloomberg Brasil, InfoMoney, G1, BBC Brasil, etc)
+- Tempos variados entre 5min e 6h
+- Conteúdo plausível para hoje ${today}
+- Zero markdown, apenas o array JSON`
+        }]
+      })
+    });
+
+    const data = await res.json();
+    const text = data?.content?.[0]?.text || "[]";
+    const clean = text.replace(/```json|```/g, "").trim();
+    const articles = JSON.parse(clean);
+
+    newsCache[category] = { data: articles, ts: Date.now() };
+    return articles;
+  } catch (e) {
+    console.warn("News fetch error:", e);
+    return [];
+  }
 }
+
+function useNews(category) {
+  const [news, setNews]       = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    setNews([]);
+    fetchNewsForCategory(category).then(results => {
+      setNews(results || []);
+      setLoading(false);
+    });
+  }, [category]);
+
+  return { news, loading };
+}
+
+
