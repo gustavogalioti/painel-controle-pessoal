@@ -70,58 +70,26 @@ function useMarketData() {
 
   const fmt    = (v, pre="", dec=2) => (v!=null&&!isNaN(v)) ? `${pre}${fmtNum(v,dec)}` : "--";
   const fmtPct = (v) => (v!=null&&!isNaN(v)) ? `${Number(v)>=0?"+":""}${Number(v).toFixed(2)}%` : "--";
-  const n      = (v) => { const p=parseFloat(v); return isNaN(p)?null:p; };
 
   const fetchData = async () => {
     try {
-      // Chamada única ao nosso backend Vercel (sem CORS)
-      const res  = await fetch("/api/market");
-      const all  = await res.json();
+      const res = await fetch("/api/market");
+      const d   = await res.json();
 
-      setData(prev => {
-        const next = { ...prev };
-
-        // ── Brapi main: IBOV + câmbio ──
-        const bm = all.brapi_main?.results || [];
-        bm.forEach(r => {
-          const p=r.regularMarketPrice, c=r.regularMarketChangePercent;
-          if (!p) return;
-          if (r.symbol==="IBOV"||r.symbol==="^BVSP") next.ibov  = { val:fmt(p,"",0),  chg:fmtPct(c), raw:p };
-          if (r.symbol==="USDBRL=X")                  next.dolar = { val:fmt(p,"R$ "), chg:fmtPct(c), raw:p };
-          if (r.symbol==="EURBRL=X")                  next.euro  = { val:fmt(p,"R$ "), chg:fmtPct(c), raw:p };
-        });
-
-        // ── Brapi idx: S&P, Nasdaq, Dow, VIX ──
-        const bi = all.brapi_idx?.results || [];
-        bi.forEach(r => {
-          const p=r.regularMarketPrice, c=r.regularMarketChangePercent;
-          if (!p) return;
-          if (r.symbol==="^GSPC") next.sp500  = { val:fmt(p,"",0), chg:fmtPct(c), raw:p };
-          if (r.symbol==="^IXIC") next.nasdaq = { val:fmt(p,"",0), chg:fmtPct(c), raw:p };
-          if (r.symbol==="^DJI")  next.dow    = { val:fmt(p,"",0), chg:fmtPct(c), raw:p };
-          if (r.symbol==="^VIX")  next.vix    = { val:fmt(p),      chg:fmtPct(c), raw:p };
-        });
-
-        // ── CoinGecko: BTC + ETH ──
-        const cg = all.coingecko;
-        if (cg?.bitcoin)  next.btc = { val:fmt(cg.bitcoin.usd,"$ ",0), chg:fmtPct(cg.bitcoin.usd_24h_change),  raw:cg.bitcoin.usd  };
-        if (cg?.ethereum) next.eth = { val:fmt(cg.ethereum.usd,"$ "),  chg:fmtPct(cg.ethereum.usd_24h_change), raw:cg.ethereum.usd };
-
-        // ── AwesomeAPI: fallback câmbio + Ouro + Brent ──
-        const aw = all.awesome;
-        if (aw) {
-          const set = (key, sym, pre, dec=2) => {
-            const q=aw[sym]; if(!q) return;
-            if (next[key].val==="--") next[key]={ val:fmt(n(q.bid),pre,dec), chg:fmtPct(n(q.pctChange)), raw:n(q.bid)||0 };
-          };
-          if (next.dolar.val==="--") set("dolar","USDBRL","R$ ");
-          if (next.euro.val==="--")  set("euro","EURBRL","R$ ");
-          set("ouro","XAUUSD","$ ");
-          set("brent","BRENTUSD","$ ");
-        }
-
-        return next;
-      });
+      setData(prev => ({
+        ...prev,
+        dolar:  { val: fmt(d.dolar?.price,  "R$ "),   chg: fmtPct(d.dolar?.chg),  raw: d.dolar?.price  || 0 },
+        ibov:   { val: fmt(d.ibov?.price,   "", 0),   chg: fmtPct(d.ibov?.chg),   raw: d.ibov?.price   || 0 },
+        sp500:  { val: fmt(d.sp500?.price,  "", 0),   chg: fmtPct(d.sp500?.chg),  raw: d.sp500?.price  || 0 },
+        nasdaq: { val: fmt(d.nasdaq?.price, "", 0),   chg: fmtPct(d.nasdaq?.chg), raw: d.nasdaq?.price || 0 },
+        dow:    { val: fmt(d.dow?.price,    "", 0),   chg: fmtPct(d.dow?.chg),    raw: d.dow?.price    || 0 },
+        vix:    { val: fmt(d.vix?.price),              chg: fmtPct(d.vix?.chg),    raw: d.vix?.price    || 0 },
+        btc:    { val: fmt(d.btc?.price,    "$ ", 0), chg: fmtPct(d.btc?.chg),    raw: d.btc?.price    || 0 },
+        eth:    { val: fmt(d.eth?.price,    "$ "),    chg: fmtPct(d.eth?.chg),    raw: d.eth?.price    || 0 },
+        euro:   { val: fmt(d.euro?.price,   "R$ "),   chg: fmtPct(d.euro?.chg),   raw: d.euro?.price   || 0 },
+        ouro:   { val: fmt(d.ouro?.price,   "R$ ", 0),chg: fmtPct(d.ouro?.chg),   raw: d.ouro?.price   || 0 },
+        brent:  { val: fmt(d.brent?.price,  "$ "),    chg: fmtPct(d.brent?.chg),  raw: d.brent?.price  || 0 },
+      }));
 
       setLastUpdate(new Date());
     } catch(e) {
