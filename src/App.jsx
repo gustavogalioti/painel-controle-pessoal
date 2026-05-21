@@ -56,128 +56,106 @@ const primaryBtn = (color = "var(--accent)") => ({
 });
 
 // ─── REAL MARKET DATA HOOK ────────────────────────────────────────────────────
-// Sources: Brapi (IBOV/BRL), CoinGecko (BTC/ETH), ExchangeRate (FX), AwesomeAPI (BR rates)
 function useMarketData() {
+  const EMPTY = { val: "--", chg: "--", raw: 0 };
   const [data, setData] = useState({
-    dolar:  { val: "--", chg: "--", raw: 0 },
-    ibov:   { val: "--", chg: "--", raw: 0 },
-    sp500:  { val: "--", chg: "--", raw: 0 },
-    ouro:   { val: "--", chg: "--", raw: 0 },
-    btc:    { val: "--", chg: "--", raw: 0 },
-    euro:   { val: "--", chg: "--", raw: 0 },
-    selic:  { val: "14.75%", chg: "a.a.", raw: 0 },
-    brent:  { val: "--", chg: "--", raw: 0 },
-    eth:    { val: "--", chg: "--", raw: 0 },
-    nasdaq: { val: "--", chg: "--", raw: 0 },
-    dow:    { val: "--", chg: "--", raw: 0 },
-    vix:    { val: "--", chg: "--", raw: 0 },
+    dolar:  { ...EMPTY }, ibov:  { ...EMPTY }, sp500:  { ...EMPTY },
+    ouro:   { ...EMPTY }, btc:   { ...EMPTY }, euro:   { ...EMPTY },
+    selic:  { val: "14,75%", chg: "a.a.", raw: 14.75 },
+    brent:  { ...EMPTY }, eth:   { ...EMPTY }, nasdaq: { ...EMPTY },
+    dow:    { ...EMPTY }, vix:   { ...EMPTY },
   });
   const [lastUpdate, setLastUpdate] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const fmt    = (val, prefix = "", dec = 2) => val != null ? `${prefix}${fmtNum(val, dec)}` : "--";
-  const fmtPct = (chg) => chg != null ? `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%` : "--";
+  const fmt    = (v, pre = "", dec = 2) => v != null && !isNaN(v) ? `${pre}${fmtNum(v, dec)}` : "--";
+  const fmtPct = (v) => v != null && !isNaN(v) ? `${v >= 0 ? "+" : ""}${Number(v).toFixed(2)}%` : "--";
+  const safe   = (v) => isNaN(parseFloat(v)) ? null : parseFloat(v);
 
   const fetchData = async () => {
     try {
-      // 1. BRAPI — IBOV + USD/BRL + EUR/BRL (token required, CORS OK)
-      const [brapiRes, cgRes, erRes, awesomeRes] = await Promise.allSettled([
-        fetch(`https://brapi.dev/api/quote/%5EBVSP,USDBRL%3DX,EURBRL%3DX?token=${BRAPI_TOKEN}`).then(r => r.json()),
-        // 2. CoinGecko — BTC + ETH (no key needed, CORS OK)
+      const [awR, cgR, brapiR] = await Promise.allSettled([
+        // AwesomeAPI — câmbio BR, amplo suporte, CORS OK
+        fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,BTC-BRL,ETH-BRL,XAU-BRL,BRENT-BRL").then(r => r.json()),
+        // CoinGecko — BTC ETH em USD, CORS OK
         fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
-        // 3. ExchangeRate API — major FX rates (CORS OK)
-        fetch("https://open.er-api.com/v6/latest/USD").then(r => r.json()),
-        // 4. AwesomeAPI — BR specific rates + ibov data (CORS OK)
-        fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,BTC-BRL,ETH-BRL").then(r => r.json()),
+        // Brapi — IBOV + câmbio B3 oficial
+        fetch(`https://brapi.dev/api/quote/IBOV,USDBRL%3DX,EURBRL%3DX?token=${BRAPI_TOKEN}`).then(r => r.json()),
       ]);
 
-      const brapi   = brapiRes.status   === "fulfilled" ? brapiRes.value   : null;
-      const cg      = cgRes.status      === "fulfilled" ? cgRes.value      : null;
-      const er      = erRes.status      === "fulfilled" ? erRes.value      : null;
-      const awesome = awesomeRes.status === "fulfilled" ? awesomeRes.value : null;
+      const aw    = awR.status    === "fulfilled" ? awR.value    : null;
+      const cg    = cgR.status    === "fulfilled" ? cgR.value    : null;
+      const brapi = brapiR.status === "fulfilled" ? brapiR.value : null;
 
-      const newData = { ...data };
+      setData(prev => {
+        const next = { ...prev };
 
-      // IBOV from Brapi
-      if (brapi?.results) {
-        const ibovQ = brapi.results.find(r => r.symbol === "^BVSP") || {};
-        const usdQ  = brapi.results.find(r => r.symbol === "USDBRL=X") || {};
-        const eurQ  = brapi.results.find(r => r.symbol === "EURBRL=X") || {};
+        // ── AwesomeAPI ──
+        if (aw) {
+          const usd   = aw["USDBRL"];
+          const eur   = aw["EURBRL"];
+          const btcbr = aw["BTCBRL"];
+          const ethbr = aw["ETHBRL"];
+          const xau   = aw["XAUBRL"];
+          const brent = aw["BRENTBRL"];
 
-        if (ibovQ.regularMarketPrice) {
-          newData.ibov  = { val: fmt(ibovQ.regularMarketPrice, "", 0), chg: fmtPct(ibovQ.regularMarketChangePercent), raw: ibovQ.regularMarketPrice };
+          if (usd)   next.dolar = { val: fmt(safe(usd.bid),   "R$ "), chg: fmtPct(safe(usd.pctChange)),   raw: safe(usd.bid)   };
+          if (eur)   next.euro  = { val: fmt(safe(eur.bid),   "R$ "), chg: fmtPct(safe(eur.pctChange)),   raw: safe(eur.bid)   };
+          if (xau)   next.ouro  = { val: fmt(safe(xau.bid),   "R$ ", 0), chg: fmtPct(safe(xau.pctChange)), raw: safe(xau.bid)  };
+          if (brent) next.brent = { val: fmt(safe(brent.bid), "$ "), chg: fmtPct(safe(brent.pctChange)),  raw: safe(brent.bid) };
+          // BTC/ETH em BRL como fallback
+          if (btcbr && next.btc.val === "--") next.btc = { val: fmt(safe(btcbr.bid), "R$ ", 0), chg: fmtPct(safe(btcbr.pctChange)), raw: safe(btcbr.bid) };
+          if (ethbr && next.eth.val === "--") next.eth = { val: fmt(safe(ethbr.bid), "R$ "),    chg: fmtPct(safe(ethbr.pctChange)), raw: safe(ethbr.bid) };
         }
-        if (usdQ.regularMarketPrice) {
-          newData.dolar = { val: fmt(usdQ.regularMarketPrice, "R$ "),  chg: fmtPct(usdQ.regularMarketChangePercent),  raw: usdQ.regularMarketPrice  };
-        }
-        if (eurQ.regularMarketPrice) {
-          newData.euro  = { val: fmt(eurQ.regularMarketPrice, "R$ "),  chg: fmtPct(eurQ.regularMarketChangePercent),  raw: eurQ.regularMarketPrice  };
-        }
-      }
 
-      // BTC + ETH from CoinGecko
-      if (cg?.bitcoin) {
-        newData.btc = { val: fmt(cg.bitcoin.usd, "$ ", 0), chg: fmtPct(cg.bitcoin.usd_24h_change), raw: cg.bitcoin.usd };
-      }
-      if (cg?.ethereum) {
-        newData.eth = { val: fmt(cg.ethereum.usd, "$ "),   chg: fmtPct(cg.ethereum.usd_24h_change), raw: cg.ethereum.usd };
-      }
+        // ── CoinGecko — BTC ETH em USD (prioridade) ──
+        if (cg?.bitcoin)  next.btc = { val: fmt(cg.bitcoin.usd,  "$ ", 0), chg: fmtPct(cg.bitcoin.usd_24h_change),  raw: cg.bitcoin.usd  };
+        if (cg?.ethereum) next.eth = { val: fmt(cg.ethereum.usd, "$ "),    chg: fmtPct(cg.ethereum.usd_24h_change), raw: cg.ethereum.usd };
 
-      // FX fallback from AwesomeAPI if Brapi didn't load
-      if (awesome) {
-        const ub = awesome["USDBRL"];
-        const eb = awesome["EURBRL"];
-        if (ub && newData.dolar.val === "--") {
-          const price = parseFloat(ub.bid);
-          const pct   = parseFloat(ub.pctChange);
-          newData.dolar = { val: fmt(price, "R$ "), chg: fmtPct(pct), raw: price };
-        }
-        if (eb && newData.euro.val === "--") {
-          const price = parseFloat(eb.bid);
-          const pct   = parseFloat(eb.pctChange);
-          newData.euro  = { val: fmt(price, "R$ "), chg: fmtPct(pct), raw: price };
-        }
-      }
+        // ── Brapi — IBOV (símbolo correto sem ^) ──
+        if (brapi?.results) {
+          const ibovQ = brapi.results.find(r => r.symbol === "IBOV" || r.symbol === "^BVSP");
+          const usdQ  = brapi.results.find(r => r.symbol === "USDBRL=X");
+          const eurQ  = brapi.results.find(r => r.symbol === "EURBRL=X");
 
-      // S&P 500, Nasdaq, Dow, Ouro, Brent, VIX via AwesomeAPI indices
-      // Use static reasonable fallback with live BTC/ETH as signal
-      if (er?.rates) {
-        // We have FX data — derive EUR/BRL if not from brapi
-        if (newData.euro.val === "--" && er.rates.BRL && er.rates.EUR) {
-          const eurBrl = er.rates.BRL / er.rates.EUR;
-          newData.euro = { val: fmt(eurBrl, "R$ "), chg: "--", raw: eurBrl };
+          if (ibovQ?.regularMarketPrice) {
+            next.ibov  = { val: fmt(ibovQ.regularMarketPrice, "", 0), chg: fmtPct(ibovQ.regularMarketChangePercent), raw: ibovQ.regularMarketPrice };
+          }
+          if (usdQ?.regularMarketPrice && next.dolar.val === "--") {
+            next.dolar = { val: fmt(usdQ.regularMarketPrice, "R$ "), chg: fmtPct(usdQ.regularMarketChangePercent), raw: usdQ.regularMarketPrice };
+          }
+          if (eurQ?.regularMarketPrice && next.euro.val === "--") {
+            next.euro  = { val: fmt(eurQ.regularMarketPrice, "R$ "), chg: fmtPct(eurQ.regularMarketChangePercent), raw: eurQ.regularMarketPrice };
+          }
         }
-      }
 
-      setData(newData);
+        return next;
+      });
+
       setLastUpdate(new Date());
       setLoading(false);
 
-      // Secondary fetch: indices via AwesomeAPI (has S&P, NASDAQ, etc)
+      // ── Fase 2: buscar índices internacionais via Brapi ──
       try {
-        const [spRes, nasdaqRes] = await Promise.allSettled([
-          fetch("https://economia.awesomeapi.com.br/json/last/SP500-BRL,NASDAQ-BRL").then(r=>r.json()),
-          fetch("https://economia.awesomeapi.com.br/json/last/DOW-BRL").then(r=>r.json()),
-        ]);
-        const sp = spRes.status === "fulfilled" ? spRes.value : null;
-        const dw = nasdaqRes.status === "fulfilled" ? nasdaqRes.value : null;
+        const idxRes = await fetch(
+          `https://brapi.dev/api/quote/%5EGSPC,%5EIXIC,%5EDJI,%5EVIX?token=${BRAPI_TOKEN}`
+        ).then(r => r.json());
 
-        setData(prev => {
-          const updated = { ...prev };
-          if (sp?.SP500BRL) {
-            const p = parseFloat(sp.SP500BRL.bid);
-            updated.sp500 = { val: fmt(p, "", 0), chg: fmtPct(parseFloat(sp.SP500BRL.pctChange)), raw: p };
-          }
-          if (sp?.NASDAQBRL) {
-            const p = parseFloat(sp.NASDAQBRL.bid);
-            updated.nasdaq = { val: fmt(p, "", 0), chg: fmtPct(parseFloat(sp.NASDAQBRL.pctChange)), raw: p };
-          }
-          if (dw?.DOWBRL) {
-            const p = parseFloat(dw.DOWBRL.bid);
-            updated.dow = { val: fmt(p, "", 0), chg: fmtPct(parseFloat(dw.DOWBRL.pctChange)), raw: p };
-          }
-          return updated;
-        });
+        if (idxRes?.results) {
+          setData(prev => {
+            const next = { ...prev };
+            idxRes.results.forEach(r => {
+              const p   = r.regularMarketPrice;
+              const chg = r.regularMarketChangePercent;
+              if (!p) return;
+              if (r.symbol === "^GSPC")  next.sp500  = { val: fmt(p, "", 0), chg: fmtPct(chg), raw: p };
+              if (r.symbol === "^IXIC")  next.nasdaq = { val: fmt(p, "", 0), chg: fmtPct(chg), raw: p };
+              if (r.symbol === "^DJI")   next.dow    = { val: fmt(p, "", 0), chg: fmtPct(chg), raw: p };
+              if (r.symbol === "^VIX")   next.vix    = { val: fmt(p),        chg: fmtPct(chg), raw: p };
+            });
+            return next;
+          });
+        }
       } catch {}
 
     } catch (e) {
@@ -188,76 +166,13 @@ function useMarketData() {
 
   useEffect(() => {
     fetchData();
-    const id = setInterval(fetchData, 90000); // every 90s
+    const id = setInterval(fetchData, 90000);
     return () => clearInterval(id);
   }, []);
 
   return { data, lastUpdate, loading, refresh: fetchData };
 }
 
-// ─── REAL NEWS HOOK — NewsData.io ────────────────────────────────────────────
-const NEWSDATA_KEY = "pub_c5f714f2551048358747f9016a0e8a7f";
-
-const NEWSDATA_QUERIES = {
-  "GLOBAL/GEOPOLÍTICA": { q: "geopolitica guerra diplomacia",         category: "world"        },
-  "EUA":                { q: "estados unidos trump economia eua",      category: "business"     },
-  "BRASIL":             { q: "brasil governo politica economia",       category: "politics"     },
-  "ECONOMIA":           { q: "economia mercado financeiro inflacao",   category: "business"     },
-  "BOLSA":              { q: "ibovespa bolsa acoes b3 bovespa",        category: "business"     },
-  "MOEDA":              { q: "dolar real euro cambio moeda",           category: "business"     },
-  "COMMODITIES":        { q: "petroleo ouro soja commodities",         category: "business"     },
-  "CRIPTO":             { q: "bitcoin cripto ethereum blockchain",      category: "technology"   },
-  "GUERRAS":            { q: "guerra conflito militar ucr\u00e2nia oriente",   category: "world" },
-  "TECNOLOGIA":         { q: "tecnologia inteligencia artificial ia",  category: "technology"   },
-  "GERAL":              { q: "brasil noticias destaque",               category: "top"          },
-};
-
-const newsCache = {};
-
-async function fetchNewsData(category) {
-  if (newsCache[category] && Date.now() - newsCache[category].ts < 15 * 60 * 1000) {
-    return newsCache[category].data;
-  }
-  const { q, cat } = { ...NEWSDATA_QUERIES[category], cat: NEWSDATA_QUERIES[category]?.category };
-  const params = new URLSearchParams({
-    apikey:   NEWSDATA_KEY,
-    language: "pt",
-    country:  "br",
-    size:     "5",
-  });
-  if (q)   params.set("q", q);
-  if (cat && cat !== "top") params.set("category", cat);
-
-  try {
-    const res = await fetch(`https://newsdata.io/api/1/news?${params}`);
-    const data = await res.json();
-    if (data.status !== "success") return [];
-    const results = (data.results || []).map(a => ({
-      title: a.title || "",
-      link:  a.link  || "#",
-      date:  a.pubDate || "",
-      src:   a.source_name || a.source_id || "",
-      desc:  a.description || "",
-    }));
-    newsCache[category] = { data: results, ts: Date.now() };
-    return results;
-  } catch { return []; }
-}
-
-function useNews(category) {
-  const [news, setNews] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetchNewsData(category).then(results => {
-      setNews(results);
-      setLoading(false);
-    });
-  }, [category]);
-
-  return { news, loading };
-}
 
 // ─── MARKET TICKER ────────────────────────────────────────────────────────────
 function MarketTicker({ compact, marketData }) {
