@@ -10,50 +10,68 @@ const CORS = {
 
 export default async function handler(req) {
   try {
-    // Brapi free plan: 1 ativo por request — chamadas separadas
-    const [usdR, ibovR, spR, nqR, djR, vixR, cgR, erR] = await Promise.allSettled([
+    const [usdR, ibovR, spR, nqR, djR, vixR, cgR, erR, cgXauR] = await Promise.allSettled([
       fetch(`https://brapi.dev/api/quote/USDBRL%3DX?token=${BRAPI}`).then(r => r.json()),
-      fetch(`https://brapi.dev/api/quote/IBOV?token=${BRAPI}`).then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/%5EBVSP?token=${BRAPI}`).then(r => r.json()),
       fetch(`https://brapi.dev/api/quote/%5EGSPC?token=${BRAPI}`).then(r => r.json()),
       fetch(`https://brapi.dev/api/quote/%5EIXIC?token=${BRAPI}`).then(r => r.json()),
       fetch(`https://brapi.dev/api/quote/%5EDJI?token=${BRAPI}`).then(r => r.json()),
       fetch(`https://brapi.dev/api/quote/%5EVIX?token=${BRAPI}`).then(r => r.json()),
-      // CoinGecko — sem limite, sem auth
-      fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,gold&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
-      // ExchangeRate — câmbio livre
+      // CoinGecko — BTC + ETH + Ouro em USD
+      fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
+      // ExchangeRate — câmbio
       fetch("https://open.er-api.com/v6/latest/USD").then(r => r.json()),
+      // Metals.live — preço do ouro em USD por onça troy
+      fetch("https://api.metals.live/v1/spot/gold").then(r => r.json()),
     ]);
 
-    const get = (r) => r.status === "fulfilled" ? r.value?.results?.[0] : null;
-    const cg  = cgR.status  === "fulfilled" ? cgR.value  : null;
-    const er  = erR.status  === "fulfilled" ? erR.value  : null;
+    const getQ = (r) => r.status === "fulfilled" ? r.value?.results?.[0] : null;
+    const cg   = cgR.status   === "fulfilled" ? cgR.value   : null;
+    const er   = erR.status   === "fulfilled" ? erR.value   : null;
+    const xauR = cgXauR.status === "fulfilled" ? cgXauR.value : null;
 
-    const usd  = get(usdR);
-    const ibov = get(ibovR);
-    const sp   = get(spR);
-    const nq   = get(nqR);
-    const dj   = get(djR);
-    const vix  = get(vixR);
+    const usd  = getQ(usdR);
+    const ibov = getQ(ibovR);
+    const sp   = getQ(spR);
+    const nq   = getQ(nqR);
+    const dj   = getQ(djR);
+    const vix  = getQ(vixR);
 
-    // EUR/BRL derivado do ExchangeRate
-    const usdBrl = usd?.regularMarketPrice;
-    const eurUsd  = er?.rates?.EUR;
-    const eurBrl  = (usdBrl && eurUsd) ? usdBrl / eurUsd : null;
-    const xauUsd  = cg?.gold?.usd;
-    const xauBrl  = (xauUsd && usdBrl) ? xauUsd * usdBrl : null;
+    const usdBrl = usd?.regularMarketPrice || null;
+    const eurUsd = er?.rates?.EUR || null;
+    const eurBrl = (usdBrl && eurUsd) ? usdBrl / eurUsd : null;
+
+    // Ouro: metals.live retorna [{price: X}] em USD/oz
+    let xauUsd = null;
+    if (Array.isArray(xauR) && xauR[0]?.price) xauUsd = xauR[0].price;
+    const xauBrl = (xauUsd && usdBrl) ? xauUsd * usdBrl : null;
+
+    // Brent via ExchangeRate não existe — usar valor fixo referencial por enquanto
+    // Vamos tentar commodity API gratuita
+    let brentUsd = null;
+    try {
+      const brentRes = await fetch("https://api.api-ninjas.com/v1/commodityprice?name=crude_oil", {
+        headers: { "X-Api-Key": "free" }
+      });
+      if (brentRes.ok) {
+        const brentData = await brentRes.json();
+        brentUsd = brentData?.price || null;
+      }
+    } catch {}
 
     const result = {
-      dolar:  { price: usd?.regularMarketPrice,  chg: usd?.regularMarketChangePercent  },
-      ibov:   { price: ibov?.regularMarketPrice, chg: ibov?.regularMarketChangePercent },
-      sp500:  { price: sp?.regularMarketPrice,   chg: sp?.regularMarketChangePercent   },
-      nasdaq: { price: nq?.regularMarketPrice,   chg: nq?.regularMarketChangePercent   },
-      dow:    { price: dj?.regularMarketPrice,   chg: dj?.regularMarketChangePercent   },
-      vix:    { price: vix?.regularMarketPrice,  chg: vix?.regularMarketChangePercent  },
-      btc:    { price: cg?.bitcoin?.usd,         chg: cg?.bitcoin?.usd_24h_change      },
-      eth:    { price: cg?.ethereum?.usd,        chg: cg?.ethereum?.usd_24h_change     },
-      euro:   { price: eurBrl,                   chg: null                             },
-      ouro:   { price: xauBrl,                   chg: null                             },
-      brent:  { price: null,                     chg: null                             },
+      dolar:  { price: usdBrl,                        chg: usd?.regularMarketChangePercent   },
+      ibov:   { price: ibov?.regularMarketPrice,       chg: ibov?.regularMarketChangePercent  },
+      sp500:  { price: sp?.regularMarketPrice,         chg: sp?.regularMarketChangePercent    },
+      nasdaq: { price: nq?.regularMarketPrice,         chg: nq?.regularMarketChangePercent    },
+      dow:    { price: dj?.regularMarketPrice,         chg: dj?.regularMarketChangePercent    },
+      vix:    { price: vix?.regularMarketPrice,        chg: vix?.regularMarketChangePercent   },
+      btc:    { price: cg?.bitcoin?.usd,               chg: cg?.bitcoin?.usd_24h_change       },
+      eth:    { price: cg?.ethereum?.usd,              chg: cg?.ethereum?.usd_24h_change      },
+      euro:   { price: eurBrl,                         chg: null                              },
+      ouro:   { price: xauBrl,                         chg: null                              },
+      ouroUsd:{ price: xauUsd,                         chg: null                              },
+      brent:  { price: brentUsd,                       chg: null                              },
     };
 
     return new Response(JSON.stringify(result), { headers: CORS });
