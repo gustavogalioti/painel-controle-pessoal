@@ -10,18 +10,50 @@ const CORS = {
 
 export default async function handler(req) {
   try {
-    const [brapiMain, brapiIdx, cg, aw] = await Promise.allSettled([
-      fetch(`https://brapi.dev/api/quote/IBOV,USDBRL%3DX,EURBRL%3DX?token=${BRAPI}`).then(r => r.json()),
-      fetch(`https://brapi.dev/api/quote/%5EGSPC,%5EIXIC,%5EDJI,%5EVIX?token=${BRAPI}`).then(r => r.json()),
-      fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
-      fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,XAU-USD,BRENT-USD").then(r => r.json()),
+    // Brapi free plan: 1 ativo por request — chamadas separadas
+    const [usdR, ibovR, spR, nqR, djR, vixR, cgR, erR] = await Promise.allSettled([
+      fetch(`https://brapi.dev/api/quote/USDBRL%3DX?token=${BRAPI}`).then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/IBOV?token=${BRAPI}`).then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/%5EGSPC?token=${BRAPI}`).then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/%5EIXIC?token=${BRAPI}`).then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/%5EDJI?token=${BRAPI}`).then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/%5EVIX?token=${BRAPI}`).then(r => r.json()),
+      // CoinGecko — sem limite, sem auth
+      fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,gold&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
+      // ExchangeRate — câmbio livre
+      fetch("https://open.er-api.com/v6/latest/USD").then(r => r.json()),
     ]);
 
+    const get = (r) => r.status === "fulfilled" ? r.value?.results?.[0] : null;
+    const cg  = cgR.status  === "fulfilled" ? cgR.value  : null;
+    const er  = erR.status  === "fulfilled" ? erR.value  : null;
+
+    const usd  = get(usdR);
+    const ibov = get(ibovR);
+    const sp   = get(spR);
+    const nq   = get(nqR);
+    const dj   = get(djR);
+    const vix  = get(vixR);
+
+    // EUR/BRL derivado do ExchangeRate
+    const usdBrl = usd?.regularMarketPrice;
+    const eurUsd  = er?.rates?.EUR;
+    const eurBrl  = (usdBrl && eurUsd) ? usdBrl / eurUsd : null;
+    const xauUsd  = cg?.gold?.usd;
+    const xauBrl  = (xauUsd && usdBrl) ? xauUsd * usdBrl : null;
+
     const result = {
-      brapi_main: brapiMain.status === "fulfilled" ? brapiMain.value : null,
-      brapi_idx:  brapiIdx.status  === "fulfilled" ? brapiIdx.value  : null,
-      coingecko:  cg.status        === "fulfilled" ? cg.value        : null,
-      awesome:    aw.status        === "fulfilled" ? aw.value        : null,
+      dolar:  { price: usd?.regularMarketPrice,  chg: usd?.regularMarketChangePercent  },
+      ibov:   { price: ibov?.regularMarketPrice, chg: ibov?.regularMarketChangePercent },
+      sp500:  { price: sp?.regularMarketPrice,   chg: sp?.regularMarketChangePercent   },
+      nasdaq: { price: nq?.regularMarketPrice,   chg: nq?.regularMarketChangePercent   },
+      dow:    { price: dj?.regularMarketPrice,   chg: dj?.regularMarketChangePercent   },
+      vix:    { price: vix?.regularMarketPrice,  chg: vix?.regularMarketChangePercent  },
+      btc:    { price: cg?.bitcoin?.usd,         chg: cg?.bitcoin?.usd_24h_change      },
+      eth:    { price: cg?.ethereum?.usd,        chg: cg?.ethereum?.usd_24h_change     },
+      euro:   { price: eurBrl,                   chg: null                             },
+      ouro:   { price: xauBrl,                   chg: null                             },
+      brent:  { price: null,                     chg: null                             },
     };
 
     return new Response(JSON.stringify(result), { headers: CORS });
