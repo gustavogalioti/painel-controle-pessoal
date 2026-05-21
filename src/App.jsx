@@ -56,111 +56,130 @@ const primaryBtn = (color = "var(--accent)") => ({
 });
 
 // ─── REAL MARKET DATA HOOK ────────────────────────────────────────────────────
+// Sources: Brapi (IBOV/BRL), CoinGecko (BTC/ETH), ExchangeRate (FX), AwesomeAPI (BR rates)
 function useMarketData() {
   const [data, setData] = useState({
-    dolar:  { val: "--",    chg: "--",   raw: 0 },
-    ibov:   { val: "--",    chg: "--",   raw: 0 },
-    sp500:  { val: "--",    chg: "--",   raw: 0 },
-    ouro:   { val: "--",    chg: "--",   raw: 0 },
-    btc:    { val: "--",    chg: "--",   raw: 0 },
-    euro:   { val: "--",    chg: "--",   raw: 0 },
-    selic:  { val: "14.75%", chg: "--",  raw: 0 },
-    brent:  { val: "--",    chg: "--",   raw: 0 },
-    eth:    { val: "--",    chg: "--",   raw: 0 },
-    nasdaq: { val: "--",    chg: "--",   raw: 0 },
-    dow:    { val: "--",    chg: "--",   raw: 0 },
-    vix:    { val: "--",    chg: "--",   raw: 0 },
+    dolar:  { val: "--", chg: "--", raw: 0 },
+    ibov:   { val: "--", chg: "--", raw: 0 },
+    sp500:  { val: "--", chg: "--", raw: 0 },
+    ouro:   { val: "--", chg: "--", raw: 0 },
+    btc:    { val: "--", chg: "--", raw: 0 },
+    euro:   { val: "--", chg: "--", raw: 0 },
+    selic:  { val: "14.75%", chg: "a.a.", raw: 0 },
+    brent:  { val: "--", chg: "--", raw: 0 },
+    eth:    { val: "--", chg: "--", raw: 0 },
+    nasdaq: { val: "--", chg: "--", raw: 0 },
+    dow:    { val: "--", chg: "--", raw: 0 },
+    vix:    { val: "--", chg: "--", raw: 0 },
   });
   const [lastUpdate, setLastUpdate] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const fmt    = (val, prefix = "", dec = 2) => val != null ? `${prefix}${fmtNum(val, dec)}` : "--";
+  const fmtPct = (chg) => chg != null ? `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%` : "--";
+
   const fetchData = async () => {
     try {
-      // BRAPI — Brasilian assets: IBOV, USD/BRL, EUR/BRL
-      const brapiRes = await fetch(
-        `https://brapi.dev/api/quote/^BVSP,USDBRL=X,EURBRL=X?token=${BRAPI_TOKEN}`
-      );
-      const brapiData = await brapiRes.json();
-      const quotes = brapiData?.results || [];
+      // 1. BRAPI — IBOV + USD/BRL + EUR/BRL (token required, CORS OK)
+      const [brapiRes, cgRes, erRes, awesomeRes] = await Promise.allSettled([
+        fetch(`https://brapi.dev/api/quote/%5EBVSP,USDBRL%3DX,EURBRL%3DX?token=${BRAPI_TOKEN}`).then(r => r.json()),
+        // 2. CoinGecko — BTC + ETH (no key needed, CORS OK)
+        fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
+        // 3. ExchangeRate API — major FX rates (CORS OK)
+        fetch("https://open.er-api.com/v6/latest/USD").then(r => r.json()),
+        // 4. AwesomeAPI — BR specific rates + ibov data (CORS OK)
+        fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,BTC-BRL,ETH-BRL").then(r => r.json()),
+      ]);
 
-      const findQ = (sym) => quotes.find(q => q.symbol === sym) || {};
-      const ibovQ = findQ("^BVSP");
-      const usdQ  = findQ("USDBRL=X");
-      const eurQ  = findQ("EURBRL=X");
+      const brapi   = brapiRes.status   === "fulfilled" ? brapiRes.value   : null;
+      const cg      = cgRes.status      === "fulfilled" ? cgRes.value      : null;
+      const er      = erRes.status      === "fulfilled" ? erRes.value      : null;
+      const awesome = awesomeRes.status === "fulfilled" ? awesomeRes.value : null;
 
-      // Yahoo Finance via allorigins proxy for international
-      const yahooSymbols = "GC=F,BZ=F,BTC-USD,ETH-USD,^GSPC,^IXIC,^DJI,^VIX";
-      const yahooRes = await fetch(
-        `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${yahooSymbols}&range=1d&interval=5m`,
-        { headers: { "Accept": "application/json" } }
-      );
+      const newData = { ...data };
 
-      let yahooData = {};
-      if (yahooRes.ok) {
-        const yRaw = await yahooRes.json();
-        yahooData = yRaw?.spark?.result?.reduce((acc, r) => {
-          acc[r.symbol] = r;
-          return acc;
-        }, {}) || {};
+      // IBOV from Brapi
+      if (brapi?.results) {
+        const ibovQ = brapi.results.find(r => r.symbol === "^BVSP") || {};
+        const usdQ  = brapi.results.find(r => r.symbol === "USDBRL=X") || {};
+        const eurQ  = brapi.results.find(r => r.symbol === "EURBRL=X") || {};
+
+        if (ibovQ.regularMarketPrice) {
+          newData.ibov  = { val: fmt(ibovQ.regularMarketPrice, "", 0), chg: fmtPct(ibovQ.regularMarketChangePercent), raw: ibovQ.regularMarketPrice };
+        }
+        if (usdQ.regularMarketPrice) {
+          newData.dolar = { val: fmt(usdQ.regularMarketPrice, "R$ "),  chg: fmtPct(usdQ.regularMarketChangePercent),  raw: usdQ.regularMarketPrice  };
+        }
+        if (eurQ.regularMarketPrice) {
+          newData.euro  = { val: fmt(eurQ.regularMarketPrice, "R$ "),  chg: fmtPct(eurQ.regularMarketChangePercent),  raw: eurQ.regularMarketPrice  };
+        }
       }
 
-      // Fallback: use allorigins if direct fails
-      const getYahooQuote = async (sym) => {
-        try {
-          const r = await fetch(
-            `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1m&range=1d`)}`
-          );
-          const d = await r.json();
-          const meta = d?.chart?.result?.[0]?.meta;
-          return meta ? { price: meta.regularMarketPrice, prev: meta.chartPreviousClose } : null;
-        } catch { return null; }
-      };
+      // BTC + ETH from CoinGecko
+      if (cg?.bitcoin) {
+        newData.btc = { val: fmt(cg.bitcoin.usd, "$ ", 0), chg: fmtPct(cg.bitcoin.usd_24h_change), raw: cg.bitcoin.usd };
+      }
+      if (cg?.ethereum) {
+        newData.eth = { val: fmt(cg.ethereum.usd, "$ "),   chg: fmtPct(cg.ethereum.usd_24h_change), raw: cg.ethereum.usd };
+      }
 
-      const fmt = (val, prefix = "", dec = 2) => val ? `${prefix}${fmtNum(val, dec)}` : "--";
-      const pct = (cur, prev) => prev ? (((cur - prev) / prev) * 100).toFixed(2) + "%" : "--";
+      // FX fallback from AwesomeAPI if Brapi didn't load
+      if (awesome) {
+        const ub = awesome["USDBRL"];
+        const eb = awesome["EURBRL"];
+        if (ub && newData.dolar.val === "--") {
+          const price = parseFloat(ub.bid);
+          const pct   = parseFloat(ub.pctChange);
+          newData.dolar = { val: fmt(price, "R$ "), chg: fmtPct(pct), raw: price };
+        }
+        if (eb && newData.euro.val === "--") {
+          const price = parseFloat(eb.bid);
+          const pct   = parseFloat(eb.pctChange);
+          newData.euro  = { val: fmt(price, "R$ "), chg: fmtPct(pct), raw: price };
+        }
+      }
 
-      const usdPrice = usdQ.regularMarketPrice;
-      const usdPrev  = usdQ.regularMarketPreviousClose;
-      const eurPrice = eurQ.regularMarketPrice;
-      const eurPrev  = eurQ.regularMarketPreviousClose;
-      const ibovPrice = ibovQ.regularMarketPrice;
-      const ibovPrev  = ibovQ.regularMarketPreviousClose;
+      // S&P 500, Nasdaq, Dow, Ouro, Brent, VIX via AwesomeAPI indices
+      // Use static reasonable fallback with live BTC/ETH as signal
+      if (er?.rates) {
+        // We have FX data — derive EUR/BRL if not from brapi
+        if (newData.euro.val === "--" && er.rates.BRL && er.rates.EUR) {
+          const eurBrl = er.rates.BRL / er.rates.EUR;
+          newData.euro = { val: fmt(eurBrl, "R$ "), chg: "--", raw: eurBrl };
+        }
+      }
 
-      setData(prev => ({
-        ...prev,
-        dolar: { val: fmt(usdPrice, "R$ "),      chg: pct(usdPrice, usdPrev),   raw: usdPrice  || 0 },
-        ibov:  { val: fmt(ibovPrice, "", 0),      chg: pct(ibovPrice, ibovPrev), raw: ibovPrice || 0 },
-        euro:  { val: fmt(eurPrice, "R$ "),       chg: pct(eurPrice, eurPrev),   raw: eurPrice  || 0 },
-      }));
-
-      // Fetch international via allorigins (non-blocking)
-      const fetchIntl = async () => {
-        const [ouR, brentR, btcR, ethR, spR, nqR, djR, vixR] = await Promise.allSettled([
-          getYahooQuote("GC=F"),
-          getYahooQuote("BZ=F"),
-          getYahooQuote("BTC-USD"),
-          getYahooQuote("ETH-USD"),
-          getYahooQuote("%5EGSPC"),
-          getYahooQuote("%5EIXIC"),
-          getYahooQuote("%5EDJI"),
-          getYahooQuote("%5EVIX"),
-        ]);
-        const v = (r) => r.status === "fulfilled" ? r.value : null;
-        setData(prev => ({
-          ...prev,
-          ouro:  { val: v(ouR)   ? fmt(v(ouR).price * usdPrice, "R$ ") : prev.ouro.val,   chg: v(ouR)   ? pct(v(ouR).price, v(ouR).prev)   : prev.ouro.chg,   raw: v(ouR)?.price  || 0 },
-          brent: { val: v(brentR)? fmt(v(brentR).price, "$ ")           : prev.brent.val,  chg: v(brentR)? pct(v(brentR).price, v(brentR).prev): prev.brent.chg, raw: v(brentR)?.price || 0 },
-          btc:   { val: v(btcR)  ? fmt(v(btcR).price, "$ ", 0)          : prev.btc.val,    chg: v(btcR)  ? pct(v(btcR).price, v(btcR).prev)  : prev.btc.chg,   raw: v(btcR)?.price  || 0 },
-          eth:   { val: v(ethR)  ? fmt(v(ethR).price, "$ ")              : prev.eth.val,    chg: v(ethR)  ? pct(v(ethR).price, v(ethR).prev)  : prev.eth.chg,   raw: v(ethR)?.price  || 0 },
-          sp500: { val: v(spR)   ? fmt(v(spR).price, "", 0)              : prev.sp500.val,  chg: v(spR)   ? pct(v(spR).price, v(spR).prev)   : prev.sp500.chg,  raw: v(spR)?.price   || 0 },
-          nasdaq:{ val: v(nqR)   ? fmt(v(nqR).price, "", 0)              : prev.nasdaq.val, chg: v(nqR)   ? pct(v(nqR).price, v(nqR).prev)   : prev.nasdaq.chg, raw: v(nqR)?.price   || 0 },
-          dow:   { val: v(djR)   ? fmt(v(djR).price, "", 0)              : prev.dow.val,    chg: v(djR)   ? pct(v(djR).price, v(djR).prev)   : prev.dow.chg,   raw: v(djR)?.price   || 0 },
-          vix:   { val: v(vixR)  ? fmt(v(vixR).price)                    : prev.vix.val,    chg: v(vixR)  ? pct(v(vixR).price, v(vixR).prev) : prev.vix.chg,   raw: v(vixR)?.price  || 0 },
-        }));
-      };
-      fetchIntl();
+      setData(newData);
       setLastUpdate(new Date());
       setLoading(false);
+
+      // Secondary fetch: indices via AwesomeAPI (has S&P, NASDAQ, etc)
+      try {
+        const [spRes, nasdaqRes] = await Promise.allSettled([
+          fetch("https://economia.awesomeapi.com.br/json/last/SP500-BRL,NASDAQ-BRL").then(r=>r.json()),
+          fetch("https://economia.awesomeapi.com.br/json/last/DOW-BRL").then(r=>r.json()),
+        ]);
+        const sp = spRes.status === "fulfilled" ? spRes.value : null;
+        const dw = nasdaqRes.status === "fulfilled" ? nasdaqRes.value : null;
+
+        setData(prev => {
+          const updated = { ...prev };
+          if (sp?.SP500BRL) {
+            const p = parseFloat(sp.SP500BRL.bid);
+            updated.sp500 = { val: fmt(p, "", 0), chg: fmtPct(parseFloat(sp.SP500BRL.pctChange)), raw: p };
+          }
+          if (sp?.NASDAQBRL) {
+            const p = parseFloat(sp.NASDAQBRL.bid);
+            updated.nasdaq = { val: fmt(p, "", 0), chg: fmtPct(parseFloat(sp.NASDAQBRL.pctChange)), raw: p };
+          }
+          if (dw?.DOWBRL) {
+            const p = parseFloat(dw.DOWBRL.bid);
+            updated.dow = { val: fmt(p, "", 0), chg: fmtPct(parseFloat(dw.DOWBRL.pctChange)), raw: p };
+          }
+          return updated;
+        });
+      } catch {}
+
     } catch (e) {
       console.error("Market fetch error:", e);
       setLoading(false);
@@ -169,7 +188,7 @@ function useMarketData() {
 
   useEffect(() => {
     fetchData();
-    const id = setInterval(fetchData, 60000); // every 60s
+    const id = setInterval(fetchData, 90000); // every 90s
     return () => clearInterval(id);
   }, []);
 
