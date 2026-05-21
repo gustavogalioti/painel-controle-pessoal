@@ -1,1 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+
+/* ── THEME VARIABLES ───────────────────────────────────────────────────────── */
+:root {
+  --bg:         #1a2236;
+  --bg-card:    #212e45;
+  --bg-bar:     #162035;
+  --bg-sub:     #182038;
+  --bg-input:   #1e2d47;
+  --border:     #2a3a55;
+  --border-2:   #243350;
+  --text-1:     #e8eef8;
+  --text-2:     #8fa3c0;
+  --text-3:     #4d6480;
+  --accent:     #4f8ef7;
+  --accent-dim: rgba(79,142,247,0.14);
+  --accent-bdr: rgba(79,142,247,0.28);
+  --green:      #34d399;
+  --red:        #f87171;
+  --yellow:     #fbbf24;
+  --purple:     #a78bfa;
+  --orange:     #fb923c;
+}
+
+/* ── RESET ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text-1);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── SCROLLBAR ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* ── ANIMATIONS ────────────────────────────────────────────────────────────── */
+@keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:.35} }
+@keyframes fadeIn  { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+@keyframes blink   { 0%,100%{opacity:1} 50%{opacity:0} }
+
+/* ── CALENDAR / TIME INPUTS ────────────────────────────────────────────────── */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.5) brightness(1.4); }
+
+/* ── SELECTION ─────────────────────────────────────────────────────────────── */
+::selection { background: var(--accent); color: #fff; }
 
