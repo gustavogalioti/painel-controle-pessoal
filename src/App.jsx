@@ -540,7 +540,18 @@ function CuriositiesSection() {
 const NEWS_CATS = ["GLOBAL/GEOPOLÍTICA","EUA","BRASIL","ECONOMIA","BOLSA","MOEDA","COMMODITIES","CRIPTO","GUERRAS","TECNOLOGIA","GERAL"];
 
 function NewsCard({ cat }) {
-  const { news, loading } = useNews(cat);
+  const [visible, setVisible] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const obs = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { setVisible(true); obs.disconnect(); }
+    }, { threshold: 0.1 });
+    if (ref.current) obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, []);
+
+  const { news, loading } = useNews(cat, visible);
   const [active, setActive] = useState(null);
 
   const fmtTime = (dateStr) => {
@@ -556,7 +567,7 @@ function NewsCard({ cat }) {
 
   return (
     <>
-      <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, overflow:"hidden" }}>
+      <div ref={ref} style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, overflow:"hidden" }}>
         <div style={{ padding:"10px 16px", background:"var(--bg-bar)", borderBottom:"1px solid var(--border)", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <span style={{ fontSize:10, fontWeight:800, color:"var(--accent)", letterSpacing:2 }}>{cat}</span>
           {loading
@@ -780,9 +791,9 @@ export default function App() {
       </footer>
     </div>
   );
-}// ─── REAL NEWS HOOK — via backend Vercel ─────────────────────────────────────
+}// ─── REAL NEWS HOOK — lazy load por categoria ────────────────────────────────
 const newsCache = {};
-const CACHE_TTL = 20 * 60 * 1000;
+const CACHE_TTL = 30 * 60 * 1000; // 30 min
 
 async function fetchNewsForCategory(category) {
   if (newsCache[category] && Date.now() - newsCache[category].ts < CACHE_TTL) {
@@ -791,8 +802,11 @@ async function fetchNewsForCategory(category) {
   try {
     const res  = await fetch(`/api/news?category=${encodeURIComponent(category)}`);
     const data = await res.json();
+    if (data.quota) return []; // cota atingida
     const articles = data.articles || [];
-    newsCache[category] = { data: articles, ts: Date.now() };
+    if (articles.length > 0) {
+      newsCache[category] = { data: articles, ts: Date.now() };
+    }
     return articles;
   } catch(e) {
     console.warn("News error:", e);
@@ -800,18 +814,20 @@ async function fetchNewsForCategory(category) {
   }
 }
 
-function useNews(category) {
+function useNews(category, visible) {
   const [news, setNews]       = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded]   = useState(false);
 
   useEffect(() => {
+    if (!visible || loaded) return;
     setLoading(true);
-    setNews([]);
     fetchNewsForCategory(category).then(r => {
       setNews(r || []);
       setLoading(false);
+      setLoaded(true);
     });
-  }, [category]);
+  }, [category, visible]);
 
   return { news, loading };
 }
