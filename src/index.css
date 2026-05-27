@@ -1,25 +1,25 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
 
-/* ── THEME — Azul Céu ──────────────────────────────────────────────────────── */
+/* ── TEMA AZUL CÉU CLARO ───────────────────────────────────────────────────── */
 :root {
-  --bg:         #1c2e4a;
-  --bg-card:    #243756;
-  --bg-bar:     #172540;
-  --bg-sub:     #1a2b45;
-  --bg-input:   #1e3050;
-  --border:     #2e4a6e;
-  --border-2:   #264060;
-  --text-1:     #e8f0fb;
-  --text-2:     #8fb8e8;
-  --text-3:     #4a7aaa;
-  --accent:     #5ba3f5;
-  --accent-dim: rgba(91,163,245,0.14);
-  --accent-bdr: rgba(91,163,245,0.30);
-  --green:      #34d399;
-  --red:        #f87171;
-  --yellow:     #fbbf24;
-  --purple:     #c084fc;
-  --orange:     #fb923c;
+  --bg:         #d6eaf8;
+  --bg-card:    #eaf4fd;
+  --bg-bar:     #b8d9f0;
+  --bg-sub:     #c8e2f5;
+  --bg-input:   #f0f8ff;
+  --border:     #90c4e4;
+  --border-2:   #aad4ed;
+  --text-1:     #0a2a4a;
+  --text-2:     #1a5276;
+  --text-3:     #5d8aa8;
+  --accent:     #1a78c2;
+  --accent-dim: rgba(26,120,194,0.12);
+  --accent-bdr: rgba(26,120,194,0.30);
+  --green:      #1a9e6e;
+  --red:        #c0392b;
+  --yellow:     #d4a017;
+  --purple:     #7d3c98;
+  --orange:     #d35400;
 }
 
 /* ── RESET ─────────────────────────────────────────────────────────────────── */
@@ -43,12 +43,12 @@ body {
 @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:.35} }
 @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
 
-/* ── CALENDAR / TIME INPUTS ────────────────────────────────────────────────── */
+/* ── INPUTS ────────────────────────────────────────────────────────────────── */
 input[type="date"]::-webkit-calendar-picker-indicator,
-input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.5) brightness(1.4); }
+input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.3); }
 
-/* ── SELECTION ─────────────────────────────────────────────────────────────── */
+input, textarea, select {
+  color-scheme: light;
+}
+
 ::selection { background: var(--accent); color: #fff; }
-
-/* ── TRADINGVIEW full width override ───────────────────────────────────────── */
-.tv-full { max-width: 100% !important; padding: 16px !important; }
