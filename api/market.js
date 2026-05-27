@@ -1,93 +1,58 @@
 export const config = { runtime: "edge" };
 
+const BRAPI = "4NkivGqSUVTRj1JX3TZSZ5";
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET",
   "Content-Type": "application/json",
 };
 
-// Busca um ativo no Google Finance e retorna preço + variação %
-async function fetchGoogleFinance(ticker, exchange = "") {
-  try {
-    const symbol = exchange ? `${exchange}:${ticker}` : ticker;
-    const url = `https://www.google.com/finance/quote/${symbol}`;
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "pt-BR,pt;q=0.9",
-        "Accept": "text/html,application/xhtml+xml",
-      }
-    });
-    const html = await res.text();
-
-    // Extrai preço — Google Finance usa data-last-price ou classe YMlKec
-    let price = null;
-    let chg   = null;
-
-    // Tenta data-last-price attribute
-    const dataPrice = html.match(/data-last-price="([0-9.,]+)"/);
-    if (dataPrice) price = parseFloat(dataPrice[1].replace(",", "."));
-
-    // Fallback: classe YMlKec fFuuX (preço principal)
-    if (!price) {
-      const classPrice = html.match(/class="YMlKec fFuuX"[^>]*>([0-9.,]+)</);
-      if (classPrice) price = parseFloat(classPrice[1].replace(/\./g, "").replace(",", "."));
-    }
-
-    // Variação % — classe gz-pb
-    const chgMatch = html.match(/([+-][0-9.,]+)%/);
-    if (chgMatch) chg = parseFloat(chgMatch[1].replace(",", "."));
-
-    return { price, chg, ok: price != null };
-  } catch (e) {
-    return { price: null, chg: null, ok: false, error: e.message };
-  }
-}
-
 export default async function handler(req) {
   try {
-    // Busca todos em paralelo
-    const [
-      dolarR, ibovR, spR, nasdaqR, dowR, vixR,
-      btcR, ethR, ouroR, brentR, eurR, selicR
-    ] = await Promise.allSettled([
-      fetchGoogleFinance("USDBRL=X"),           // Dólar
-      fetchGoogleFinance("IBOV", "INDEXBVMF"),  // Ibovespa
-      fetchGoogleFinance("SPX", "INDEXSP"),     // S&P 500
-      fetchGoogleFinance("COMP", "INDEXNASDAQ"),// Nasdaq
-      fetchGoogleFinance("DJI", "INDEXDJX"),    // Dow Jones
-      fetchGoogleFinance("VIX", "INDEXCBOE"),   // VIX
-      fetchGoogleFinance("BTC-BRL"),            // Bitcoin em BRL
-      fetchGoogleFinance("ETH-BRL"),            // Ethereum em BRL
-      fetchGoogleFinance("GC=F"),               // Ouro (futuros)
-      fetchGoogleFinance("BZ=F"),               // Brent (futuros)
-      fetchGoogleFinance("EURBRL=X"),           // Euro
-      fetchGoogleFinance("SELIC", "INDEXBVMF"), // Selic
+    const [usdR, ibovR, spR, nqR, djR, vixR, cgR, erR, cgXauR, brentR] = await Promise.allSettled([
+      fetch(`https://brapi.dev/api/quote/USDBRL%3DX?token=${BRAPI}`).then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/%5EBVSP?token=${BRAPI}`).then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/%5EGSPC?token=${BRAPI}`).then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/%5EIXIC?token=${BRAPI}`).then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/%5EDJI?token=${BRAPI}`).then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/%5EVIX?token=${BRAPI}`).then(r => r.json()),
+      fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
+      fetch("https://open.er-api.com/v6/latest/USD").then(r => r.json()),
+      fetch("https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
+      fetch(`https://brapi.dev/api/quote/BZ%3DF?token=${BRAPI}`).then(r => r.json()),
     ]);
 
-    const get = (r) => r.status === "fulfilled" ? r.value : { price: null, chg: null };
+    const getQ  = (r) => r.status === "fulfilled" ? r.value?.results?.[0] : null;
+    const cg    = cgR.status     === "fulfilled" ? cgR.value    : null;
+    const er    = erR.status     === "fulfilled" ? erR.value    : null;
+    const cgXau = cgXauR.status  === "fulfilled" ? cgXauR.value : null;
 
-    const dolar  = get(dolarR);
-    const usdBrl = dolar.price;
+    const usd    = getQ(usdR);
+    const usdBrl = usd?.regularMarketPrice || null;
+    const eurUsd = er?.rates?.EUR || null;
+    const eurBrl = (usdBrl && eurUsd) ? usdBrl / eurUsd : null;
 
-    // Ouro vem em USD — converte para BRL
-    const ouroUsd = get(ouroR).price;
-    const ouroBrl = (ouroUsd && usdBrl) ? ouroUsd * usdBrl : null;
+    const paxg    = cgXau?.["pax-gold"]?.usd || null;
+    const paxgChg = cgXau?.["pax-gold"]?.usd_24h_change || null;
+    const xauBrl  = (paxg && usdBrl) ? paxg * usdBrl : null;
+
+    const q = (r) => getQ(r);
 
     const result = {
-      dolar:  { price: usdBrl,             chg: get(dolarR).chg   },
-      ibov:   { price: get(ibovR).price,   chg: get(ibovR).chg    },
-      sp500:  { price: get(spR).price,     chg: get(spR).chg      },
-      nasdaq: { price: get(nasdaqR).price, chg: get(nasdaqR).chg  },
-      dow:    { price: get(dowR).price,    chg: get(dowR).chg      },
-      vix:    { price: get(vixR).price,    chg: get(vixR).chg      },
-      btc:    { price: get(btcR).price,    chg: get(btcR).chg      },
-      eth:    { price: get(ethR).price,    chg: get(ethR).chg      },
-      ouro:   { price: ouroBrl,            chg: get(ouroR).chg     },
-      ouroUsd:{ price: ouroUsd,            chg: get(ouroR).chg     },
-      brent:  { price: get(brentR).price,  chg: get(brentR).chg    },
-      euro:   { price: get(eurR).price,    chg: get(eurR).chg      },
-      selic:  { price: 14.75,              chg: null               },
+      dolar:  { price: usdBrl,               chg: usd?.regularMarketChangePercent       },
+      ibov:   { price: q(ibovR)?.regularMarketPrice,  chg: q(ibovR)?.regularMarketChangePercent  },
+      sp500:  { price: q(spR)?.regularMarketPrice,    chg: q(spR)?.regularMarketChangePercent    },
+      nasdaq: { price: q(nqR)?.regularMarketPrice,    chg: q(nqR)?.regularMarketChangePercent    },
+      dow:    { price: q(djR)?.regularMarketPrice,    chg: q(djR)?.regularMarketChangePercent    },
+      vix:    { price: q(vixR)?.regularMarketPrice,   chg: q(vixR)?.regularMarketChangePercent   },
+      btc:    { price: cg?.bitcoin?.usd,              chg: cg?.bitcoin?.usd_24h_change            },
+      eth:    { price: cg?.ethereum?.usd,             chg: cg?.ethereum?.usd_24h_change           },
+      euro:   { price: eurBrl,                        chg: null                                   },
+      ouro:   { price: xauBrl,                        chg: paxgChg                                },
+      ouroUsd:{ price: paxg,                          chg: paxgChg                                },
+      brent:  { price: q(brentR)?.regularMarketPrice, chg: q(brentR)?.regularMarketChangePercent  },
+      selic:  { price: 14.75,                         chg: null                                   },
     };
 
     return new Response(JSON.stringify(result), { headers: CORS });
