@@ -1,9 +1,6 @@
-// ─── Database API — Neon Postgres ─────────────────────────────────────────────
-// All CRUD operations for the painel go through here
+export const config = { runtime: "edge" };
 
 import { neon } from "@neondatabase/serverless";
-
-export const config = { runtime: "edge" };
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -12,71 +9,41 @@ const CORS = {
   "Content-Type": "application/json",
 };
 
-const TABLES = `
-  CREATE TABLE IF NOT EXISTS diary (
-    id BIGINT PRIMARY KEY, text TEXT NOT NULL,
-    mood VARCHAR(10) DEFAULT '🙂', date TIMESTAMPTZ DEFAULT NOW()
-  );
-  CREATE TABLE IF NOT EXISTS ideas (
-    id BIGINT PRIMARY KEY, text TEXT NOT NULL,
-    mood VARCHAR(10) DEFAULT '🙂', date TIMESTAMPTZ DEFAULT NOW()
-  );
-  CREATE TABLE IF NOT EXISTS reminders (
-    id BIGINT PRIMARY KEY, text TEXT NOT NULL,
-    mood VARCHAR(10) DEFAULT '🙂', date TIMESTAMPTZ DEFAULT NOW()
-  );
-  CREATE TABLE IF NOT EXISTS tasks (
-    id BIGINT PRIMARY KEY, text TEXT NOT NULL,
-    prio VARCHAR(20) DEFAULT 'normal',
-    done BOOLEAN DEFAULT FALSE, date TIMESTAMPTZ DEFAULT NOW()
-  );
-  CREATE TABLE IF NOT EXISTS bills (
-    id BIGINT PRIMARY KEY, name TEXT NOT NULL,
-    value NUMERIC DEFAULT 0, due_day INT,
-    cat VARCHAR(50), recurrent BOOLEAN DEFAULT TRUE, paid BOOLEAN DEFAULT FALSE
-  );
-  CREATE TABLE IF NOT EXISTS events (
-    id BIGINT PRIMARY KEY, title TEXT NOT NULL,
-    date TEXT, time TEXT DEFAULT '', local TEXT DEFAULT '',
-    cat VARCHAR(50), notes TEXT DEFAULT ''
-  );
-  CREATE TABLE IF NOT EXISTS curiosities (
-    id BIGINT PRIMARY KEY, title TEXT NOT NULL,
-    content TEXT DEFAULT '', link TEXT DEFAULT '',
-    image_url TEXT DEFAULT '', tag TEXT DEFAULT '',
-    updates JSONB DEFAULT '[]', created TEXT
-  );
-  CREATE TABLE IF NOT EXISTS documents (
-    id BIGINT PRIMARY KEY, name TEXT NOT NULL,
-    cat VARCHAR(50) DEFAULT 'Pessoal', tags JSONB DEFAULT '[]',
-    notes TEXT DEFAULT '', file_data TEXT DEFAULT '',
-    file_name TEXT DEFAULT '', file_size INT DEFAULT 0,
-    file_type TEXT DEFAULT '', date TEXT
-  );
-`;
-
-const VALID_TABLES = ["diary","ideas","reminders","tasks","bills","events","curiosities","documents"];
+const VALID = ["diary","ideas","reminders","tasks","bills","events","curiosities","documents"];
 
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
   try {
     const sql = neon(process.env.DATABASE_URL);
-
-    // Init tables on every cold start (idempotent)
-    await sql.transaction([sql(TABLES)]);
-
     const { searchParams } = new URL(req.url);
-    const table  = searchParams.get("table");
-    const action = searchParams.get("action") || "list";
+    const table = searchParams.get("table");
 
-    if (!VALID_TABLES.includes(table)) {
+    if (!VALID.includes(table)) {
       return new Response(JSON.stringify({ error: "Invalid table" }), { status: 400, headers: CORS });
     }
 
+    // Init tables
+    await sql`CREATE TABLE IF NOT EXISTS diary (id BIGINT PRIMARY KEY, text TEXT NOT NULL, mood VARCHAR(10) DEFAULT '🙂', date TEXT)`;
+    await sql`CREATE TABLE IF NOT EXISTS ideas (id BIGINT PRIMARY KEY, text TEXT NOT NULL, mood VARCHAR(10) DEFAULT '🙂', date TEXT)`;
+    await sql`CREATE TABLE IF NOT EXISTS reminders (id BIGINT PRIMARY KEY, text TEXT NOT NULL, mood VARCHAR(10) DEFAULT '🙂', date TEXT)`;
+    await sql`CREATE TABLE IF NOT EXISTS tasks (id BIGINT PRIMARY KEY, text TEXT NOT NULL, prio VARCHAR(20) DEFAULT 'normal', done BOOLEAN DEFAULT FALSE, date TEXT)`;
+    await sql`CREATE TABLE IF NOT EXISTS bills (id BIGINT PRIMARY KEY, name TEXT NOT NULL, value NUMERIC DEFAULT 0, due_day INT, cat VARCHAR(50), recurrent BOOLEAN DEFAULT TRUE, paid BOOLEAN DEFAULT FALSE)`;
+    await sql`CREATE TABLE IF NOT EXISTS events (id BIGINT PRIMARY KEY, title TEXT NOT NULL, date TEXT, time TEXT DEFAULT '', local TEXT DEFAULT '', cat VARCHAR(50), notes TEXT DEFAULT '')`;
+    await sql`CREATE TABLE IF NOT EXISTS curiosities (id BIGINT PRIMARY KEY, title TEXT NOT NULL, content TEXT DEFAULT '', link TEXT DEFAULT '', image_url TEXT DEFAULT '', tag TEXT DEFAULT '', updates JSONB DEFAULT '[]', created TEXT)`;
+    await sql`CREATE TABLE IF NOT EXISTS documents (id BIGINT PRIMARY KEY, name TEXT NOT NULL, cat VARCHAR(50) DEFAULT 'Pessoal', tags JSONB DEFAULT '[]', notes TEXT DEFAULT '', file_name TEXT DEFAULT '', date TEXT)`;
+
     // ── GET — list all ──────────────────────────────────────────────────────
     if (req.method === "GET") {
-      const rows = await sql`SELECT * FROM ${sql(table)} ORDER BY id DESC`;
+      let rows;
+      if (table === "diary")      rows = await sql`SELECT * FROM diary ORDER BY id DESC`;
+      else if (table === "ideas")     rows = await sql`SELECT * FROM ideas ORDER BY id DESC`;
+      else if (table === "reminders") rows = await sql`SELECT * FROM reminders ORDER BY id DESC`;
+      else if (table === "tasks")     rows = await sql`SELECT * FROM tasks ORDER BY id DESC`;
+      else if (table === "bills")     rows = await sql`SELECT * FROM bills ORDER BY id DESC`;
+      else if (table === "events")    rows = await sql`SELECT * FROM events ORDER BY id DESC`;
+      else if (table === "curiosities") rows = await sql`SELECT * FROM curiosities ORDER BY id DESC`;
+      else if (table === "documents") rows = await sql`SELECT * FROM documents ORDER BY id DESC`;
       return new Response(JSON.stringify(rows), { headers: CORS });
     }
 
@@ -84,32 +51,55 @@ export default async function handler(req) {
 
     // ── POST — insert ───────────────────────────────────────────────────────
     if (req.method === "POST") {
-      const { id, ...rest } = body;
-      const cols = Object.keys(rest);
-      const vals = Object.values(rest);
-      const row = await sql`
-        INSERT INTO ${sql(table)} ${sql({ id, ...rest })}
-        ON CONFLICT (id) DO NOTHING
-        RETURNING *
-      `;
-      return new Response(JSON.stringify(row[0] || body), { headers: CORS });
+      const { id, text, mood, date, prio, done, name, value, due_day, cat, recurrent, paid,
+              title, time, local, notes, content, link, image_url, tag, updates, created,
+              tags, file_name } = body;
+
+      if (table === "diary")
+        await sql`INSERT INTO diary (id,text,mood,date) VALUES (${id},${text},${mood||'🙂'},${date}) ON CONFLICT (id) DO NOTHING`;
+      else if (table === "ideas")
+        await sql`INSERT INTO ideas (id,text,mood,date) VALUES (${id},${text},${mood||'🙂'},${date}) ON CONFLICT (id) DO NOTHING`;
+      else if (table === "reminders")
+        await sql`INSERT INTO reminders (id,text,mood,date) VALUES (${id},${text},${mood||'🙂'},${date}) ON CONFLICT (id) DO NOTHING`;
+      else if (table === "tasks")
+        await sql`INSERT INTO tasks (id,text,prio,done,date) VALUES (${id},${text},${prio||'normal'},${done||false},${date}) ON CONFLICT (id) DO NOTHING`;
+      else if (table === "bills")
+        await sql`INSERT INTO bills (id,name,value,due_day,cat,recurrent,paid) VALUES (${id},${name},${value||0},${due_day||1},${cat||'Fixo'},${recurrent||true},${paid||false}) ON CONFLICT (id) DO NOTHING`;
+      else if (table === "events")
+        await sql`INSERT INTO events (id,title,date,time,local,cat,notes) VALUES (${id},${title},${date},${time||''},${local||''},${cat||'Pessoal'},${notes||''}) ON CONFLICT (id) DO NOTHING`;
+      else if (table === "curiosities")
+        await sql`INSERT INTO curiosities (id,title,content,link,image_url,tag,updates,created) VALUES (${id},${title},${content||''},${link||''},${image_url||''},${tag||''},${JSON.stringify(updates||[])},${created||''}) ON CONFLICT (id) DO NOTHING`;
+      else if (table === "documents")
+        await sql`INSERT INTO documents (id,name,cat,tags,notes,file_name,date) VALUES (${id},${name},${cat||'Pessoal'},${JSON.stringify(tags||[])},${notes||''},${file_name||''},${date||''}) ON CONFLICT (id) DO NOTHING`;
+
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
     }
 
     // ── PUT — update ────────────────────────────────────────────────────────
     if (req.method === "PUT") {
-      const { id, ...rest } = body;
-      await sql`UPDATE ${sql(table)} SET ${sql(rest)} WHERE id = ${id}`;
+      const { id, done, paid, text, mood } = body;
+      if (table === "tasks" && done !== undefined)
+        await sql`UPDATE tasks SET done=${done} WHERE id=${id}`;
+      else if (table === "bills" && paid !== undefined)
+        await sql`UPDATE bills SET paid=${paid} WHERE id=${id}`;
+      else if (text !== undefined)
+        await sql`UPDATE ${sql(table)} SET text=${text}, mood=${mood} WHERE id=${id}`;
       return new Response(JSON.stringify({ ok: true }), { headers: CORS });
     }
 
     // ── DELETE ──────────────────────────────────────────────────────────────
     if (req.method === "DELETE") {
       const id = searchParams.get("id");
-      await sql`DELETE FROM ${sql(table)} WHERE id = ${id}`;
+      if (table === "diary")      await sql`DELETE FROM diary WHERE id=${id}`;
+      else if (table === "ideas")     await sql`DELETE FROM ideas WHERE id=${id}`;
+      else if (table === "reminders") await sql`DELETE FROM reminders WHERE id=${id}`;
+      else if (table === "tasks")     await sql`DELETE FROM tasks WHERE id=${id}`;
+      else if (table === "bills")     await sql`DELETE FROM bills WHERE id=${id}`;
+      else if (table === "events")    await sql`DELETE FROM events WHERE id=${id}`;
+      else if (table === "curiosities") await sql`DELETE FROM curiosities WHERE id=${id}`;
+      else if (table === "documents") await sql`DELETE FROM documents WHERE id=${id}`;
       return new Response(JSON.stringify({ ok: true }), { headers: CORS });
     }
-
-    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: CORS });
 
   } catch (e) {
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: CORS });
