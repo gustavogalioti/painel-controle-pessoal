@@ -192,6 +192,104 @@ const LiveBadge = ({ label = "LIVE" }) => (
   </div>
 );
 
+// ─── TASKS SECTION ───────────────────────────────────────────────────────────
+function TasksSection() {
+  const [tasks, setTasks] = useState(() => {
+    try { const v = localStorage.getItem("tasks"); return v ? JSON.parse(v) : []; } catch { return []; }
+  });
+  const [text, setText]   = useState("");
+  const [prio, setPrio]   = useState("normal");
+  const [filter, setFilter] = useState("all");
+
+  const save = (n) => { setTasks(n); try { localStorage.setItem("tasks", JSON.stringify(n)); } catch {} };
+
+  const add = () => {
+    if (!text.trim()) return;
+    save([{ id: Date.now(), text, prio, done: false, date: new Date().toISOString() }, ...tasks]);
+    setText("");
+  };
+
+  const toggle = (id) => save(tasks.map(t => t.id === id ? { ...t, done: !t.done } : t));
+  const del    = (id) => save(tasks.filter(t => t.id !== id));
+
+  const prioColors = { alta: "var(--red)", normal: "var(--accent)", baixa: "var(--text-3)" };
+  const prioLabels = { alta: "🔴 Alta", normal: "🔵 Normal", baixa: "⚪ Baixa" };
+
+  const filtered = tasks.filter(t =>
+    filter === "all"  ? true :
+    filter === "done" ? t.done :
+    filter === "todo" ? !t.done : t.prio === filter
+  );
+
+  const counts = {
+    todo: tasks.filter(t => !t.done).length,
+    done: tasks.filter(t => t.done).length,
+  };
+
+  return (
+    <div style={{ maxWidth: 800 }}>
+      {/* Input */}
+      <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, padding:20, marginBottom:20 }}>
+        <div style={{ fontSize:10, color:"var(--accent)", letterSpacing:2, fontWeight:800, marginBottom:12 }}>✅ NOVA TAREFA</div>
+        <textarea value={text} onChange={e => setText(e.target.value)}
+          placeholder="Descreva a tarefa..." rows={2}
+          style={{ ...inp, resize:"none", marginBottom:12 }}
+          onKeyDown={e => { if (e.ctrlKey && e.key === "Enter") add(); }}
+        />
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <div style={{ display:"flex", gap:8 }}>
+            {["alta","normal","baixa"].map(p => (
+              <button key={p} onClick={() => setPrio(p)}
+                style={{ background: prio===p ? prioColors[p]+"22" : "var(--bg-input)", border: `1px solid ${prio===p ? prioColors[p] : "var(--border)"}`, borderRadius:20, padding:"5px 12px", color: prio===p ? prioColors[p] : "var(--text-3)", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                {prioLabels[p]}
+              </button>
+            ))}
+          </div>
+          <button onClick={add} style={{ ...primaryBtn(), padding:"8px 20px" }}>+ Adicionar</button>
+        </div>
+      </div>
+
+      {/* Stats + Filter */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+        <div style={{ display:"flex", gap:6 }}>
+          {[["all","Todas"], ["todo","Pendentes"], ["done","Concluídas"], ["alta","Alta"], ["normal","Normal"], ["baixa","Baixa"]].map(([id, label]) => (
+            <button key={id} onClick={() => setFilter(id)}
+              style={{ background: filter===id ? "var(--accent)" : "var(--bg-card)", border:"none", borderRadius:20, padding:"5px 12px", color: filter===id ? "#fff" : "var(--text-2)", fontSize:11, fontWeight:600, cursor:"pointer" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <span style={{ fontSize:11, color:"var(--text-3)" }}>
+          {counts.todo} pendente{counts.todo !== 1 ? "s" : ""} · {counts.done} concluída{counts.done !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {/* List */}
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {filtered.map(t => (
+          <div key={t.id} style={{ background:"var(--bg-card)", border:`1px solid ${t.done ? "var(--border-2)" : prioColors[t.prio]+"44"}`, borderRadius:12, padding:"12px 16px", display:"flex", gap:12, alignItems:"flex-start", opacity: t.done ? 0.55 : 1, transition:"opacity .2s" }}>
+            <button onClick={() => toggle(t.id)}
+              style={{ width:22, height:22, borderRadius:6, border:`2px solid ${t.done ? "var(--green)" : prioColors[t.prio]}`, background: t.done ? "var(--green)" : "transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
+              {t.done && <Icon path={I.check} size={12} color="#fff" />}
+            </button>
+            <div style={{ flex:1 }}>
+              <p style={{ margin:0, fontSize:14, color:"var(--text-1)", lineHeight:1.5, textDecoration: t.done ? "line-through" : "none" }}>{t.text}</p>
+              <div style={{ display:"flex", gap:10, marginTop:4, fontSize:10, color:"var(--text-3)" }}>
+                <span style={{ color: prioColors[t.prio], fontWeight:700 }}>{prioLabels[t.prio]}</span>
+                <span>{new Date(t.date).toLocaleDateString("pt-BR")} · {new Date(t.date).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}</span>
+              </div>
+            </div>
+            <button onClick={() => del(t.id)} style={{ background:"none", border:"none", color:"var(--text-3)", cursor:"pointer", flexShrink:0 }}>
+              <Icon path={I.trash} size={14} />
+            </button>
+          </div>
+        ))}
+        {filtered.length === 0 && <Empty text="Nenhuma tarefa aqui." />}
+      </div>
+    </div>
+  );
+}
+
 // ─── DIARY ───────────────────────────────────────────────────────────────────
 function NoteColumn({ storageKey, title, placeholder, accent, emoji }) {
   const [entries, setEntries] = useState(() => {
@@ -777,16 +875,17 @@ function TradingViewWidget({ type, config }) {
   useEffect(() => {
     if (!ref.current) return;
     ref.current.innerHTML = "";
+    const w = ref.current.offsetWidth || window.innerWidth;
     const script = document.createElement("script");
     script.src = `https://s3.tradingview.com/external-embedding/embed-widget-${type}.js`;
     script.async = true;
-    script.innerHTML = JSON.stringify(config);
+    script.innerHTML = JSON.stringify({ ...config, width: w });
     ref.current.appendChild(script);
   }, [type]);
 
   return (
     <div className="tradingview-widget-container" ref={ref}
-      style={{ width:"100%", height:"100%" }}>
+      style={{ width:"100%", height:"100%", minHeight: config.height || 400 }}>
       <div className="tradingview-widget-container__widget"
         style={{ width:"100%", height:"100%" }} />
     </div>
@@ -1122,6 +1221,7 @@ const NAV = [
 ];
 const TABS = {
   pessoal:      [{ id:"diario",       label:"Diário",       icon: I.diary    },
+                 { id:"tarefas",      label:"Tarefas",      icon: I.check    },
                  { id:"documentos",   label:"Documentos",   icon: I.folder   },
                  { id:"contas",       label:"Contas",       icon: I.bill     },
                  { id:"compromissos", label:"Compromissos", icon: I.calendar }],
@@ -1145,6 +1245,7 @@ export default function App() {
     if (section === "profissional") return <ProfessionalSection />;
     switch (subTab) {
       case "diario":       return <DiarySection />;
+      case "tarefas":      return <TasksSection />;
       case "documentos":   return <DocsSection />;
       case "contas":       return <BillsSection />;
       case "compromissos": return <EventsSection />;
