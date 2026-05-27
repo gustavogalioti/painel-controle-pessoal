@@ -741,71 +741,306 @@ function NewsBoardSection() {
 }
 
 
-// ─── INDICATORS — REAL DATA ───────────────────────────────────────────────────
-function IndicatorsSection({ marketData }) {
-  const { data, lastUpdate, loading, refresh } = marketData;
+// ─── INDICATORS — TRADINGVIEW ────────────────────────────────────────────────
+function TradingViewWidget({ type, config }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    ref.current.innerHTML = "";
+    const script = document.createElement("script");
+    script.src = `https://s3.tradingview.com/external-embedding/embed-widget-${type}.js`;
+    script.async = true;
+    script.innerHTML = JSON.stringify(config);
+    ref.current.appendChild(script);
+  }, [type]);
+
+  return (
+    <div className="tradingview-widget-container" ref={ref}
+      style={{ width:"100%", height:"100%" }}>
+      <div className="tradingview-widget-container__widget"
+        style={{ width:"100%", height:"100%" }} />
+    </div>
+  );
+}
+
+function IndicatorsSection() {
   const [monitor, setMonitor] = useState(false);
+  const [tab, setTab]         = useState("overview");
 
-  const isUp = (chg) => chg && !chg.startsWith("-") && chg !== "--";
+  const darkTheme = {
+    colorTheme:  "dark",
+    locale:      "pt_BR",
+    isTransparent: true,
+  };
 
-  const extras = [
-    { l:"IBOVESPA",        v: data.ibov.val,   c: data.ibov.chg   },
-    { l:"S&P 500",         v: data.sp500.val,  c: data.sp500.chg  },
-    { l:"NASDAQ",          v: data.nasdaq.val, c: data.nasdaq.chg },
-    { l:"DOW JONES",       v: data.dow.val,    c: data.dow.chg    },
-    { l:"DÓLAR / BRL",     v: data.dolar.val,  c: data.dolar.chg  },
-    { l:"EURO / BRL",      v: data.euro.val,   c: data.euro.chg   },
-    { l:"BITCOIN",         v: data.btc.val,    c: data.btc.chg    },
-    { l:"ETHEREUM",        v: data.eth.val,    c: data.eth.chg    },
-    { l:"OURO",            v: data.ouro.val,   c: data.ouro.chg   },
-    { l:"PETRÓLEO BRENT",  v: data.brent.val,  c: data.brent.chg  },
-    { l:"VIX (Medo)",      v: data.vix.val,    c: data.vix.chg    },
-    { l:"SELIC",           v: data.selic.val,  c: "a.a."          },
+  const tabs = [
+    { id:"overview",    label:"Visão Geral"  },
+    { id:"ticker",      label:"Ticker"       },
+    { id:"forex",       label:"Câmbio"       },
+    { id:"crypto",      label:"Cripto"       },
+    { id:"commodities", label:"Commodities"  },
   ];
 
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:24, flexWrap:"wrap", gap:12 }}>
-        <div style={{ display:"flex", gap:12, alignItems:"center" }}>
-          <LiveBadge label="Brapi + Yahoo Finance" />
-          {lastUpdate && <span style={{ fontSize:11, color:"var(--text-3)" }}>Atualizado: {lastUpdate.toLocaleTimeString("pt-BR")}</span>}
-        </div>
-        <div style={{ display:"flex", gap:8 }}>
-          <button onClick={refresh} style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, padding:"8px 14px", color:"var(--text-2)", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}>
-            <Icon path={I.refresh} size={14} /> Atualizar
-          </button>
-          <button onClick={() => setMonitor(!monitor)} style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, padding:"8px 16px", color:"var(--text-2)", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}>
-            <Icon path={I.monitor} size={14} /> {monitor ? "Visão Completa" : "Monitor 1-Pager"}
-          </button>
-        </div>
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:10 }}>
+        <LiveBadge label="TradingView · Dados ao vivo" />
+        <button onClick={() => setMonitor(!monitor)}
+          style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, padding:"8px 16px", color:"var(--text-2)", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}>
+          <Icon path={I.monitor} size={14} /> {monitor ? "Visão Completa" : "Monitor 1-Pager"}
+        </button>
       </div>
 
-      <MarketTicker marketData={marketData} />
-
-      {!monitor && (
-        <div style={{ marginTop:32, display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12 }}>
-          {extras.map(x => {
-            const up = isUp(x.c);
-            const isChg = x.c && x.c !== "--" && x.c !== "a.a.";
-            return (
-              <div key={x.l} style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:12, padding:"14px 18px" }}>
-                <div style={{ fontSize:10, color:"var(--text-3)", letterSpacing:1.5, fontWeight:700, marginBottom:6 }}>{x.l}</div>
-                <div style={{ fontSize:20, fontWeight:800, fontFamily:"'DM Mono',monospace", marginBottom:4, color: loading ? "var(--text-3)" : "var(--text-1)" }}>
-                  {loading ? "···" : x.v}
+      {/* Monitor 1-Pager — só ticker tape + 5 mini gráficos */}
+      {monitor ? (
+        <div>
+          <div style={{ marginBottom:20, borderRadius:12, overflow:"hidden", height:60 }}>
+            <TradingViewWidget type="ticker-tape" config={{
+              ...darkTheme,
+              symbols: [
+                { proName:"BMFBOVESPA:IBOV",  title:"IBOV"    },
+                { proName:"FX:USDBRL",         title:"USD/BRL" },
+                { proName:"TVC:SPX",           title:"S&P 500" },
+                { proName:"BITSTAMP:BTCUSD",   title:"Bitcoin" },
+                { proName:"TVC:GOLD",          title:"Ouro"    },
+              ],
+              showSymbolLogo: true,
+              displayMode: "adaptive",
+            }} />
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:12 }}>
+            {[
+              { sym:"BMFBOVESPA:IBOV",  label:"IBOVESPA" },
+              { sym:"FX:USDBRL",         label:"DÓLAR / BRL" },
+              { sym:"TVC:SPX",           label:"S&P 500" },
+              { sym:"BITSTAMP:BTCUSD",   label:"BITCOIN" },
+              { sym:"TVC:GOLD",          label:"OURO" },
+            ].map(({ sym, label }) => (
+              <div key={sym} style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, overflow:"hidden" }}>
+                <div style={{ padding:"8px 14px", fontSize:10, color:"var(--text-3)", fontWeight:700, letterSpacing:1.5 }}>{label}</div>
+                <div style={{ height:140 }}>
+                  <TradingViewWidget type="mini-symbol-overview" config={{
+                    ...darkTheme,
+                    symbol: sym,
+                    width: "100%",
+                    height: 140,
+                    dateRange: "1D",
+                    trendLineColor: "rgba(79,142,247,1)",
+                    underLineColor: "rgba(79,142,247,0.1)",
+                    chartOnly: false,
+                    noTimeScale: false,
+                  }} />
                 </div>
-                {x.c && (
-                  <div style={{ fontSize:12, color: isChg ? (up ? "var(--green)" : "var(--red)") : "var(--text-3)", fontWeight:600 }}>
-                    {isChg ? (up ? "▲ " : "▼ ") : ""}{x.c}
-                  </div>
-                )}
               </div>
-            );
-          })}
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div>
+          {/* Tabs */}
+          <div style={{ display:"flex", gap:4, marginBottom:20, flexWrap:"wrap" }}>
+            {tabs.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                style={{ background: tab===t.id ? "var(--accent)" : "var(--bg-card)", border:"none", borderRadius:20, padding:"7px 16px", color: tab===t.id ? "#fff" : "var(--text-2)", fontSize:12, fontWeight:600, cursor:"pointer" }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Visão Geral — Market Overview */}
+          {tab === "overview" && (
+            <div style={{ display:"grid", gap:16 }}>
+              {/* Ticker tape topo */}
+              <div style={{ borderRadius:12, overflow:"hidden", height:56 }}>
+                <TradingViewWidget type="ticker-tape" config={{
+                  ...darkTheme,
+                  symbols: [
+                    { proName:"BMFBOVESPA:IBOV",   title:"IBOV"       },
+                    { proName:"FX:USDBRL",          title:"USD/BRL"    },
+                    { proName:"FX:EURBRL",          title:"EUR/BRL"    },
+                    { proName:"TVC:SPX",            title:"S&P 500"    },
+                    { proName:"NASDAQ:NDX",         title:"Nasdaq"     },
+                    { proName:"DJ:DJI",             title:"Dow Jones"  },
+                    { proName:"BITSTAMP:BTCUSD",    title:"Bitcoin"    },
+                    { proName:"BITSTAMP:ETHUSD",    title:"Ethereum"   },
+                    { proName:"TVC:GOLD",           title:"Ouro"       },
+                    { proName:"TVC:USOIL",          title:"Petróleo"   },
+                    { proName:"CBOE:VIX",           title:"VIX"        },
+                  ],
+                  showSymbolLogo: true,
+                  displayMode: "adaptive",
+                }} />
+              </div>
+
+              {/* Market Overview widget */}
+              <div style={{ borderRadius:14, overflow:"hidden", height:550 }}>
+                <TradingViewWidget type="market-overview" config={{
+                  ...darkTheme,
+                  width: "100%",
+                  height: 550,
+                  tabs: [
+                    {
+                      title: "Índices",
+                      symbols: [
+                        { s:"BMFBOVESPA:IBOV",  d:"Ibovespa"  },
+                        { s:"TVC:SPX",          d:"S&P 500"   },
+                        { s:"NASDAQ:NDX",       d:"Nasdaq 100"},
+                        { s:"DJ:DJI",           d:"Dow Jones" },
+                        { s:"CBOE:VIX",         d:"VIX"       },
+                        { s:"TVC:FTSE",         d:"FTSE 100"  },
+                        { s:"XETR:DAX",         d:"DAX"       },
+                      ],
+                      originalTitle: "Índices",
+                    },
+                    {
+                      title: "Câmbio",
+                      symbols: [
+                        { s:"FX:USDBRL",  d:"Dólar / Real"  },
+                        { s:"FX:EURBRL",  d:"Euro / Real"   },
+                        { s:"FX:EURUSD",  d:"Euro / Dólar"  },
+                        { s:"FX:GBPUSD",  d:"Libra / Dólar" },
+                        { s:"FX:USDJPY",  d:"Dólar / Iene"  },
+                        { s:"FX:USDCNY",  d:"Dólar / Yuan"  },
+                      ],
+                      originalTitle: "Câmbio",
+                    },
+                    {
+                      title: "Cripto",
+                      symbols: [
+                        { s:"BITSTAMP:BTCUSD", d:"Bitcoin"  },
+                        { s:"BITSTAMP:ETHUSD", d:"Ethereum" },
+                        { s:"BINANCE:BNBUSD",  d:"BNB"      },
+                        { s:"BINANCE:SOLUSD",  d:"Solana"   },
+                        { s:"BINANCE:XRPUSD",  d:"XRP"      },
+                      ],
+                      originalTitle: "Cripto",
+                    },
+                    {
+                      title: "Commodities",
+                      symbols: [
+                        { s:"TVC:GOLD",   d:"Ouro"          },
+                        { s:"TVC:SILVER", d:"Prata"         },
+                        { s:"TVC:USOIL",  d:"Petróleo WTI"  },
+                        { s:"TVC:UKOIL",  d:"Petróleo Brent"},
+                        { s:"CBOT:ZS1!",  d:"Soja"          },
+                        { s:"CBOT:ZC1!",  d:"Milho"         },
+                      ],
+                      originalTitle: "Commodities",
+                    },
+                  ],
+                }} />
+              </div>
+            </div>
+          )}
+
+          {/* Ticker — faixa completa + tabela de cotações */}
+          {tab === "ticker" && (
+            <div style={{ display:"grid", gap:16 }}>
+              <div style={{ borderRadius:14, overflow:"hidden", height:500 }}>
+                <TradingViewWidget type="market-quotes" config={{
+                  ...darkTheme,
+                  width: "100%",
+                  height: 500,
+                  symbolsGroups: [
+                    {
+                      name: "Bolsas",
+                      symbols: [
+                        { name:"BMFBOVESPA:IBOV" },
+                        { name:"TVC:SPX"         },
+                        { name:"NASDAQ:NDX"      },
+                        { name:"DJ:DJI"          },
+                        { name:"TVC:FTSE"        },
+                        { name:"XETR:DAX"        },
+                      ],
+                    },
+                    {
+                      name: "Câmbio",
+                      symbols: [
+                        { name:"FX:USDBRL" },
+                        { name:"FX:EURBRL" },
+                        { name:"FX:EURUSD" },
+                        { name:"FX:GBPUSD" },
+                      ],
+                    },
+                    {
+                      name: "Cripto",
+                      symbols: [
+                        { name:"BITSTAMP:BTCUSD" },
+                        { name:"BITSTAMP:ETHUSD" },
+                        { name:"BINANCE:BNBUSD"  },
+                        { name:"BINANCE:SOLUSD"  },
+                      ],
+                    },
+                    {
+                      name: "Commodities",
+                      symbols: [
+                        { name:"TVC:GOLD"  },
+                        { name:"TVC:USOIL" },
+                        { name:"TVC:UKOIL" },
+                        { name:"TVC:SILVER"},
+                      ],
+                    },
+                  ],
+                }} />
+              </div>
+            </div>
+          )}
+
+          {/* Câmbio */}
+          {tab === "forex" && (
+            <div style={{ borderRadius:14, overflow:"hidden", height:550 }}>
+              <TradingViewWidget type="forex-cross-rates" config={{
+                ...darkTheme,
+                width: "100%",
+                height: 550,
+                currencies: ["USD","BRL","EUR","GBP","JPY","CNY","CHF","AUD"],
+              }} />
+            </div>
+          )}
+
+          {/* Cripto */}
+          {tab === "crypto" && (
+            <div style={{ borderRadius:14, overflow:"hidden", height:550 }}>
+              <TradingViewWidget type="crypto-coins-heatmap" config={{
+                ...darkTheme,
+                width: "100%",
+                height: 550,
+                dataSource: "Crypto",
+                blockSize: "market_cap_calc",
+                blockColor: "change",
+              }} />
+            </div>
+          )}
+
+          {/* Commodities */}
+          {tab === "commodities" && (
+            <div style={{ borderRadius:14, overflow:"hidden", height:550 }}>
+              <TradingViewWidget type="symbol-overview" config={{
+                ...darkTheme,
+                width: "100%",
+                height: 550,
+                symbols: [
+                  ["Ouro","TVC:GOLD|1D"],
+                  ["Prata","TVC:SILVER|1D"],
+                  ["Petróleo WTI","TVC:USOIL|1D"],
+                  ["Brent","TVC:UKOIL|1D"],
+                  ["Soja","CBOT:ZS1!|1D"],
+                  ["Milho","CBOT:ZC1!|1D"],
+                ],
+                showVolume: false,
+                chartType: "area",
+                lineWidth: 2,
+              }} />
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
+
 
 // ─── PROFESSIONAL PLACEHOLDER ─────────────────────────────────────────────────
 function ProfessionalSection() {
@@ -884,7 +1119,7 @@ export default function App() {
       case "compromissos": return <EventsSection />;
       case "curiosidades": return <CuriositiesSection />;
       case "noticias":     return <NewsBoardSection />;
-      case "indicadores":  return <IndicatorsSection marketData={marketData} />;
+      case "indicadores":  return <IndicatorsSection />;
       default:             return null;
     }
   };
