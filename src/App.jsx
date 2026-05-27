@@ -193,12 +193,9 @@ const LiveBadge = ({ label = "LIVE" }) => (
 );
 
 // ─── DIARY ───────────────────────────────────────────────────────────────────
-function DiarySection() {
+function NoteColumn({ storageKey, title, placeholder, accent, emoji }) {
   const [entries, setEntries] = useState(() => {
-    try {
-      const v = localStorage.getItem("diary");
-      return v ? JSON.parse(v) : [];
-    } catch { return []; }
+    try { const v = localStorage.getItem(storageKey); return v ? JSON.parse(v) : []; } catch { return []; }
   });
   const [text, setText] = useState("");
   const [mood, setMood] = useState("🙂");
@@ -209,67 +206,99 @@ function DiarySection() {
     const e = { id: Date.now(), text, mood, date: new Date().toISOString() };
     const n = [e, ...entries];
     setEntries(n);
-    try { localStorage.setItem("diary", JSON.stringify(n)); } catch {}
+    try { localStorage.setItem(storageKey, JSON.stringify(n)); } catch {}
     setText("");
   };
-
   const del = (id) => {
     const n = entries.filter(e => e.id !== id);
     setEntries(n);
-    try { localStorage.setItem("diary", JSON.stringify(n)); } catch {}
+    try { localStorage.setItem(storageKey, JSON.stringify(n)); } catch {}
   };
 
   const grouped = entries.reduce((acc, e) => {
-    const d = new Date(e.date).toLocaleDateString("pt-BR", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+    const d = new Date(e.date).toLocaleDateString("pt-BR", { day:"numeric", month:"short", year:"numeric" });
     (acc[d] = acc[d] || []).push(e);
     return acc;
   }, {});
 
+  const showMoods = storageKey === "diary";
+
   return (
-    <div>
-      <div style={{ marginBottom:24, background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:16, padding:20 }}>
-        <div style={{ fontSize:11, color:"var(--text-3)", marginBottom:12, letterSpacing:1 }}>{today().toUpperCase()}</div>
-        <div style={{ display:"flex", gap:8, marginBottom:12 }}>
-          {moods.map(m => (
-            <button key={m} onClick={() => setMood(m)} style={{ fontSize:20, background: mood===m ? "var(--bg-input)" : "none", border: mood===m ? "1px solid var(--accent)" : "1px solid transparent", borderRadius:8, padding:"4px 8px", cursor:"pointer" }}>{m}</button>
-          ))}
-        </div>
+    <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+      {/* Input */}
+      <div style={{ background:"var(--bg-card)", border:`1px solid var(--border)`, borderRadius:14, padding:16, marginBottom:16 }}>
+        <div style={{ fontSize:10, color: accent, letterSpacing:2, fontWeight:800, marginBottom:10 }}>{emoji} {title.toUpperCase()}</div>
+        {showMoods && (
+          <div style={{ display:"flex", gap:6, marginBottom:10, flexWrap:"wrap" }}>
+            {moods.map(m => (
+              <button key={m} onClick={() => setMood(m)} style={{ fontSize:18, background: mood===m ? "var(--bg-input)" : "none", border: mood===m ? `1px solid ${accent}` : "1px solid transparent", borderRadius:8, padding:"3px 6px", cursor:"pointer" }}>{m}</button>
+            ))}
+          </div>
+        )}
         <textarea value={text} onChange={e => setText(e.target.value)}
-          placeholder="O que está em sua mente hoje?" rows={4}
-          style={{ ...inp, resize:"vertical", marginBottom:12 }}
+          placeholder={placeholder} rows={3}
+          style={{ ...inp, resize:"vertical", marginBottom:10, fontSize:13 }}
           onKeyDown={e => { if (e.ctrlKey && e.key === "Enter") add(); }}
         />
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <span style={{ fontSize:11, color:"var(--text-3)" }}>{entries.length} registro{entries.length !== 1 ? "s" : ""} salvos</span>
-          <button onClick={add} style={primaryBtn()}>Registrar</button>
+          <span style={{ fontSize:10, color:"var(--text-3)" }}>{entries.length} registro{entries.length !== 1 ? "s" : ""}</span>
+          <button onClick={add} style={{ ...primaryBtn(accent), padding:"7px 16px", fontSize:13 }}>+ Salvar</button>
         </div>
       </div>
 
-      {Object.entries(grouped).length === 0 && (
-        <Empty text="Nenhum registro ainda. Comece escrevendo algo ✨" />
-      )}
-
-      {Object.entries(grouped).map(([date, es]) => (
-        <div key={date} style={{ marginBottom:28 }}>
-          <div style={{ fontSize:11, color:"var(--accent)", letterSpacing:2, fontWeight:700, marginBottom:12, paddingBottom:8, borderBottom:"1px solid var(--border-2)" }}>
-            {date.toUpperCase()}
-          </div>
-          {es.map(e => (
-            <div key={e.id} style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:12, padding:"14px 18px", marginBottom:10, display:"flex", gap:14, alignItems:"flex-start" }}>
-              <span style={{ fontSize:22 }}>{e.mood}</span>
-              <div style={{ flex:1 }}>
-                <p style={{ margin:0, color:"var(--text-2)", lineHeight:1.7, fontSize:14, whiteSpace:"pre-wrap" }}>{e.text}</p>
-                <span style={{ fontSize:11, color:"var(--text-3)", marginTop:6, display:"block" }}>
-                  {new Date(e.date).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
-                </span>
+      {/* History */}
+      <div style={{ overflowY:"auto", maxHeight:"calc(100vh - 360px)" }}>
+        {Object.entries(grouped).length === 0 && (
+          <div style={{ textAlign:"center", color:"var(--text-3)", padding:"20px 0", fontSize:12 }}>Nenhum registro ainda</div>
+        )}
+        {Object.entries(grouped).map(([date, es]) => (
+          <div key={date} style={{ marginBottom:16 }}>
+            <div style={{ fontSize:9, color: accent, letterSpacing:2, fontWeight:700, marginBottom:8, paddingBottom:4, borderBottom:`1px solid var(--border-2)` }}>{date.toUpperCase()}</div>
+            {es.map(e => (
+              <div key={e.id} style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, padding:"10px 14px", marginBottom:8, display:"flex", gap:10, alignItems:"flex-start" }}>
+                {showMoods && <span style={{ fontSize:18, flexShrink:0 }}>{e.mood}</span>}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <p style={{ margin:0, color:"var(--text-2)", lineHeight:1.6, fontSize:13, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{e.text}</p>
+                  <span style={{ fontSize:10, color:"var(--text-3)", marginTop:4, display:"block" }}>
+                    {new Date(e.date).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
+                  </span>
+                </div>
+                <button onClick={() => del(e.id)} style={{ background:"none", border:"none", color:"var(--text-3)", cursor:"pointer", flexShrink:0 }}>
+                  <Icon path={I.trash} size={12} />
+                </button>
               </div>
-              <button onClick={() => del(e.id)} style={{ background:"none", border:"none", color:"var(--text-3)", cursor:"pointer", flexShrink:0 }}>
-                <Icon path={I.trash} size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      ))}
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DiarySection() {
+  return (
+    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16, alignItems:"start" }}>
+      <NoteColumn
+        storageKey="diary"
+        title="Diário"
+        placeholder="O que está em sua mente hoje?"
+        accent="var(--accent)"
+        emoji="📓"
+      />
+      <NoteColumn
+        storageKey="ideas"
+        title="Ideias"
+        placeholder="Anote uma ideia..."
+        accent="var(--purple)"
+        emoji="💡"
+      />
+      <NoteColumn
+        storageKey="reminders"
+        title="Lembretes"
+        placeholder="Adicione um lembrete..."
+        accent="var(--yellow)"
+        emoji="🔔"
+      />
     </div>
   );
 }
@@ -768,6 +797,8 @@ function IndicatorsSection() {
   const [monitor, setMonitor] = useState(false);
   const [tab, setTab]         = useState("overview");
 
+
+
   const darkTheme = {
     colorTheme:  "dark",
     locale:      "pt_BR",
@@ -1156,7 +1187,7 @@ export default function App() {
         </div>
       )}
 
-      <main style={{ flex:1, padding:32, maxWidth:1280, width:"100%", margin:"0 auto", animation:"fadeIn .25s ease" }}>
+      <main id="main-content" style={{ flex:1, padding: subTab==="indicadores" ? "16px" : 32, maxWidth: subTab==="indicadores" ? "100%" : 1280, width:"100%", margin:"0 auto", animation:"fadeIn .25s ease", transition:"max-width .2s" }}>
         {renderContent()}
       </main>
 
