@@ -80,20 +80,36 @@ function useDB(table, localKey, defaultVal) {
   const [synced, setSynced] = useState(false);
 
   useEffect(() => {
-    DB.list(table).then(rows => {
+    DB.list(table).then(async rows => {
+      const local = S.get(localKey, defaultVal);
+
       if (rows && Array.isArray(rows) && rows.length > 0) {
-        // Converte snake_case do banco para camelCase do frontend
-        const mapped = rows.map(r => {
-          const out = { ...r };
-          if (r.due_day !== undefined) { out.dueDay = r.due_day; delete out.due_day; }
-          if (r.image_url !== undefined) { out.imageUrl = r.image_url; delete out.image_url; }
-          if (r.file_data !== undefined) { out.file = { data: r.file_data, name: r.file_name, size: r.file_size, type: r.file_type }; }
-          if (r.date && typeof r.date === 'string' && r.date.includes('T')) {} // keep ISO
-          return out;
-        });
-        setData(mapped);
-        S.set(localKey, mapped);
+        // Banco tem dados — usa como fonte da verdade
+        // Merge: banco + itens locais que ainda não estão no banco
+        const bankIds = new Set(rows.map(r => String(r.id)));
+        const onlyLocal = local.filter(l => !bankIds.has(String(l.id)));
+
+        // Envia itens locais que faltam no banco
+        for (const item of onlyLocal) {
+          await DB.insert(table, item);
+        }
+
+        const allRows = [...rows, ...onlyLocal];
+        const sorted  = allRows.sort((a,b) => Number(b.id) - Number(a.id));
+        setData(sorted);
+        S.set(localKey, sorted);
+
+      } else if (local.length > 0) {
+        // Banco vazio mas tem dados locais — migra tudo para o banco
+        for (const item of local) {
+          await DB.insert(table, item);
+        }
+        setData(local);
+
+      } else {
+        setData(defaultVal);
       }
+
       setSynced(true);
     });
   }, [table]);
