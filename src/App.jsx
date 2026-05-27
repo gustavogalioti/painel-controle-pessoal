@@ -41,6 +41,66 @@ const S = {
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
+// ─── DATABASE SYNC ────────────────────────────────────────────────────────────
+const DB = {
+  list: async (table) => {
+    try {
+      const r = await fetch(`/api/db?table=${table}`);
+      return await r.json();
+    } catch { return null; }
+  },
+  insert: async (table, row) => {
+    try {
+      await fetch(`/api/db?table=${table}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(row),
+      });
+    } catch {}
+  },
+  update: async (table, row) => {
+    try {
+      await fetch(`/api/db?table=${table}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(row),
+      });
+    } catch {}
+  },
+  delete: async (table, id) => {
+    try {
+      await fetch(`/api/db?table=${table}&id=${id}`, { method: "DELETE" });
+    } catch {}
+  },
+};
+
+// Hook que sincroniza localStorage com banco ao carregar
+function useDB(table, localKey, defaultVal) {
+  const [data, setData] = useState(() => S.get(localKey, defaultVal));
+  const [synced, setSynced] = useState(false);
+
+  useEffect(() => {
+    DB.list(table).then(rows => {
+      if (rows && Array.isArray(rows) && rows.length > 0) {
+        // Converte snake_case do banco para camelCase do frontend
+        const mapped = rows.map(r => {
+          const out = { ...r };
+          if (r.due_day !== undefined) { out.dueDay = r.due_day; delete out.due_day; }
+          if (r.image_url !== undefined) { out.imageUrl = r.image_url; delete out.image_url; }
+          if (r.file_data !== undefined) { out.file = { data: r.file_data, name: r.file_name, size: r.file_size, type: r.file_type }; }
+          if (r.date && typeof r.date === 'string' && r.date.includes('T')) {} // keep ISO
+          return out;
+        });
+        setData(mapped);
+        S.set(localKey, mapped);
+      }
+      setSynced(true);
+    });
+  }, [table]);
+
+  return [data, setData, synced];
+}
+
 // ─── API KEYS ─────────────────────────────────────────────────────────────────
 const BRAPI_TOKEN = "4NkivGqSUVTRj1JX3TZSZ5";
 
@@ -194,23 +254,30 @@ const LiveBadge = ({ label = "LIVE" }) => (
 
 // ─── TASKS SECTION ───────────────────────────────────────────────────────────
 function TasksSection() {
-  const [tasks, setTasks] = useState(() => {
-    try { const v = localStorage.getItem("tasks"); return v ? JSON.parse(v) : []; } catch { return []; }
-  });
+  const [tasks, setTasks, synced] = useDB("tasks", "tasks", []);
   const [text, setText]   = useState("");
   const [prio, setPrio]   = useState("normal");
   const [filter, setFilter] = useState("all");
 
-  const save = (n) => { setTasks(n); try { localStorage.setItem("tasks", JSON.stringify(n)); } catch {} };
+  const save = (n) => { setTasks(n); S.set("tasks", n); };
 
   const add = () => {
     if (!text.trim()) return;
-    save([{ id: Date.now(), text, prio, done: false, date: new Date().toISOString() }, ...tasks]);
+    const t = { id: Date.now(), text, prio, done: false, date: new Date().toISOString() };
+    const n = [t, ...tasks];
+    save(n);
+    DB.insert("tasks", t);
     setText("");
   };
 
-  const toggle = (id) => save(tasks.map(t => t.id === id ? { ...t, done: !t.done } : t));
-  const del    = (id) => save(tasks.filter(t => t.id !== id));
+  const toggle = (id) => {
+    const t = tasks.find(t => t.id === id);
+    if (!t) return;
+    const updated = { ...t, done: !t.done };
+    save(tasks.map(t => t.id === id ? updated : t));
+    DB.update("tasks", { id, done: !t.done });
+  };
+  const del = (id) => { save(tasks.filter(t => t.id !== id)); DB.delete("tasks", id); };
 
   const prioColors = { alta: "var(--red)", normal: "var(--accent)", baixa: "var(--text-3)" };
   const prioLabels = { alta: "🔴 Alta", normal: "🔵 Normal", baixa: "⚪ Baixa" };
@@ -292,9 +359,7 @@ function TasksSection() {
 
 // ─── DIARY ───────────────────────────────────────────────────────────────────
 function NoteColumn({ storageKey, title, placeholder, accent, emoji }) {
-  const [entries, setEntries] = useState(() => {
-    try { const v = localStorage.getItem(storageKey); return v ? JSON.parse(v) : []; } catch { return []; }
-  });
+  const [entries, setEntries, synced] = useDB(storageKey, storageKey, []);
   const [text, setText] = useState("");
   const [mood, setMood] = useState("🙂");
   const moods = ["😄","🙂","😐","😔","😤","🤔","🎉"];
@@ -304,13 +369,15 @@ function NoteColumn({ storageKey, title, placeholder, accent, emoji }) {
     const e = { id: Date.now(), text, mood, date: new Date().toISOString() };
     const n = [e, ...entries];
     setEntries(n);
-    try { localStorage.setItem(storageKey, JSON.stringify(n)); } catch {}
+    S.set(storageKey, n);
+    DB.insert(storageKey, e);
     setText("");
   };
   const del = (id) => {
     const n = entries.filter(e => e.id !== id);
     setEntries(n);
-    try { localStorage.setItem(storageKey, JSON.stringify(n)); } catch {}
+    S.set(storageKey, n);
+    DB.delete(storageKey, id);
   };
 
   const grouped = entries.reduce((acc, e) => {
@@ -325,7 +392,10 @@ function NoteColumn({ storageKey, title, placeholder, accent, emoji }) {
     <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
       {/* Input */}
       <div style={{ background:"var(--bg-card)", border:`1px solid var(--border)`, borderRadius:14, padding:16, marginBottom:16 }}>
-        <div style={{ fontSize:10, color: accent, letterSpacing:2, fontWeight:800, marginBottom:10 }}>{emoji} {title.toUpperCase()}</div>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+          <div style={{ fontSize:10, color: accent, letterSpacing:2, fontWeight:800 }}>{emoji} {title.toUpperCase()}</div>
+          <div style={{ fontSize:9, color: synced ? "var(--green)" : "var(--text-3)" }}>{synced ? "☁ sincronizado" : "sincronizando..."}</div>
+        </div>
         {showMoods && (
           <div style={{ display:"flex", gap:6, marginBottom:10, flexWrap:"wrap" }}>
             {moods.map(m => (
