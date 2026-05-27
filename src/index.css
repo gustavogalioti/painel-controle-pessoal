@@ -1,25 +1,25 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
 
-/* ── TEMA AZUL CÉU CLARO ───────────────────────────────────────────────────── */
+/* ── TEMA AZUL CÉU — médio ─────────────────────────────────────────────────── */
 :root {
-  --bg:         #d6eaf8;
-  --bg-card:    #eaf4fd;
-  --bg-bar:     #b8d9f0;
-  --bg-sub:     #c8e2f5;
-  --bg-input:   #f0f8ff;
-  --border:     #90c4e4;
-  --border-2:   #aad4ed;
-  --text-1:     #0a2a4a;
-  --text-2:     #1a5276;
-  --text-3:     #5d8aa8;
-  --accent:     #1a78c2;
-  --accent-dim: rgba(26,120,194,0.12);
-  --accent-bdr: rgba(26,120,194,0.30);
-  --green:      #1a9e6e;
-  --red:        #c0392b;
-  --yellow:     #d4a017;
-  --purple:     #7d3c98;
-  --orange:     #d35400;
+  --bg:         #a8cfe8;
+  --bg-card:    #c8e4f5;
+  --bg-bar:     #7ab4d8;
+  --bg-sub:     #90c4e4;
+  --bg-input:   #daeef9;
+  --border:     #5a9ec0;
+  --border-2:   #7ab4d8;
+  --text-1:     #062a45;
+  --text-2:     #0d4a72;
+  --text-3:     #2e6e96;
+  --accent:     #0d6eaa;
+  --accent-dim: rgba(13,110,170,0.14);
+  --accent-bdr: rgba(13,110,170,0.35);
+  --green:      #0e7a55;
+  --red:        #b03030;
+  --yellow:     #b8860b;
+  --purple:     #6a2a9a;
+  --orange:     #c04a10;
 }
 
 /* ── RESET ─────────────────────────────────────────────────────────────────── */
@@ -43,12 +43,21 @@ body {
 @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:.35} }
 @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
 
+/* ── RESPONSIVE DIARY GRID ─────────────────────────────────────────────────── */
+.diary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 768px) {
+  .diary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── INPUTS ────────────────────────────────────────────────────────────────── */
 input[type="date"]::-webkit-calendar-picker-indicator,
 input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.3); }
-
-input, textarea, select {
-  color-scheme: light;
-}
-
+input, textarea, select { color-scheme: light; }
 ::selection { background: var(--accent); color: #fff; }

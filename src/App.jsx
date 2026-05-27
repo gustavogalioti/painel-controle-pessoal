@@ -445,7 +445,7 @@ function NoteColumn({ storageKey, title, placeholder, accent, emoji }) {
 
 function DiarySection() {
   return (
-    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16, alignItems:"start" }}>
+    <div className="diary-grid">
       <NoteColumn
         storageKey="diary"
         title="Diário"
