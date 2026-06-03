@@ -35,7 +35,8 @@
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
 body {
-  background: var(--bg);
+  background: linear-gradient(160deg, #0a1628 0%, #0d2d52 40%, #1a5276 70%, #2e86c1 100%);
+  background-attachment: fixed;
   color: var(--text-1);
   font-family: 'DM Sans', sans-serif;
   font-size: 14px;
@@ -75,13 +76,15 @@ input, textarea, select { color-scheme:dark; }
   border-radius: 4px;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
   padding: 16px;
   cursor: pointer;
   position: relative;
   overflow: hidden;
   transition: filter .15s, transform .15s;
   user-select: none;
+  text-align: center;
 }
 .tile:hover  { filter: brightness(1.12); transform: scale(1.02); }
 .tile:active { transform: scale(0.97); }
@@ -101,11 +104,10 @@ input, textarea, select { color-scheme:dark; }
   margin-top: 2px;
 }
 .tile-icon {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  font-size: 28px;
-  opacity: 0.7;
+  font-size: 52px;
+  margin-bottom: 8px;
+  display: block;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.3));
 }
 .tile-live {
   position: absolute;

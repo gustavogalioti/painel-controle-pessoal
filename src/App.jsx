@@ -698,82 +698,117 @@ function EventsPage() {
 }
 
 // ─── WHITEBOARD ───────────────────────────────────────────────────────────────
-function WhiteboardPage() {
+function WhiteboardCanvas({ boardId }) {
   const canvasRef = useRef(null);
   const [drawing, setDrawing] = useState(false);
   const [color, setColor]     = useState("#3a8fd4");
   const [size, setSize]       = useState(3);
-  const [tool, setTool]       = useState("pen"); // pen | eraser
-  const last = useRef(null);
+  const [tool, setTool]       = useState("pen");
+  const last    = useRef(null);
+  const history = useRef([]);
+  const storKey = `whiteboard_${boardId}`;
 
   useEffect(()=>{
-    const canvas = canvasRef.current; if(!canvas) return;
-    canvas.width  = canvas.offsetWidth;
-    canvas.height = Math.max(600, window.innerHeight - 280);
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#091828";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-    // Load saved drawing
-    const saved = localStorage.getItem("whiteboard");
+    const canvas=canvasRef.current; if(!canvas) return;
+    canvas.width=canvas.offsetWidth;
+    canvas.height=Math.max(600, window.innerHeight-300);
+    const ctx=canvas.getContext("2d");
+    ctx.fillStyle="#091828"; ctx.fillRect(0,0,canvas.width,canvas.height);
+    const saved=localStorage.getItem(storKey);
     if(saved){ const img=new Image(); img.onload=()=>ctx.drawImage(img,0,0); img.src=saved; }
-  },[]);
+  },[boardId]);
 
-  const getPos = e=>{
-    const r = canvasRef.current.getBoundingClientRect();
-    const src = e.touches?e.touches[0]:e;
-    return [src.clientX-r.left, src.clientY-r.top];
+  const getPos=e=>{ const r=canvasRef.current.getBoundingClientRect(); const src=e.touches?e.touches[0]:e; return [src.clientX-r.left,src.clientY-r.top]; };
+
+  const startDraw=e=>{
+    // Save snapshot for undo
+    history.current.push(canvasRef.current.toDataURL());
+    if(history.current.length>20) history.current.shift();
+    setDrawing(true); last.current=getPos(e);
   };
-
-  const startDraw = e=>{ setDrawing(true); last.current=getPos(e); };
-  const endDraw   = ()=>{
+  const endDraw=()=>{
     setDrawing(false); last.current=null;
-    localStorage.setItem("whiteboard", canvasRef.current.toDataURL());
+    localStorage.setItem(storKey, canvasRef.current.toDataURL());
   };
-  const draw = e=>{
+  const draw=e=>{
     if(!drawing||!last.current) return;
     e.preventDefault();
     const canvas=canvasRef.current, ctx=canvas.getContext("2d");
     const [x,y]=getPos(e);
-    ctx.beginPath();
-    ctx.moveTo(last.current[0],last.current[1]);
-    ctx.lineTo(x,y);
-    ctx.strokeStyle = tool==="eraser"?"#091828":color;
-    ctx.lineWidth   = tool==="eraser"?size*8:size;
-    ctx.lineCap     = "round";
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(last.current[0],last.current[1]); ctx.lineTo(x,y);
+    ctx.strokeStyle=tool==="eraser"?"#091828":color;
+    ctx.lineWidth=tool==="eraser"?size*8:size;
+    ctx.lineCap="round"; ctx.stroke();
     last.current=[x,y];
   };
-  const clear = ()=>{
+  const undo=()=>{
+    if(!history.current.length) return;
+    const prev=history.current.pop();
+    const img=new Image(); img.onload=()=>{ const ctx=canvasRef.current.getContext("2d"); ctx.drawImage(img,0,0); }; img.src=prev;
+    localStorage.setItem(storKey, prev);
+  };
+  const clear=()=>{
+    history.current.push(canvasRef.current.toDataURL());
     const canvas=canvasRef.current, ctx=canvas.getContext("2d");
     ctx.fillStyle="#091828"; ctx.fillRect(0,0,canvas.width,canvas.height);
-    localStorage.removeItem("whiteboard");
+    localStorage.setItem(storKey, canvas.toDataURL());
   };
   const colors=["#3a8fd4","#f07070","#2ecc8a","#f0c040","#a070e0","#f09050","#ffffff","#7ab0d8"];
 
   return (
     <div>
-      {/* Toolbar */}
-      <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:12,flexWrap:"wrap",background:"var(--bg-card)",padding:"10px 16px",borderRadius:12,border:"1px solid var(--border)"}}>
+      <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12,flexWrap:"wrap",background:"var(--bg-card)",padding:"10px 16px",borderRadius:12,border:"1px solid var(--border)"}}>
         <div style={{display:"flex",gap:6}}>
-          {[["pen","✏️ Caneta"],["eraser","🧹 Borracha"]].map(([t,l])=>(
-            <button key={t} onClick={()=>setTool(t)} style={{background:tool===t?"var(--accent)":"var(--bg-input)",border:"none",borderRadius:8,padding:"6px 12px",color:tool===t?"#fff":"var(--text-2)",fontSize:12,cursor:"pointer",fontWeight:600}}>{l}</button>
+          {[["pen","✏️"],["eraser","🧹"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTool(t)} style={{background:tool===t?"var(--accent)":"var(--bg-input)",border:"none",borderRadius:8,padding:"6px 12px",color:tool===t?"#fff":"var(--text-2)",fontSize:12,cursor:"pointer",fontWeight:600}}>{l} {t==="pen"?"Caneta":"Borracha"}</button>
           ))}
         </div>
         <div style={{display:"flex",gap:4}}>
           {colors.map(c=><button key={c} onClick={()=>{setColor(c);setTool("pen");}} style={{width:22,height:22,borderRadius:"50%",background:c,border:`2px solid ${color===c?"white":"transparent"}`,cursor:"pointer"}}/>)}
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <span style={{fontSize:11,color:"var(--text-3)"}}>Espessura</span>
-          <input type="range" min="1" max="20" value={size} onChange={e=>setSize(+e.target.value)} style={{width:80}}/>
-          <span style={{fontSize:11,color:"var(--text-2)"}}>{size}px</span>
-        </div>
-        <button onClick={clear} style={{background:"rgba(240,112,112,0.1)",border:"1px solid rgba(240,112,112,0.3)",borderRadius:8,padding:"6px 14px",color:"var(--red)",fontSize:12,cursor:"pointer",marginLeft:"auto"}}>🗑 Limpar</button>
+        <input type="range" min="1" max="20" value={size} onChange={e=>setSize(+e.target.value)} style={{width:70}}/>
+        <span style={{fontSize:11,color:"var(--text-2)"}}>{size}px</span>
+        <button onClick={undo} style={{background:"var(--bg-input)",border:"1px solid var(--border)",borderRadius:8,padding:"6px 12px",color:"var(--text-2)",fontSize:12,cursor:"pointer"}}>↩ Desfazer</button>
+        <button onClick={clear} style={{background:"rgba(240,112,112,0.1)",border:"1px solid rgba(240,112,112,0.3)",borderRadius:8,padding:"6px 12px",color:"var(--red)",fontSize:12,cursor:"pointer",marginLeft:"auto"}}>🗑 Limpar</button>
       </div>
       <canvas ref={canvasRef} className="wb-canvas"
         style={{width:"100%",borderRadius:12,border:"1px solid var(--border)",touchAction:"none",display:"block"}}
         onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
-        onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
-      />
+        onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}/>
+    </div>
+  );
+}
+
+function WhiteboardPage() {
+  const [boards, setBoards] = useState(()=>S.get("wb_boards",[{id:"wb_default",name:"Lousa 1"}]));
+  const [active, setActive] = useState("wb_default");
+
+  const newBoard=()=>{
+    const id=`wb_${Date.now()}`;
+    const name=`Lousa ${boards.length+1}`;
+    const n=[...boards,{id,name}]; setBoards(n); S.set("wb_boards",n); setActive(id);
+  };
+  const delBoard=id=>{
+    if(boards.length===1) return;
+    localStorage.removeItem(`whiteboard_${id}`);
+    const n=boards.filter(b=>b.id!==id); setBoards(n); S.set("wb_boards",n);
+    setActive(n[n.length-1].id);
+  };
+
+  return (
+    <div>
+      {/* Board tabs */}
+      <div style={{display:"flex",gap:6,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+        {boards.map(b=>(
+          <div key={b.id} style={{display:"flex",alignItems:"center",gap:4,background:active===b.id?"var(--accent)":"var(--bg-card)",borderRadius:20,padding:"5px 12px",cursor:"pointer",border:`1px solid ${active===b.id?"var(--accent)":"var(--border)"}`}}
+            onClick={()=>setActive(b.id)}>
+            <span style={{fontSize:12,fontWeight:600,color:active===b.id?"#fff":"var(--text-2)"}}>{b.name}</span>
+            {boards.length>1&&<button onClick={e=>{e.stopPropagation();delBoard(b.id);}} style={{background:"none",border:"none",color:active===b.id?"rgba(255,255,255,0.6)":"var(--text-3)",cursor:"pointer",fontSize:12,lineHeight:1}}>×</button>}
+          </div>
+        ))}
+        <button onClick={newBoard} style={{background:"var(--bg-input)",border:"1px solid var(--border)",borderRadius:20,padding:"5px 14px",color:"var(--text-2)",fontSize:12,cursor:"pointer"}}>+ Nova Lousa</button>
+      </div>
+      <WhiteboardCanvas key={active} boardId={active}/>
     </div>
   );
 }
@@ -1007,6 +1042,7 @@ function HomePage({ onNavigate }) {
       <WeatherTile onClick={()=>onNavigate("weather")}/>
       <MenuTile color="var(--tile-market)" emoji="📈" label="Mercado & Indicadores" sub="Bolsas, câmbio, cripto, notícias" wide onClick={()=>onNavigate("market")}/>
       <MenuTile color="var(--tile-white)"  emoji="🖊️" label="Whiteboard"   sub="Lousa digital"               onClick={()=>onNavigate("whiteboard")}/>
+      <MenuTile color="#1a3a2a"             emoji="💻" label=".BAT / Scripts" sub="Automações e comandos"       onClick={()=>onNavigate("bat")}/>
     </div>
   );
 }
@@ -1023,7 +1059,76 @@ const PAGE_META = {
   weather:    {label:"Clima",               emoji:"🌤"},
   market:     {label:"Mercado & Indicadores",emoji:"📈"},
   whiteboard: {label:"Whiteboard",          emoji:"🖊️"},
+  bat:        {label:".BAT / Scripts",       emoji:"💻"},
 };
+
+// ─── BAT PAGE ─────────────────────────────────────────────────────────────────
+function BatPage() {
+  const [scripts, setScripts] = useState(()=>S.get("bat_scripts",[
+    {id:1, name:"Olá Mundo", code:"@echo off\necho Olá Mundo!\npause", desc:"Script de exemplo"},
+    {id:2, name:"Info do Sistema", code:"@echo off\nsysteminfo\npause", desc:"Exibe informações do sistema"},
+  ]));
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({name:"",code:"",desc:""});
+  const [modal, setModal] = useState(false);
+
+  const save = n=>{ setScripts(n); S.set("bat_scripts",n); };
+  const add  = ()=>{
+    if(!form.name.trim()) return;
+    const s={id:Date.now(),...form};
+    save([...scripts,s]); setModal(false); setForm({name:"",code:"",desc:""});
+  };
+  const del  = id=>save(scripts.filter(s=>s.id!==id));
+  const download = s=>{
+    const blob=new Blob([s.code.replace(/\\n/g,"\n")],{type:"text/plain"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=s.name+".bat"; a.click();
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <div style={{fontSize:13,color:"var(--text-3)"}}>Scripts .BAT para Windows — edite, salve e baixe</div>
+        <button onClick={()=>setModal(true)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Novo Script</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:14}}>
+        {scripts.map(s=>(
+          <div key={s.id} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}>
+            <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:14}}>💻 {s.name}</div>
+                {s.desc&&<div style={{fontSize:11,color:"var(--text-3)",marginTop:2}}>{s.desc}</div>}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setEditing(s)} style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:8,padding:"5px 10px",color:"var(--accent)",fontSize:11,cursor:"pointer"}}>✏️ Editar</button>
+                <button onClick={()=>download(s)} style={{background:"rgba(46,204,138,0.1)",border:"1px solid rgba(46,204,138,0.3)",borderRadius:8,padding:"5px 10px",color:"var(--green)",fontSize:11,cursor:"pointer"}}>⬇ .bat</button>
+                <button onClick={()=>del(s.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
+              </div>
+            </div>
+            <pre style={{padding:"12px 16px",fontSize:12,color:"var(--text-2)",overflowX:"auto",fontFamily:"'DM Mono',monospace",lineHeight:1.6,maxHeight:160,overflowY:"auto",background:"var(--bg-input)",margin:0}}>{s.code}</pre>
+          </div>
+        ))}
+      </div>
+
+      {modal&&<Modal title="Novo Script .BAT" onClose={()=>setModal(false)} wide>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <input style={inp} placeholder="Nome do script" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+          <input style={inp} placeholder="Descrição (opcional)" value={form.desc} onChange={e=>setForm({...form,desc:e.target.value})}/>
+          <textarea style={{...inp,fontFamily:"'DM Mono',monospace",fontSize:13,resize:"vertical"}} rows={10} placeholder={"@echo off\necho Seu script aqui\npause"} value={form.code} onChange={e=>setForm({...form,code:e.target.value})}/>
+          <button onClick={add} style={btn()}>Salvar Script</button>
+        </div>
+      </Modal>}
+
+      {editing&&<Modal title={`Editar: ${editing.name}`} onClose={()=>setEditing(null)} wide>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <input style={inp} value={editing.name} onChange={e=>setEditing({...editing,name:e.target.value})}/>
+          <input style={inp} value={editing.desc} onChange={e=>setEditing({...editing,desc:e.target.value})}/>
+          <textarea style={{...inp,fontFamily:"'DM Mono',monospace",fontSize:13,resize:"vertical"}} rows={12} value={editing.code} onChange={e=>setEditing({...editing,code:e.target.value})}/>
+          <button onClick={()=>{ save(scripts.map(s=>s.id===editing.id?editing:s)); setEditing(null); }} style={btn()}>Salvar alterações</button>
+        </div>
+      </Modal>}
+    </div>
+  );
+}
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -1042,6 +1147,7 @@ export default function App() {
       case "weather":    return <WeatherPage/>;
       case "market":     return <MarketPage/>;
       case "whiteboard": return <WhiteboardPage/>;
+      case "bat":        return <BatPage/>;
       default:           return <HomePage onNavigate={setPage}/>;
     }
   };
@@ -1051,7 +1157,7 @@ export default function App() {
       {/* TOP BAR */}
       <header style={{background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:54,flexShrink:0,gap:16}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <div style={{width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,#3a8fd4,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:900,color:"#fff"}}>P</div>
+          <div style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>📱</div>
           <div>
             <div style={{fontWeight:800,fontSize:11,letterSpacing:1.5,lineHeight:1}}>PAINEL DE CONTROLE</div>
             <div style={{fontWeight:400,fontSize:9,letterSpacing:2,color:"var(--text-3)",lineHeight:1,marginTop:2}}>PESSOAL</div>
