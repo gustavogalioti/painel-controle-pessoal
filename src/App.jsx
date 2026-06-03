@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 const Icon = ({ path, size = 18, color = "currentColor" }) => (
@@ -8,586 +8,556 @@ const Icon = ({ path, size = 18, color = "currentColor" }) => (
   </svg>
 );
 const I = {
-  user:       "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
-  briefcase:  "M21 16V8a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z M3 10h18 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
-  info:       "M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z M12 8h.01 M11 12h1v4h1",
-  diary:      "M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z M22 3h-6a4 4 0 0 1-4 4v14a3 3 0 0 0 3-3h7z",
-  folder:     "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z",
-  bill:       "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8",
-  calendar:   "M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18",
-  star:       "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
-  newspaper:  "M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2z M2 7h2 M2 12h2 M2 17h2",
-  chart:      "M3 3v18h18 M7 16l4-4 4 4 4-8",
-  plus:       "M12 5v14 M5 12h14",
-  x:          "M18 6 6 18 M6 6l12 12",
-  bell:       "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0",
-  link:       "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
-  trash:      "M3 6h18 M19 6l-1 14H6L5 6 M8 6V4h8v2",
-  check:      "M20 6 9 17l-5-5",
-  monitor:    "M8 21h8 M12 17v4 M2 3h20v14H2z",
-  refresh:    "M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
-  external:   "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6 M15 3h6v6 M10 14 21 3",
+  x:       "M18 6 6 18 M6 6l12 12",
+  trash:   "M3 6h18 M19 6l-1 14H6L5 6 M8 6V4h8v2",
+  check:   "M20 6 9 17l-5-5",
+  plus:    "M12 5v14 M5 12h14",
+  edit:    "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
+  bell:    "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0",
+  back:    "M19 12H5 M12 19l-7-7 7-7",
+  refresh: "M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
+  monitor: "M8 21h8 M12 17v4 M2 3h20v14H2z",
+  link:    "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
+  folder:  "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z",
+  down:    "M6 9l6 6 6-6",
+  up:      "M18 15l-6-6-6 6",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-const now      = () => new Date().toLocaleString("pt-BR");
-const today    = () => new Date().toLocaleDateString("pt-BR", { weekday:"long", year:"numeric", month:"long", day:"numeric" });
-const fmtMoney = (v) => Number(v).toLocaleString("pt-BR", { style:"currency", currency:"BRL" });
-const fmtNum   = (v, dec = 2) => Number(v).toLocaleString("pt-BR", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const now     = () => new Date().toLocaleString("pt-BR");
+const nowISO  = () => new Date().toISOString();
+const fmtMoney= (v) => Number(v).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+const fmtNum  = (v, dec=2) => Number(v).toLocaleString("pt-BR",{minimumFractionDigits:dec,maximumFractionDigits:dec});
+const fmtPct  = (v) => v!=null&&!isNaN(v) ? `${Number(v)>=0?"+":""}${Number(v).toFixed(2)}%` : "--";
+const fmt$    = (v,pre="",dec=2) => v!=null&&!isNaN(v) ? `${pre}${fmtNum(v,dec)}` : "--";
 
-// ─── LOCAL STORAGE ────────────────────────────────────────────────────────────
+// ─── STORAGE ─────────────────────────────────────────────────────────────────
 const S = {
-  get: (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
-  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  get:(k,d)=>{ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch{return d;} },
+  set:(k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} },
 };
 
-// ─── DATABASE SYNC ────────────────────────────────────────────────────────────
+// ─── DB SYNC ─────────────────────────────────────────────────────────────────
 const DB = {
-  list: async (table) => {
-    try {
-      const r = await fetch(`/api/db?table=${table}`);
-      return await r.json();
-    } catch { return null; }
-  },
-  insert: async (table, row) => {
-    try {
-      await fetch(`/api/db?table=${table}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(row),
-      });
-    } catch {}
-  },
-  update: async (table, row) => {
-    try {
-      await fetch(`/api/db?table=${table}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(row),
-      });
-    } catch {}
-  },
-  delete: async (table, id) => {
-    try {
-      await fetch(`/api/db?table=${table}&id=${id}`, { method: "DELETE" });
-    } catch {}
-  },
+  list:  async (t)=>{ try{ const r=await fetch(`/api/db?table=${t}`); return await r.json(); }catch{return null;} },
+  insert:async (t,row)=>{ try{ await fetch(`/api/db?table=${t}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(row)}); }catch{} },
+  update:async (t,row)=>{ try{ await fetch(`/api/db?table=${t}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(row)}); }catch{} },
+  delete:async (t,id)=>{ try{ await fetch(`/api/db?table=${t}&id=${id}`,{method:"DELETE"}); }catch{} },
 };
 
-// Hook que sincroniza localStorage com banco ao carregar
-function useDB(table, localKey, defaultVal) {
-  const [data, setData] = useState(() => S.get(localKey, defaultVal));
+function useDB(table, localKey, def=[]) {
+  const [data, setData] = useState(()=>S.get(localKey,def));
   const [synced, setSynced] = useState(false);
 
-  useEffect(() => {
-    DB.list(table).then(async rows => {
-      const local = S.get(localKey, defaultVal);
-
-      if (rows && Array.isArray(rows) && rows.length > 0) {
-        // Banco tem dados — usa como fonte da verdade
-        // Merge: banco + itens locais que ainda não estão no banco
-        const bankIds = new Set(rows.map(r => String(r.id)));
-        const onlyLocal = local.filter(l => !bankIds.has(String(l.id)));
-
-        // Envia itens locais que faltam no banco
-        for (const item of onlyLocal) {
-          await DB.insert(table, item);
-        }
-
-        const allRows = [...rows, ...onlyLocal];
-        const sorted  = allRows.sort((a,b) => Number(b.id) - Number(a.id));
-        setData(sorted);
-        S.set(localKey, sorted);
-
-      } else if (local.length > 0) {
-        // Banco vazio mas tem dados locais — migra tudo para o banco
-        for (const item of local) {
-          await DB.insert(table, item);
-        }
+  useEffect(()=>{
+    DB.list(table).then(async rows=>{
+      const local = S.get(localKey, def);
+      if(rows && Array.isArray(rows) && rows.length>0){
+        const bankIds = new Set(rows.map(r=>String(r.id)));
+        const onlyLocal = local.filter(l=>!bankIds.has(String(l.id)));
+        for(const item of onlyLocal) await DB.insert(table,item);
+        const all = [...rows,...onlyLocal].sort((a,b)=>Number(b.id)-Number(a.id));
+        setData(all); S.set(localKey,all);
+      } else if(local.length>0){
+        for(const item of local) await DB.insert(table,item);
         setData(local);
-
-      } else {
-        setData(defaultVal);
       }
-
       setSynced(true);
     });
-  }, [table]);
+  },[table]);
 
-  return [data, setData, synced];
+  return [data,setData,synced];
 }
 
-// ─── API KEYS ─────────────────────────────────────────────────────────────────
-const BRAPI_TOKEN = "4NkivGqSUVTRj1JX3TZSZ5";
+// ─── SHARED UI ───────────────────────────────────────────────────────────────
+const inp = { width:"100%",background:"var(--bg-input)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px",color:"var(--text-1)",fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit" };
+const btn = (c="var(--accent)") => ({ background:c,border:"none",borderRadius:10,padding:"10px 20px",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit" });
 
-// ─── SHARED STYLES ────────────────────────────────────────────────────────────
-const inp = {
-  width: "100%", background: "var(--bg-input)", border: "1px solid var(--border)",
-  borderRadius: 10, padding: "10px 14px", color: "var(--text-1)", fontSize: 14,
-  outline: "none", boxSizing: "border-box", fontFamily: "inherit",
-};
-const primaryBtn = (color = "var(--accent)") => ({
-  background: color, border: "none", borderRadius: 10, padding: "10px 20px",
-  color: "#fff", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "inherit",
-});
+function Modal({ title, onClose, children, wide }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",backdropFilter:"blur(8px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:20,width:"100%",maxWidth:wide?760:520,maxHeight:"85vh",overflow:"auto",animation:"fadeIn .2s ease"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"20px 24px",borderBottom:"1px solid var(--border)"}}>
+          <span style={{fontWeight:700,fontSize:16}}>{title}</span>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.x} size={20}/></button>
+        </div>
+        <div style={{padding:24}}>{children}</div>
+      </div>
+    </div>
+  );
+}
 
-// ─── REAL MARKET DATA HOOK ────────────────────────────────────────────────────
+const Empty = ({text})=><div style={{textAlign:"center",color:"var(--text-3)",padding:"40px 0",fontSize:14}}>{text}</div>;
+const LiveBadge = ({label="LIVE"})=>(
+  <div style={{display:"flex",gap:6,alignItems:"center",color:"var(--green)",fontSize:12,fontWeight:600}}>
+    <span style={{width:6,height:6,borderRadius:"50%",background:"var(--green)",display:"inline-block",animation:"pulse 2s infinite"}}/>
+    {label}
+  </div>
+);
+
+// ─── MARKET DATA ─────────────────────────────────────────────────────────────
 function useMarketData() {
-  const EMPTY = { val: "--", chg: "--", raw: 0 };
   const [data, setData] = useState({
-    dolar:  {...EMPTY}, ibov:   {...EMPTY}, sp500:  {...EMPTY},
-    ouro:   {...EMPTY}, btc:    {...EMPTY}, euro:   {...EMPTY},
-    selic:  { val: "14,75%", chg: "a.a.", raw: 14.75 },
-    brent:  {...EMPTY}, eth:    {...EMPTY}, nasdaq: {...EMPTY},
-    dow:    {...EMPTY}, vix:    {...EMPTY},
+    dolar:{val:"--",chg:"--"}, ibov:{val:"--",chg:"--"},
+    sp500:{val:"--",chg:"--"}, ouro:{val:"--",chg:"--"},
+    btc:  {val:"--",chg:"--"}, euro:{val:"--",chg:"--"},
   });
-  const [lastUpdate, setLastUpdate] = useState(null);
-  const [loading, setLoading]       = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  const fmt    = (v, pre="", dec=2) => (v!=null&&!isNaN(v)) ? `${pre}${fmtNum(v,dec)}` : "--";
-  const fmtPct = (v) => (v!=null&&!isNaN(v)) ? `${Number(v)>=0?"+":""}${Number(v).toFixed(2)}%` : "--";
-
-  const fetchData = async () => {
+  const fetch_ = async () => {
     try {
-      const res = await fetch("/api/market");
-      const d   = await res.json();
-
-      setData(prev => ({
-        ...prev,
-        dolar:  { val: fmt(d.dolar?.price,  "R$ "),   chg: fmtPct(d.dolar?.chg),  raw: d.dolar?.price  || 0 },
-        ibov:   { val: fmt(d.ibov?.price,   "", 0),   chg: fmtPct(d.ibov?.chg),   raw: d.ibov?.price   || 0 },
-        sp500:  { val: fmt(d.sp500?.price,  "", 0),   chg: fmtPct(d.sp500?.chg),  raw: d.sp500?.price  || 0 },
-        nasdaq: { val: fmt(d.nasdaq?.price, "", 0),   chg: fmtPct(d.nasdaq?.chg), raw: d.nasdaq?.price || 0 },
-        dow:    { val: fmt(d.dow?.price,    "", 0),   chg: fmtPct(d.dow?.chg),    raw: d.dow?.price    || 0 },
-        vix:    { val: fmt(d.vix?.price),              chg: fmtPct(d.vix?.chg),    raw: d.vix?.price    || 0 },
-        btc:    { val: fmt(d.btc?.price,    "$ ", 0), chg: fmtPct(d.btc?.chg),    raw: d.btc?.price    || 0 },
-        eth:    { val: fmt(d.eth?.price,    "$ "),    chg: fmtPct(d.eth?.chg),    raw: d.eth?.price    || 0 },
-        euro:   { val: fmt(d.euro?.price,   "R$ "),   chg: fmtPct(d.euro?.chg),   raw: d.euro?.price   || 0 },
-        ouro:   { val: fmt(d.ouro?.price,   "R$ ", 0),chg: fmtPct(d.ouro?.chg),   raw: d.ouro?.price   || 0 },
-        brent:  { val: fmt(d.brent?.price,  "$ "),    chg: fmtPct(d.brent?.chg),  raw: d.brent?.price  || 0 },
-      }));
-
-      setLastUpdate(new Date());
-    } catch(e) {
-      console.error("Market error:", e);
-    } finally {
+      const r = await fetch("/api/market");
+      const d = await r.json();
+      setData({
+        dolar:{val:fmt$(d.dolar?.price,"R$ "),  chg:fmtPct(d.dolar?.chg)},
+        ibov: {val:fmt$(d.ibov?.price,"",0),    chg:fmtPct(d.ibov?.chg)},
+        sp500:{val:fmt$(d.sp500?.price,"",0),   chg:fmtPct(d.sp500?.chg)},
+        ouro: {val:fmt$(d.ouro?.price,"R$ ",0), chg:fmtPct(d.ouro?.chg)},
+        btc:  {val:fmt$(d.btc?.price,"$ ",0),   chg:fmtPct(d.btc?.chg)},
+        euro: {val:fmt$(d.euro?.price,"R$ "),   chg:fmtPct(d.euro?.chg)},
+      });
       setLoading(false);
-    }
+    } catch {}
   };
 
-  useEffect(() => {
-    fetchData();
-    const id = setInterval(fetchData, 90000);
-    return () => clearInterval(id);
-  }, []);
-
-  return { data, lastUpdate, loading, refresh: fetchData };
+  useEffect(()=>{ fetch_(); const id=setInterval(fetch_,90000); return()=>clearInterval(id); },[]);
+  return {data,loading,refresh:fetch_};
 }
 
+// ─── WEATHER ─────────────────────────────────────────────────────────────────
+function useWeather() {
+  const [weather, setWeather] = useState(null);
+  useEffect(()=>{
+    if(!navigator.geolocation){ setWeather({error:"GPS indisponível"}); return; }
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      try {
+        const {latitude:lat,longitude:lon} = pos.coords;
+        const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto`);
+        const d = await r.json();
+        const c = d.current;
+        const codes = {0:"☀️ Céu limpo",1:"🌤 Quase limpo",2:"⛅ Parcialmente nublado",3:"☁️ Nublado",45:"🌫 Névoa",48:"🌫 Névoa com gelo",51:"🌦 Chuvisco leve",61:"🌧 Chuva leve",63:"🌧 Chuva moderada",65:"🌧 Chuva forte",71:"❄️ Neve leve",80:"🌦 Aguaceiros",95:"⛈ Tempestade"};
+        setWeather({ temp:c.temperature_2m, humidity:c.relative_humidity_2m, wind:c.wind_speed_10m, desc:codes[c.weather_code]||"🌡 Variável", unit:d.current_units?.temperature_2m||"°C" });
+        // Reverse geocode
+        const geo = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`);
+        const gd  = await geo.json();
+        setWeather(prev=>({...prev, city: gd.address?.city||gd.address?.town||gd.address?.county||"Sua localização"}));
+      } catch { setWeather({error:"Erro ao buscar clima"}); }
+    }, ()=>setWeather({error:"Permissão negada"}));
+  },[]);
+  return weather;
+}
 
-// ─── MARKET TICKER ────────────────────────────────────────────────────────────
-function MarketTicker({ compact, marketData }) {
-  const { data, loading } = marketData;
-
+// ─── TICKER STRIP ────────────────────────────────────────────────────────────
+function TickerStrip({ market }) {
+  const { data, loading } = market;
   const items = [
-    { label:"DÓLAR",   val: data.dolar.val,  chg: data.dolar.chg,  color:"var(--green)"  },
-    { label:"IBOV",    val: data.ibov.val,   chg: data.ibov.chg,   color:"var(--accent)" },
-    { label:"S&P 500", val: data.sp500.val,  chg: data.sp500.chg,  color:"var(--purple)" },
-    { label:"OURO",    val: data.ouro.val,   chg: data.ouro.chg,   color:"var(--yellow)" },
-    { label:"BITCOIN", val: data.btc.val,    chg: data.btc.chg,    color:"var(--orange)" },
+    {l:"DÓLAR",   v:data.dolar.val, c:data.dolar.chg, color:"var(--green)" },
+    {l:"IBOV",    v:data.ibov.val,  c:data.ibov.chg,  color:"var(--accent)"},
+    {l:"S&P 500", v:data.sp500.val, c:data.sp500.chg, color:"var(--purple)"},
+    {l:"OURO",    v:data.ouro.val,  c:data.ouro.chg,  color:"var(--yellow)"},
+    {l:"BITCOIN", v:data.btc.val,   c:data.btc.chg,   color:"var(--orange)"},
+    {l:"EURO",    v:data.euro.val,  c:data.euro.chg,  color:"var(--text-2)"},
   ];
-
-  const isUp = (chg) => chg && !chg.startsWith("-") && chg !== "--";
-
-  if (compact) return (
-    <div style={{ display:"flex", gap:22, alignItems:"center" }}>
-      {items.map(i => (
-        <div key={i.label} style={{ display:"flex", flexDirection:"column" }}>
-          <span style={{ fontSize:9, color:"var(--text-3)", letterSpacing:1, fontWeight:700 }}>{i.label}</span>
-          <span style={{ fontSize:12, fontWeight:700, color: loading ? "var(--text-3)" : i.color, fontFamily:"'DM Mono',monospace" }}>
-            {loading ? "···" : i.val}
-          </span>
-          <span style={{ fontSize:10, color: isUp(i.chg) ? "var(--green)" : i.chg === "--" ? "var(--text-3)" : "var(--red)" }}>
-            {!loading && i.chg !== "--" ? (isUp(i.chg) ? "▲" : "▼") : ""} {loading ? "" : i.chg}
+  const isUp = c => c && !c.startsWith("-") && c!=="--";
+  return (
+    <div style={{display:"flex",gap:28,alignItems:"center",overflowX:"auto",paddingBottom:2}}>
+      {items.map(i=>(
+        <div key={i.l} style={{display:"flex",flexDirection:"column",flexShrink:0}}>
+          <span style={{fontSize:9,color:"var(--text-3)",letterSpacing:1,fontWeight:700}}>{i.l}</span>
+          <span style={{fontSize:13,fontWeight:700,color:loading?"var(--text-3)":i.color,fontFamily:"'DM Mono',monospace"}}>{loading?"···":i.v}</span>
+          <span style={{fontSize:10,color:isUp(i.c)?"var(--green)":i.c==="--"?"var(--text-3)":"var(--red)"}}>
+            {!loading&&i.c!=="--"?(isUp(i.c)?"▲":"▼")+" "+i.c:""}
           </span>
         </div>
       ))}
     </div>
   );
-
-  return (
-    <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12 }}>
-      {items.map(i => {
-        const up = isUp(i.chg);
-        return (
-          <div key={i.label} style={{ background:"var(--bg-card)", border:`1px solid ${i.color}2a`, borderRadius:14, padding:"16px 20px", position:"relative", overflow:"hidden" }}>
-            <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background: loading ? "var(--border)" : i.color }} />
-            <div style={{ fontSize:10, color:"var(--text-3)", letterSpacing:2, fontWeight:700, marginBottom:8 }}>{i.label}</div>
-            <div style={{ fontSize:22, fontWeight:800, color: loading ? "var(--text-3)" : i.color, fontFamily:"'DM Mono',monospace", marginBottom:4 }}>
-              {loading ? "···" : i.val}
-            </div>
-            <div style={{ fontSize:12, color: up ? "var(--green)" : i.chg === "--" ? "var(--text-3)" : "var(--red)", fontWeight:600 }}>
-              {!loading && i.chg !== "--" ? (up ? "▲" : "▼") + " " + i.chg : loading ? "carregando..." : "--"}
-            </div>
-            <div style={{ position:"absolute", bottom:8, right:12, fontSize:9, color:"var(--green)" }}>LIVE</div>
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
-// ─── MODAL ───────────────────────────────────────────────────────────────────
-function Modal({ title, onClose, children, wide }) {
-  return (
-    <div style={{ position:"fixed", inset:0, background:"rgba(10,18,32,0.75)", backdropFilter:"blur(8px)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-      <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:20, width:"100%", maxWidth: wide ? 760 : 520, maxHeight:"85vh", overflow:"auto", boxShadow:"0 40px 80px rgba(0,0,0,0.5)", animation:"fadeIn .2s ease" }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"20px 24px", borderBottom:"1px solid var(--border)" }}>
-          <span style={{ fontWeight:700, fontSize:16 }}>{title}</span>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:"var(--text-3)", cursor:"pointer", display:"flex" }}>
-            <Icon path={I.x} size={20} />
-          </button>
-        </div>
-        <div style={{ padding:24 }}>{children}</div>
-      </div>
-    </div>
-  );
-}
-
-// ─── SMALL HELPERS ────────────────────────────────────────────────────────────
-const Empty = ({ text }) => (
-  <div style={{ textAlign:"center", color:"var(--text-3)", padding:"40px 0", fontSize:14 }}>{text}</div>
-);
-const Label = ({ text, color, style: sx = {} }) => (
-  <div style={{ fontSize:11, color: color||"var(--accent)", letterSpacing:2, fontWeight:700, marginBottom:14, paddingBottom:8, borderBottom:"1px solid var(--border-2)", ...sx }}>{text}</div>
-);
-const LiveBadge = ({ label = "LIVE" }) => (
-  <div style={{ display:"flex", gap:6, alignItems:"center", color:"var(--green)", fontSize:12, fontWeight:600 }}>
-    <span style={{ width:6, height:6, borderRadius:"50%", background:"var(--green)", display:"inline-block", animation:"pulse 2s infinite" }} />
-    {label}
-  </div>
-);
-
-// ─── TASKS SECTION ───────────────────────────────────────────────────────────
-function TasksSection() {
-  const [tasks, setTasks, synced] = useDB("tasks", "tasks", []);
-  const [text, setText]   = useState("");
-  const [prio, setPrio]   = useState("normal");
-  const [filter, setFilter] = useState("all");
-
-  const save = (n) => { setTasks(n); S.set("tasks", n); };
-
-  const add = () => {
-    if (!text.trim()) return;
-    const t = { id: Date.now(), text, prio, done: false, date: new Date().toISOString() };
-    const n = [t, ...tasks];
-    save(n);
-    DB.insert("tasks", t);
-    setText("");
-  };
-
-  const toggle = (id) => {
-    const t = tasks.find(t => t.id === id);
-    if (!t) return;
-    const updated = { ...t, done: !t.done };
-    save(tasks.map(t => t.id === id ? updated : t));
-    DB.update("tasks", { id, done: !t.done });
-  };
-  const del = (id) => { save(tasks.filter(t => t.id !== id)); DB.delete("tasks", id); };
-
-  const prioColors = { alta: "var(--red)", normal: "var(--accent)", baixa: "var(--text-3)" };
-  const prioLabels = { alta: "🔴 Alta", normal: "🔵 Normal", baixa: "⚪ Baixa" };
-
-  const filtered = tasks.filter(t =>
-    filter === "all"  ? true :
-    filter === "done" ? t.done :
-    filter === "todo" ? !t.done : t.prio === filter
-  );
-
-  const counts = {
-    todo: tasks.filter(t => !t.done).length,
-    done: tasks.filter(t => t.done).length,
-  };
-
-  return (
-    <div style={{ maxWidth: 800 }}>
-      {/* Input */}
-      <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, padding:20, marginBottom:20 }}>
-        <div style={{ fontSize:10, color:"var(--accent)", letterSpacing:2, fontWeight:800, marginBottom:12 }}>✅ NOVA TAREFA</div>
-        <textarea value={text} onChange={e => setText(e.target.value)}
-          placeholder="Descreva a tarefa..." rows={2}
-          style={{ ...inp, resize:"none", marginBottom:12 }}
-          onKeyDown={e => { if (e.ctrlKey && e.key === "Enter") add(); }}
-        />
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <div style={{ display:"flex", gap:8 }}>
-            {["alta","normal","baixa"].map(p => (
-              <button key={p} onClick={() => setPrio(p)}
-                style={{ background: prio===p ? prioColors[p]+"22" : "var(--bg-input)", border: `1px solid ${prio===p ? prioColors[p] : "var(--border)"}`, borderRadius:20, padding:"5px 12px", color: prio===p ? prioColors[p] : "var(--text-3)", fontSize:11, fontWeight:700, cursor:"pointer" }}>
-                {prioLabels[p]}
-              </button>
-            ))}
-          </div>
-          <button onClick={add} style={{ ...primaryBtn(), padding:"8px 20px" }}>+ Adicionar</button>
-        </div>
-      </div>
-
-      {/* Stats + Filter */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
-        <div style={{ display:"flex", gap:6 }}>
-          {[["all","Todas"], ["todo","Pendentes"], ["done","Concluídas"], ["alta","Alta"], ["normal","Normal"], ["baixa","Baixa"]].map(([id, label]) => (
-            <button key={id} onClick={() => setFilter(id)}
-              style={{ background: filter===id ? "var(--accent)" : "var(--bg-card)", border:"none", borderRadius:20, padding:"5px 12px", color: filter===id ? "#fff" : "var(--text-2)", fontSize:11, fontWeight:600, cursor:"pointer" }}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <span style={{ fontSize:11, color:"var(--text-3)" }}>
-          {counts.todo} pendente{counts.todo !== 1 ? "s" : ""} · {counts.done} concluída{counts.done !== 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {/* List */}
-      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {filtered.map(t => (
-          <div key={t.id} style={{ background:"var(--bg-card)", border:`1px solid ${t.done ? "var(--border-2)" : prioColors[t.prio]+"44"}`, borderRadius:12, padding:"12px 16px", display:"flex", gap:12, alignItems:"flex-start", opacity: t.done ? 0.55 : 1, transition:"opacity .2s" }}>
-            <button onClick={() => toggle(t.id)}
-              style={{ width:22, height:22, borderRadius:6, border:`2px solid ${t.done ? "var(--green)" : prioColors[t.prio]}`, background: t.done ? "var(--green)" : "transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
-              {t.done && <Icon path={I.check} size={12} color="#fff" />}
-            </button>
-            <div style={{ flex:1 }}>
-              <p style={{ margin:0, fontSize:14, color:"var(--text-1)", lineHeight:1.5, textDecoration: t.done ? "line-through" : "none" }}>{t.text}</p>
-              <div style={{ display:"flex", gap:10, marginTop:4, fontSize:10, color:"var(--text-3)" }}>
-                <span style={{ color: prioColors[t.prio], fontWeight:700 }}>{prioLabels[t.prio]}</span>
-                <span>{new Date(t.date).toLocaleDateString("pt-BR")} · {new Date(t.date).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}</span>
-              </div>
-            </div>
-            <button onClick={() => del(t.id)} style={{ background:"none", border:"none", color:"var(--text-3)", cursor:"pointer", flexShrink:0 }}>
-              <Icon path={I.trash} size={14} />
-            </button>
-          </div>
-        ))}
-        {filtered.length === 0 && <Empty text="Nenhuma tarefa aqui." />}
-      </div>
-    </div>
-  );
-}
-
-// ─── DIARY ───────────────────────────────────────────────────────────────────
-function NoteColumn({ storageKey, title, placeholder, accent, emoji }) {
+// ─── NOTE COLUMN (Diary / Ideas / Reminders) ─────────────────────────────────
+function NoteColumn({ storageKey, title, placeholder, accent, emoji, hasCheck }) {
   const [entries, setEntries, synced] = useDB(storageKey, storageKey, []);
-  const [text, setText] = useState("");
-  const [mood, setMood] = useState("🙂");
+  const [text, setText]   = useState("");
+  const [mood, setMood]   = useState("🙂");
   const moods = ["😄","🙂","😐","😔","😤","🤔","🎉"];
+  const showMoods = storageKey==="diary";
 
   const add = () => {
-    if (!text.trim()) return;
-    const e = { id: Date.now(), text, mood, date: new Date().toISOString() };
-    const n = [e, ...entries];
-    setEntries(n);
-    S.set(storageKey, n);
-    DB.insert(storageKey, e);
-    setText("");
+    if(!text.trim()) return;
+    const e = {id:Date.now(),text,mood,done:false,date:nowISO()};
+    const n = [e,...entries];
+    setEntries(n); S.set(storageKey,n); DB.insert(storageKey,e); setText("");
   };
-  const del = (id) => {
-    const n = entries.filter(e => e.id !== id);
-    setEntries(n);
-    S.set(storageKey, n);
-    DB.delete(storageKey, id);
-  };
+  const del   = id=>{ const n=entries.filter(e=>e.id!==id); setEntries(n); S.set(storageKey,n); DB.delete(storageKey,id); };
+  const tick  = id=>{ const n=entries.map(e=>e.id===id?{...e,done:!e.done}:e); setEntries(n); S.set(storageKey,n); DB.update(storageKey,{id,done:!entries.find(e=>e.id===id)?.done}); };
 
-  const grouped = entries.reduce((acc, e) => {
-    const d = new Date(e.date).toLocaleDateString("pt-BR", { day:"numeric", month:"short", year:"numeric" });
-    (acc[d] = acc[d] || []).push(e);
-    return acc;
-  }, {});
-
-  const showMoods = storageKey === "diary";
+  const grouped = entries.reduce((acc,e)=>{
+    const d=new Date(e.date).toLocaleDateString("pt-BR",{day:"numeric",month:"short",year:"numeric"});
+    (acc[d]=acc[d]||[]).push(e); return acc;
+  },{});
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
-      {/* Input */}
-      <div style={{ background:"var(--bg-card)", border:`1px solid var(--border)`, borderRadius:14, padding:16, marginBottom:16 }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-          <div style={{ fontSize:10, color: accent, letterSpacing:2, fontWeight:800 }}>{emoji} {title.toUpperCase()}</div>
-          <div style={{ fontSize:9, color: synced ? "var(--green)" : "var(--text-3)" }}>{synced ? "☁ sincronizado" : "sincronizando..."}</div>
+    <div style={{display:"flex",flexDirection:"column",gap:0}}>
+      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:16,marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:10,color:accent,letterSpacing:2,fontWeight:800}}>{emoji} {title.toUpperCase()}</div>
+          <div style={{fontSize:9,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"syncing..."}</div>
         </div>
-        {showMoods && (
-          <div style={{ display:"flex", gap:6, marginBottom:10, flexWrap:"wrap" }}>
-            {moods.map(m => (
-              <button key={m} onClick={() => setMood(m)} style={{ fontSize:18, background: mood===m ? "var(--bg-input)" : "none", border: mood===m ? `1px solid ${accent}` : "1px solid transparent", borderRadius:8, padding:"3px 6px", cursor:"pointer" }}>{m}</button>
-            ))}
-          </div>
-        )}
-        <textarea value={text} onChange={e => setText(e.target.value)}
-          placeholder={placeholder} rows={3}
-          style={{ ...inp, resize:"vertical", marginBottom:10, fontSize:13 }}
-          onKeyDown={e => { if (e.ctrlKey && e.key === "Enter") add(); }}
-        />
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <span style={{ fontSize:10, color:"var(--text-3)" }}>{entries.length} registro{entries.length !== 1 ? "s" : ""}</span>
-          <button onClick={add} style={{ ...primaryBtn(accent), padding:"7px 16px", fontSize:13 }}>+ Salvar</button>
+        {showMoods&&<div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+          {moods.map(m=><button key={m} onClick={()=>setMood(m)} style={{fontSize:18,background:mood===m?"var(--bg-input)":"none",border:mood===m?`1px solid ${accent}`:"1px solid transparent",borderRadius:8,padding:"3px 6px",cursor:"pointer"}}>{m}</button>)}
+        </div>}
+        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder={placeholder} rows={3}
+          style={{...inp,resize:"vertical",marginBottom:10,fontSize:13}}
+          onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:10,color:"var(--text-3)"}}>{entries.length} registro{entries.length!==1?"s":""}</span>
+          <button onClick={add} style={{...btn(accent),padding:"7px 16px",fontSize:13}}>+ Salvar</button>
         </div>
       </div>
-
-      {/* History */}
-      <div style={{ overflowY:"auto", maxHeight:"calc(100vh - 360px)" }}>
-        {Object.entries(grouped).length === 0 && (
-          <div style={{ textAlign:"center", color:"var(--text-3)", padding:"20px 0", fontSize:12 }}>Nenhum registro ainda</div>
-        )}
-        {Object.entries(grouped).map(([date, es]) => (
-          <div key={date} style={{ marginBottom:16 }}>
-            <div style={{ fontSize:9, color: accent, letterSpacing:2, fontWeight:700, marginBottom:8, paddingBottom:4, borderBottom:`1px solid var(--border-2)` }}>{date.toUpperCase()}</div>
-            {es.map(e => (
-              <div key={e.id} style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, padding:"10px 14px", marginBottom:8, display:"flex", gap:10, alignItems:"flex-start" }}>
-                {showMoods && <span style={{ fontSize:18, flexShrink:0 }}>{e.mood}</span>}
-                <div style={{ flex:1, minWidth:0 }}>
-                  <p style={{ margin:0, color:"var(--text-2)", lineHeight:1.6, fontSize:13, whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{e.text}</p>
-                  <span style={{ fontSize:10, color:"var(--text-3)", marginTop:4, display:"block" }}>
-                    {new Date(e.date).toLocaleTimeString("pt-BR", { hour:"2-digit", minute:"2-digit" })}
-                  </span>
+      <div style={{overflowY:"auto",maxHeight:"calc(100vh - 380px)"}}>
+        {Object.entries(grouped).map(([date,es])=>(
+          <div key={date} style={{marginBottom:16}}>
+            <div style={{fontSize:9,color:accent,letterSpacing:2,fontWeight:700,marginBottom:8,paddingBottom:4,borderBottom:"1px solid var(--border-2)"}}>{date.toUpperCase()}</div>
+            {es.map(e=>(
+              <div key={e.id} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",gap:10,alignItems:"flex-start",opacity:e.done?0.55:1}}>
+                {hasCheck&&<button onClick={()=>tick(e.id)} style={{width:20,height:20,borderRadius:5,border:`2px solid ${e.done?"var(--green)":"var(--border)"}`,background:e.done?"var(--green)":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+                  {e.done&&<Icon path={I.check} size={11} color="#fff"/>}
+                </button>}
+                {showMoods&&<span style={{fontSize:18,flexShrink:0}}>{e.mood}</span>}
+                <div style={{flex:1,minWidth:0}}>
+                  <p style={{margin:0,color:"var(--text-2)",lineHeight:1.6,fontSize:13,whiteSpace:"pre-wrap",wordBreak:"break-word",textDecoration:e.done?"line-through":"none"}}>{e.text}</p>
+                  <span style={{fontSize:10,color:"var(--text-3)",marginTop:4,display:"block"}}>{new Date(e.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
                 </div>
-                <button onClick={() => del(e.id)} style={{ background:"none", border:"none", color:"var(--text-3)", cursor:"pointer", flexShrink:0 }}>
-                  <Icon path={I.trash} size={12} />
+                <button onClick={()=>del(e.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",flexShrink:0}}>
+                  <Icon path={I.trash} size={12}/>
                 </button>
               </div>
             ))}
           </div>
         ))}
+        {entries.length===0&&<Empty text="Nenhum registro ainda"/>}
       </div>
     </div>
   );
 }
 
-function DiarySection() {
+// ─── DIARY PAGE ───────────────────────────────────────────────────────────────
+function DiaryPage() {
   return (
     <div className="diary-grid">
-      <NoteColumn
-        storageKey="diary"
-        title="Diário"
-        placeholder="O que está em sua mente hoje?"
-        accent="var(--accent)"
-        emoji="📓"
-      />
-      <NoteColumn
-        storageKey="ideas"
-        title="Ideias"
-        placeholder="Anote uma ideia..."
-        accent="var(--purple)"
-        emoji="💡"
-      />
-      <NoteColumn
-        storageKey="reminders"
-        title="Lembretes"
-        placeholder="Adicione um lembrete..."
-        accent="var(--yellow)"
-        emoji="🔔"
-      />
+      <NoteColumn storageKey="diary"     title="Diário"    placeholder="O que está em sua mente hoje?" accent="var(--accent)"  emoji="📓"/>
+      <NoteColumn storageKey="ideas"     title="Ideias"    placeholder="Anote uma ideia..."             accent="var(--purple)" emoji="💡"/>
+      <NoteColumn storageKey="reminders" title="Lembretes" placeholder="Adicione um lembrete..."        accent="var(--yellow)" emoji="🔔" hasCheck/>
     </div>
   );
 }
 
-// ─── DOCUMENTS ───────────────────────────────────────────────────────────────
-function DocsSection() {
-  const [docs, setDocs] = useState(() => S.get("docs", []));
+// ─── TASKS PAGE ───────────────────────────────────────────────────────────────
+function TasksPage() {
+  const [tasks, setTasks, synced] = useDB("tasks","tasks",[]);
+  const [text, setText]   = useState("");
+  const [prio, setPrio]   = useState("normal");
+  const [filter, setFilter] = useState("all");
+  const [editing, setEditing] = useState(null);
+  const [editModal, setEditModal] = useState(null);
+  const [addNote, setAddNote] = useState("");
+
+  const prioColor = {alta:"var(--red)",normal:"var(--accent)",baixa:"var(--text-3)"};
+  const prioLabel = {alta:"🔴 Alta",normal:"🔵 Normal",baixa:"⚪ Baixa"};
+
+  const save = n=>{ setTasks(n); S.set("tasks",n); };
+
+  const add = ()=>{
+    if(!text.trim()) return;
+    const t={id:Date.now(),text,prio,done:false,date:nowISO(),notes:[],updates:[]};
+    const n=[t,...tasks]; save(n); DB.insert("tasks",t); setText("");
+  };
+  const toggle = id=>{
+    const t=tasks.find(t=>t.id===id);
+    if(!t) return;
+    const n=tasks.map(t=>t.id===id?{...t,done:!t.done}:t); save(n); DB.update("tasks",{id,done:!t.done});
+  };
+  const del = id=>{ save(tasks.filter(t=>t.id!==id)); DB.delete("tasks",id); };
+  const addTaskNote = (id)=>{
+    if(!addNote.trim()) return;
+    const note={text:addNote,date:now()};
+    const n=tasks.map(t=>t.id===id?{...t,updates:[...(t.updates||[]),note]}:t);
+    save(n);
+    const updated=n.find(t=>t.id===id);
+    DB.update("tasks",{id,updates:updated.updates});
+    setEditModal(updated);
+    setAddNote("");
+  };
+
+  const filtered = tasks.filter(t=>
+    filter==="all"?true: filter==="done"?t.done: filter==="todo"?!t.done: t.prio===filter
+  );
+
+  return (
+    <div>
+      {/* Input */}
+      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:20,marginBottom:20}}>
+        <div style={{fontSize:10,color:"var(--accent)",letterSpacing:2,fontWeight:800,marginBottom:12}}>✅ NOVA TAREFA</div>
+        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Descreva a tarefa..." rows={2}
+          style={{...inp,resize:"none",marginBottom:12}} onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",gap:8}}>
+            {["alta","normal","baixa"].map(p=>(
+              <button key={p} onClick={()=>setPrio(p)} style={{background:prio===p?prioColor[p]+"22":"var(--bg-input)",border:`1px solid ${prio===p?prioColor[p]:"var(--border)"}`,borderRadius:20,padding:"5px 12px",color:prio===p?prioColor[p]:"var(--text-3)",fontSize:11,fontWeight:700,cursor:"pointer"}}>{prioLabel[p]}</button>
+            ))}
+          </div>
+          <button onClick={add} style={{...btn(),padding:"8px 20px"}}>+ Adicionar</button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {[["all","Todas"],["todo","Pendentes"],["done","Concluídas"],["alta","Alta"],["normal","Normal"]].map(([id,label])=>(
+            <button key={id} onClick={()=>setFilter(id)} style={{background:filter===id?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"5px 12px",color:filter===id?"#fff":"var(--text-2)",fontSize:11,fontWeight:600,cursor:"pointer"}}>{label}</button>
+          ))}
+        </div>
+        <span style={{fontSize:11,color:"var(--text-3)"}}>{tasks.filter(t=>!t.done).length} pendentes</span>
+      </div>
+
+      {/* Cards grid */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+        {filtered.map(t=>(
+          <div key={t.id} onClick={()=>setEditModal(t)} style={{background:"var(--bg-card)",border:`1px solid ${t.done?"var(--border-2)":prioColor[t.prio]+"44"}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",opacity:t.done?0.6:1,transition:"opacity .2s"}}>
+            <div style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:8}}>
+              <button onClick={e=>{e.stopPropagation();toggle(t.id);}} style={{width:22,height:22,borderRadius:6,border:`2px solid ${t.done?"var(--green)":prioColor[t.prio]}`,background:t.done?"var(--green)":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+                {t.done&&<Icon path={I.check} size={12} color="#fff"/>}
+              </button>
+              <p style={{margin:0,fontSize:14,color:"var(--text-1)",lineHeight:1.5,textDecoration:t.done?"line-through":"none",flex:1}}>{t.text}</p>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"var(--text-3)"}}>
+              <span style={{color:prioColor[t.prio],fontWeight:700}}>{prioLabel[t.prio]}</span>
+              <span>{new Date(t.date).toLocaleDateString("pt-BR")} {new Date(t.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
+            </div>
+            {t.updates?.length>0&&<div style={{fontSize:10,color:"var(--accent)",marginTop:6}}>{t.updates.length} atualização(ões)</div>}
+            <button onClick={e=>{e.stopPropagation();del(t.id);}} style={{position:"absolute",display:"none"}}>x</button>
+          </div>
+        ))}
+        {filtered.length===0&&<Empty text="Nenhuma tarefa aqui."/>}
+      </div>
+
+      {editModal&&(
+        <Modal title={editModal.text.slice(0,40)+"..."} onClose={()=>{setEditModal(null);setAddNote("");}}>
+          <div style={{marginBottom:16}}>
+            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12}}>
+              <button onClick={()=>toggle(editModal.id)} style={{...btn(editModal.done?"var(--green)":"var(--bg-input)"),padding:"6px 14px",fontSize:12,border:`1px solid ${editModal.done?"var(--green)":"var(--border)"}`}}>
+                {editModal.done?"✅ Concluída":"⬜ Pendente"}
+              </button>
+              <span style={{fontSize:11,color:prioColor[editModal.prio],fontWeight:700}}>{prioLabel[editModal.prio]}</span>
+            </div>
+            <p style={{color:"var(--text-2)",lineHeight:1.7,fontSize:14,marginBottom:16}}>{editModal.text}</p>
+            <div style={{fontSize:10,color:"var(--text-3)",marginBottom:16}}>Criada em {new Date(editModal.date).toLocaleString("pt-BR")}</div>
+
+            <div style={{borderTop:"1px solid var(--border)",paddingTop:16}}>
+              <div style={{fontSize:10,color:"var(--accent)",letterSpacing:2,fontWeight:700,marginBottom:12}}>ATUALIZAÇÕES</div>
+              {(editModal.updates||[]).map((u,i)=>(
+                <div key={i} style={{background:"var(--bg-input)",borderRadius:10,padding:"10px 14px",marginBottom:10}}>
+                  <div style={{color:"var(--text-2)",fontSize:13,lineHeight:1.6}}>{u.text}</div>
+                  <div style={{fontSize:10,color:"var(--text-3)",marginTop:4}}>🕐 {u.date}</div>
+                </div>
+              ))}
+              <div style={{display:"flex",gap:10,marginTop:12}}>
+                <textarea style={{...inp,flex:1,resize:"none"}} rows={2} placeholder="Adicionar atualização..." value={addNote} onChange={e=>setAddNote(e.target.value)}/>
+                <button onClick={()=>addTaskNote(editModal.id)} style={{...btn("var(--green)"),alignSelf:"flex-end",padding:"10px 16px"}}>+</button>
+              </div>
+            </div>
+            <button onClick={()=>{del(editModal.id);setEditModal(null);}} style={{marginTop:16,background:"rgba(240,112,112,0.1)",border:"1px solid rgba(240,112,112,0.3)",borderRadius:10,padding:"8px 16px",color:"var(--red)",fontSize:13,cursor:"pointer"}}>Excluir tarefa</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── LISTS PAGE ───────────────────────────────────────────────────────────────
+function ListsPage() {
+  const [lists, setLists] = useState(()=>S.get("lists",[]));
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ name:"", cat:"Pessoal", tags:"", notes:"" });
+  const [detail, setDetail] = useState(null);
+  const [form, setForm]   = useState({title:"",text:""});
+  const [addText, setAddText] = useState("");
+
+  const save = n=>{ setLists(n); S.set("lists",n); };
+  const add  = ()=>{
+    if(!form.title.trim()) return;
+    const l={id:Date.now(),...form,items:[],created:now()};
+    save([l,...lists]); setModal(false); setForm({title:"",text:""});
+  };
+  const addItem = id=>{
+    if(!addText.trim()) return;
+    const item={id:Date.now(),text:addText,done:false,date:now()};
+    const n=lists.map(l=>l.id===id?{...l,items:[...(l.items||[]),item]}:l);
+    save(n); setDetail(n.find(l=>l.id===id)); setAddText("");
+  };
+  const tickItem = (lid,iid)=>{
+    const n=lists.map(l=>l.id===lid?{...l,items:l.items.map(i=>i.id===iid?{...i,done:!i.done}:i)}:l);
+    save(n); setDetail(n.find(l=>l.id===lid));
+  };
+  const delList = id=>{ save(lists.filter(l=>l.id!==id)); setDetail(null); };
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:20}}>
+        <button onClick={()=>setModal(true)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Nova Lista</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:14}}>
+        {lists.map(l=>(
+          <div key={l.id} onClick={()=>setDetail(l)} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:16,cursor:"pointer"}}>
+            <div style={{fontWeight:700,fontSize:15,marginBottom:6}}>📋 {l.title}</div>
+            {l.text&&<p style={{fontSize:12,color:"var(--text-3)",marginBottom:8,lineHeight:1.5}}>{l.text.slice(0,80)}{l.text.length>80?"...":""}</p>}
+            <div style={{fontSize:11,color:"var(--text-3)"}}>{l.items?.length||0} itens · {l.created}</div>
+          </div>
+        ))}
+      </div>
+      {lists.length===0&&<Empty text="Nenhuma lista ainda. Crie a primeira!"/>}
+
+      {modal&&(
+        <Modal title="Nova Lista" onClose={()=>setModal(false)}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <input style={inp} placeholder="Título da lista" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/>
+            <textarea style={{...inp,resize:"vertical"}} rows={4} placeholder="Descrição / conteúdo inicial..." value={form.text} onChange={e=>setForm({...form,text:e.target.value})}/>
+            <button onClick={add} style={btn()}>Criar Lista</button>
+          </div>
+        </Modal>
+      )}
+
+      {detail&&(
+        <Modal title={detail.title} onClose={()=>setDetail(null)} wide>
+          {detail.text&&<p style={{color:"var(--text-2)",lineHeight:1.7,fontSize:14,marginBottom:16}}>{detail.text}</p>}
+          <div style={{marginBottom:16}}>
+            {(detail.items||[]).map(item=>(
+              <div key={item.id} style={{display:"flex",gap:10,alignItems:"center",padding:"8px 0",borderBottom:"1px solid var(--border-2)"}}>
+                <button onClick={()=>tickItem(detail.id,item.id)} style={{width:20,height:20,borderRadius:5,border:`2px solid ${item.done?"var(--green)":"var(--border)"}`,background:item.done?"var(--green)":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  {item.done&&<Icon path={I.check} size={11} color="#fff"/>}
+                </button>
+                <span style={{flex:1,fontSize:14,color:"var(--text-1)",textDecoration:item.done?"line-through":"none",opacity:item.done?0.6:1}}>{item.text}</span>
+                <span style={{fontSize:10,color:"var(--text-3)"}}>{item.date}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <input style={{...inp,flex:1}} placeholder="Adicionar item..." value={addText} onChange={e=>setAddText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addItem(detail.id);}}/>
+            <button onClick={()=>addItem(detail.id)} style={{...btn("var(--green)"),padding:"10px 16px"}}>+</button>
+          </div>
+          <button onClick={()=>delList(detail.id)} style={{marginTop:16,background:"rgba(240,112,112,0.08)",border:"1px solid rgba(240,112,112,0.25)",borderRadius:10,padding:"8px 16px",color:"var(--red)",fontSize:13,cursor:"pointer"}}>Excluir lista</button>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── WEATHER PAGE ─────────────────────────────────────────────────────────────
+function WeatherPage() {
+  const w = useWeather();
+  if(!w) return <div style={{textAlign:"center",padding:"60px 0",color:"var(--text-3)",fontSize:14}}>📍 Obtendo localização...</div>;
+  if(w.error) return <div style={{textAlign:"center",padding:"60px 0",color:"var(--text-3)",fontSize:14}}>⚠️ {w.error}</div>;
+  return (
+    <div style={{maxWidth:600,margin:"0 auto"}}>
+      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:20,padding:32,textAlign:"center",marginBottom:20}}>
+        <div style={{fontSize:64,marginBottom:8}}>{w.desc?.split(" ")[0]||"🌡"}</div>
+        <div style={{fontSize:72,fontWeight:800,color:"var(--accent)",fontFamily:"'DM Mono',monospace"}}>{w.temp}{w.unit}</div>
+        <div style={{fontSize:18,color:"var(--text-2)",marginTop:8}}>{w.desc?.split(" ").slice(1).join(" ")}</div>
+        <div style={{fontSize:14,color:"var(--text-3)",marginTop:6}}>📍 {w.city||"Carregando..."}</div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+        <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:20,textAlign:"center"}}>
+          <div style={{fontSize:11,color:"var(--text-3)",letterSpacing:1.5,fontWeight:700,marginBottom:8}}>UMIDADE</div>
+          <div style={{fontSize:32,fontWeight:800,color:"var(--text-1)"}}>{w.humidity}%</div>
+        </div>
+        <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:20,textAlign:"center"}}>
+          <div style={{fontSize:11,color:"var(--text-3)",letterSpacing:1.5,fontWeight:700,marginBottom:8}}>VENTO</div>
+          <div style={{fontSize:32,fontWeight:800,color:"var(--text-1)"}}>{w.wind} <span style={{fontSize:14}}>km/h</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── DOCS PAGE ────────────────────────────────────────────────────────────────
+function DocsPage() {
+  const [docs, setDocs, synced] = useDB("documents","docs",[]);
+  const [modal, setModal] = useState(false);
+  const [form, setForm]   = useState({name:"",cat:"Pessoal",tags:"",notes:""});
   const [filter, setFilter] = useState("Todos");
   const [fileData, setFileData] = useState(null);
   const [fileName, setFileName] = useState("");
   const fileRef = useRef(null);
   const cats = ["Pessoal","Financeiro","Saúde","Legal","Trabalho","Outros"];
+  const icons = {pdf:"📕",doc:"📘",docx:"📘",xls:"📗",xlsx:"📗",png:"🖼️",jpg:"🖼️",jpeg:"🖼️",default:"📄"};
+  const getIcon = n=>{ const e=n.split(".").pop().toLowerCase(); return icons[e]||icons.default; };
 
-  const ICONS = { pdf:"📕", doc:"📘", docx:"📘", xls:"📗", xlsx:"📗", png:"🖼️", jpg:"🖼️", jpeg:"🖼️", default:"📄" };
-  const getIcon = (name) => { const ext = name.split(".").pop().toLowerCase(); return ICONS[ext] || ICONS.default; };
-
-  const handleFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handleFile = e=>{
+    const file=e.target.files[0]; if(!file) return;
     setFileName(file.name);
-    if (!form.name) setForm(f => ({ ...f, name: file.name.replace(/\.[^.]+$/, "") }));
-    const reader = new FileReader();
-    reader.onload = (ev) => setFileData({ name: file.name, size: file.size, type: file.type, data: ev.target.result });
+    if(!form.name) setForm(f=>({...f,name:file.name.replace(/\.[^.]+$/,"")}));
+    const reader=new FileReader();
+    reader.onload=ev=>setFileData({name:file.name,size:file.size,type:file.type,data:ev.target.result});
     reader.readAsDataURL(file);
   };
 
-  const add = () => {
-    if (!form.name.trim()) return;
-    const n = [...docs, { id:Date.now(), ...form, date:now(), tags:form.tags.split(",").map(t=>t.trim()).filter(Boolean), file: fileData }];
-    setDocs(n); S.set("docs", n); setModal(false);
-    setForm({ name:"", cat:"Pessoal", tags:"", notes:"" }); setFileData(null); setFileName("");
+  const add = ()=>{
+    if(!form.name.trim()) return;
+    const doc={id:Date.now(),...form,date:now(),tags:form.tags.split(",").map(t=>t.trim()).filter(Boolean),file:fileData};
+    const n=[doc,...docs]; setDocs(n); S.set("docs",n);
+    // DB insert with flattened file
+    const dbRow={id:doc.id,name:doc.name,cat:doc.cat,tags:doc.tags,notes:doc.notes,date:doc.date,
+      file_data:fileData?.data||"",file_name:fileData?.name||"",file_size:fileData?.size||0,file_type:fileData?.type||""};
+    DB.insert("documents",dbRow);
+    setModal(false); setForm({name:"",cat:"Pessoal",tags:"",notes:""}); setFileData(null); setFileName("");
   };
-  const del = (id) => { const n = docs.filter(d => d.id !== id); setDocs(n); S.set("docs", n); };
+  const del = id=>{ const n=docs.filter(d=>d.id!==id); setDocs(n); S.set("docs",n); DB.delete("documents",id); };
+  const download = doc=>{ if(!doc.file?.data) return; const a=document.createElement("a"); a.href=doc.file.data; a.download=doc.file.name; a.click(); };
 
-  const download = (doc) => {
-    if (!doc.file?.data) return;
-    const a = document.createElement("a");
-    a.href = doc.file.data;
-    a.download = doc.file.name;
-    a.click();
-  };
-
-  const filtered = filter === "Todos" ? docs : docs.filter(d => d.cat === filter);
+  const filtered = filter==="Todos"?docs:docs.filter(d=>d.cat===filter);
 
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:10 }}>
-        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-          {["Todos",...cats].map(c => (
-            <button key={c} onClick={() => setFilter(c)} style={{ background: filter===c ? "var(--accent)" : "var(--bg-card)", border:"none", borderRadius:20, padding:"6px 14px", color: filter===c ? "#fff" : "var(--text-2)", fontSize:12, cursor:"pointer", fontWeight:600 }}>{c}</button>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {["Todos",...cats].map(c=>(
+            <button key={c} onClick={()=>setFilter(c)} style={{background:filter===c?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"6px 14px",color:filter===c?"#fff":"var(--text-2)",fontSize:12,cursor:"pointer",fontWeight:600}}>{c}</button>
           ))}
         </div>
-        <button onClick={() => setModal(true)} style={{ ...primaryBtn(), display:"flex", alignItems:"center", gap:6 }}>
-          <Icon path={I.plus} size={14} /> Adicionar
-        </button>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{fontSize:10,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"syncing..."}</span>
+          <button onClick={()=>setModal(true)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Adicionar</button>
+        </div>
       </div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12 }}>
-        {filtered.map(d => (
-          <div key={d.id} style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, padding:16, position:"relative" }}>
-            <div style={{ fontSize:28, marginBottom:10 }}>{getIcon(d.file?.name || d.name)}</div>
-            <div style={{ fontWeight:700, marginBottom:4, fontSize:14 }}>{d.name}</div>
-            <div style={{ fontSize:11, color:"var(--accent)", marginBottom:6 }}>{d.cat}</div>
-            {d.notes && <div style={{ fontSize:11, color:"var(--text-3)", marginBottom:6, lineHeight:1.4 }}>{d.notes}</div>}
-            {d.tags.length > 0 && (
-              <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:8 }}>
-                {d.tags.map(t => <span key={t} style={{ background:"var(--bg-input)", borderRadius:4, padding:"2px 6px", fontSize:10, color:"var(--text-3)" }}>{t}</span>)}
-              </div>
-            )}
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:8 }}>
-              <span style={{ fontSize:10, color:"var(--text-3)" }}>{d.date}</span>
-              {d.file?.data && (
-                <button onClick={() => download(d)} style={{ background:"var(--accent-dim)", border:"1px solid var(--accent-bdr)", borderRadius:6, padding:"3px 8px", color:"var(--accent)", fontSize:10, cursor:"pointer", fontWeight:600 }}>
-                  ⬇ Baixar
-                </button>
-              )}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
+        {filtered.map(d=>(
+          <div key={d.id} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:16,position:"relative"}}>
+            <div style={{fontSize:28,marginBottom:10}}>{getIcon(d.file?.name||d.name)}</div>
+            <div style={{fontWeight:700,marginBottom:4,fontSize:14}}>{d.name}</div>
+            <div style={{fontSize:11,color:"var(--accent)",marginBottom:6}}>{d.cat}</div>
+            {d.notes&&<div style={{fontSize:11,color:"var(--text-3)",marginBottom:6,lineHeight:1.4}}>{d.notes}</div>}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
+              <span style={{fontSize:10,color:"var(--text-3)"}}>{d.date}</span>
+              {d.file?.data&&<button onClick={()=>download(d)} style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:6,padding:"3px 8px",color:"var(--accent)",fontSize:10,cursor:"pointer",fontWeight:600}}>⬇ Baixar</button>}
             </div>
-            <button onClick={() => del(d.id)} style={{ position:"absolute", top:12, right:12, background:"none", border:"none", color:"var(--text-3)", cursor:"pointer" }}>
-              <Icon path={I.trash} size={13} />
-            </button>
+            <button onClick={()=>del(d.id)} style={{position:"absolute",top:12,right:12,background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={13}/></button>
           </div>
         ))}
       </div>
-      {filtered.length === 0 && <Empty text="Nenhum documento nesta categoria." />}
-      {modal && (
-        <Modal title="Adicionar Documento" onClose={() => { setModal(false); setFileData(null); setFileName(""); }}>
-          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-            {/* File upload area */}
-            <div onClick={() => fileRef.current?.click()}
-              style={{ border:"2px dashed var(--border)", borderRadius:12, padding:"20px", textAlign:"center", cursor:"pointer", background: fileData ? "var(--accent-dim)" : "transparent" }}>
-              <div style={{ fontSize:24, marginBottom:8 }}>{fileData ? "✅" : "📎"}</div>
-              <div style={{ fontSize:13, color: fileData ? "var(--accent)" : "var(--text-3)" }}>
-                {fileName || "Clique para anexar um arquivo"}
-              </div>
-              {fileData && <div style={{ fontSize:10, color:"var(--text-3)", marginTop:4 }}>{(fileData.size/1024).toFixed(0)} KB</div>}
-              <input ref={fileRef} type="file" style={{ display:"none" }} onChange={handleFile} />
+      {filtered.length===0&&<Empty text="Nenhum documento nesta categoria."/>}
+      {modal&&(
+        <Modal title="Adicionar Documento" onClose={()=>{setModal(false);setFileData(null);setFileName("");}}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div onClick={()=>fileRef.current?.click()} style={{border:"2px dashed var(--border)",borderRadius:12,padding:"20px",textAlign:"center",cursor:"pointer",background:fileData?"var(--accent-dim)":"transparent"}}>
+              <div style={{fontSize:24,marginBottom:8}}>{fileData?"✅":"📎"}</div>
+              <div style={{fontSize:13,color:fileData?"var(--accent)":"var(--text-3)"}}>{fileName||"Clique para anexar um arquivo"}</div>
+              {fileData&&<div style={{fontSize:10,color:"var(--text-3)",marginTop:4}}>{(fileData.size/1024).toFixed(0)} KB</div>}
+              <input ref={fileRef} type="file" style={{display:"none"}} onChange={handleFile}/>
             </div>
-            <input style={inp} placeholder="Nome do documento" value={form.name} onChange={e => setForm({...form, name:e.target.value})} />
-            <select style={inp} value={form.cat} onChange={e => setForm({...form, cat:e.target.value})}>
-              {cats.map(c => <option key={c}>{c}</option>)}
-            </select>
-            <input style={inp} placeholder="Tags (separadas por vírgula)" value={form.tags} onChange={e => setForm({...form, tags:e.target.value})} />
-            <textarea style={{ ...inp, resize:"vertical" }} rows={2} placeholder="Observações (opcional)" value={form.notes} onChange={e => setForm({...form, notes:e.target.value})} />
-            <button onClick={add} style={primaryBtn()}>Salvar</button>
+            <input style={inp} placeholder="Nome do documento" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+            <select style={inp} value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})}>{cats.map(c=><option key={c}>{c}</option>)}</select>
+            <input style={inp} placeholder="Tags (separadas por vírgula)" value={form.tags} onChange={e=>setForm({...form,tags:e.target.value})}/>
+            <textarea style={{...inp,resize:"vertical"}} rows={2} placeholder="Observações" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
+            <button onClick={add} style={btn()}>Salvar</button>
           </div>
         </Modal>
       )}
@@ -595,78 +565,70 @@ function DocsSection() {
   );
 }
 
-// ─── BILLS ────────────────────────────────────────────────────────────────────
-function BillsSection() {
-  const [bills, setBills] = useState(() => S.get("bills", []));
+// ─── BILLS PAGE ───────────────────────────────────────────────────────────────
+function BillsPage() {
+  const [bills, setBills, synced] = useDB("bills","bills",[]);
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ name:"", value:"", dueDay:"", cat:"Fixo", recurrent:true });
+  const [form, setForm]   = useState({name:"",value:"",dueDay:"",cat:"Fixo",recurrent:true});
   const cats = ["Fixo","Variável","Cartão","Imposto","Assinatura"];
 
-  const add = () => {
-    if (!form.name.trim() || !form.dueDay) return;
-    const n = [...bills, { id:Date.now(), ...form, value:parseFloat(form.value)||0, paid:false }];
-    setBills(n); S.set("bills", n); setModal(false); setForm({ name:"", value:"", dueDay:"", cat:"Fixo", recurrent:true });
+  const add = ()=>{
+    if(!form.name.trim()||!form.dueDay) return;
+    const b={id:Date.now(),...form,value:parseFloat(form.value)||0,paid:false};
+    const n=[...bills,b]; setBills(n); S.set("bills",n); DB.insert("bills",{...b,due_day:b.dueDay});
+    setModal(false); setForm({name:"",value:"",dueDay:"",cat:"Fixo",recurrent:true});
   };
-  const toggle = (id) => { const n = bills.map(b => b.id===id ? {...b, paid:!b.paid} : b); setBills(n); S.set("bills", n); };
-  const del    = (id) => { const n = bills.filter(b => b.id !== id); setBills(n); S.set("bills", n); };
-
+  const toggle = id=>{
+    const b=bills.find(b=>b.id===id);
+    const n=bills.map(b=>b.id===id?{...b,paid:!b.paid}:b); setBills(n); S.set("bills",n); DB.update("bills",{id,paid:!b.paid});
+  };
+  const del = id=>{ const n=bills.filter(b=>b.id!==id); setBills(n); S.set("bills",n); DB.delete("bills",id); };
   const day = new Date().getDate();
-  const upcoming = bills.filter(b => !b.paid && +b.dueDay >= day && +b.dueDay <= day+5);
-  const total    = bills.filter(b => !b.paid).reduce((s,b) => s+b.value, 0);
+  const upcoming = bills.filter(b=>!b.paid&&+b.dueDay>=day&&+b.dueDay<=day+5);
+  const total    = bills.filter(b=>!b.paid).reduce((s,b)=>s+b.value,0);
 
   return (
     <div>
-      {upcoming.length > 0 && (
-        <div style={{ background:"rgba(251,191,36,0.07)", border:"1px solid rgba(251,191,36,0.25)", borderRadius:14, padding:16, marginBottom:20 }}>
-          <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:10, color:"var(--yellow)", fontWeight:700, fontSize:13 }}>
-            <Icon path={I.bell} size={16} color="var(--yellow)" /> Vencem em breve ({upcoming.length})
+      {upcoming.length>0&&(
+        <div style={{background:"rgba(240,192,64,0.07)",border:"1px solid rgba(240,192,64,0.25)",borderRadius:14,padding:16,marginBottom:20}}>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,color:"var(--yellow)",fontWeight:700,fontSize:13}}>
+            <Icon path={I.bell} size={16} color="var(--yellow)"/> Vencem em breve ({upcoming.length})
           </div>
-          {upcoming.map(b => (
-            <div key={b.id} style={{ display:"flex", justifyContent:"space-between", color:"var(--text-1)", fontSize:13, padding:"4px 0" }}>
-              <span>{b.name}</span>
-              <span style={{ color:"var(--yellow)" }}>Dia {b.dueDay} · {fmtMoney(b.value)}</span>
-            </div>
-          ))}
+          {upcoming.map(b=><div key={b.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"4px 0"}}><span>{b.name}</span><span style={{color:"var(--yellow)"}}>Dia {b.dueDay} · {fmtMoney(b.value)}</span></div>)}
         </div>
       )}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-        <div style={{ color:"var(--text-3)", fontSize:13 }}>Total pendente: <span style={{ color:"var(--red)", fontWeight:700 }}>{fmtMoney(total)}</span></div>
-        <button onClick={() => setModal(true)} style={{ ...primaryBtn(), display:"flex", alignItems:"center", gap:6 }}>
-          <Icon path={I.plus} size={14} /> Nova Conta
-        </button>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <div style={{color:"var(--text-3)",fontSize:13}}>Total pendente: <span style={{color:"var(--red)",fontWeight:700}}>{fmtMoney(total)}</span></div>
+        <button onClick={()=>setModal(true)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Nova Conta</button>
       </div>
-      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-        {bills.map(b => (
-          <div key={b.id} style={{ background:"var(--bg-card)", border:`1px solid ${b.paid?"var(--border-2)":"var(--border)"}`, borderRadius:12, padding:"14px 18px", display:"flex", alignItems:"center", gap:14, opacity: b.paid ? 0.5 : 1 }}>
-            <button onClick={() => toggle(b.id)} style={{ width:22, height:22, borderRadius:6, border:`2px solid ${b.paid?"var(--green)":"var(--border)"}`, background: b.paid?"var(--green)":"transparent", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-              {b.paid && <Icon path={I.check} size={12} color="#fff" />}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {bills.map(b=>(
+          <div key={b.id} style={{background:"var(--bg-card)",border:`1px solid ${b.paid?"var(--border-2)":"var(--border)"}`,borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",gap:14,opacity:b.paid?0.5:1}}>
+            <button onClick={()=>toggle(b.id)} style={{width:22,height:22,borderRadius:6,border:`2px solid ${b.paid?"var(--green)":"var(--border)"}`,background:b.paid?"var(--green)":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              {b.paid&&<Icon path={I.check} size={12} color="#fff"/>}
             </button>
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:600, fontSize:14, textDecoration: b.paid?"line-through":"none" }}>{b.name}</div>
-              <div style={{ fontSize:11, color:"var(--text-3)" }}>{b.cat} · Vence dia {b.dueDay}{b.recurrent?" · Recorrente":""}</div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:600,fontSize:14,textDecoration:b.paid?"line-through":"none"}}>{b.name}</div>
+              <div style={{fontSize:11,color:"var(--text-3)"}}>{b.cat} · Vence dia {b.dueDay}{b.recurrent?" · Recorrente":""}</div>
             </div>
-            <div style={{ fontWeight:700, color: b.paid?"var(--green)":"var(--text-1)", fontSize:15, fontFamily:"'DM Mono',monospace" }}>{fmtMoney(b.value)}</div>
-            <button onClick={() => del(b.id)} style={{ background:"none", border:"none", color:"var(--text-3)", cursor:"pointer" }}>
-              <Icon path={I.trash} size={14} />
-            </button>
+            <div style={{fontWeight:700,color:b.paid?"var(--green)":"var(--text-1)",fontSize:15,fontFamily:"'DM Mono',monospace"}}>{fmtMoney(b.value)}</div>
+            <button onClick={()=>del(b.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
           </div>
         ))}
       </div>
-      {bills.length === 0 && <Empty text="Nenhuma conta cadastrada." />}
-      {modal && (
-        <Modal title="Nova Conta" onClose={() => setModal(false)}>
-          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-            <input style={inp} placeholder="Nome da conta" value={form.name} onChange={e => setForm({...form, name:e.target.value})} />
-            <input style={inp} type="number" placeholder="Valor (R$)" value={form.value} onChange={e => setForm({...form, value:e.target.value})} />
-            <input style={inp} type="number" min="1" max="31" placeholder="Dia do vencimento (1-31)" value={form.dueDay} onChange={e => setForm({...form, dueDay:e.target.value})} />
-            <select style={inp} value={form.cat} onChange={e => setForm({...form, cat:e.target.value})}>
-              {cats.map(c => <option key={c}>{c}</option>)}
-            </select>
-            <label style={{ display:"flex", gap:10, alignItems:"center", color:"var(--text-2)", fontSize:14, cursor:"pointer" }}>
-              <input type="checkbox" checked={form.recurrent} onChange={e => setForm({...form, recurrent:e.target.checked})} />
+      {bills.length===0&&<Empty text="Nenhuma conta cadastrada."/>}
+      {modal&&(
+        <Modal title="Nova Conta" onClose={()=>setModal(false)}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <input style={inp} placeholder="Nome da conta" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+            <input style={inp} type="number" placeholder="Valor (R$)" value={form.value} onChange={e=>setForm({...form,value:e.target.value})}/>
+            <input style={inp} type="number" min="1" max="31" placeholder="Dia do vencimento" value={form.dueDay} onChange={e=>setForm({...form,dueDay:e.target.value})}/>
+            <select style={inp} value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})}>{cats.map(c=><option key={c}>{c}</option>)}</select>
+            <label style={{display:"flex",gap:10,alignItems:"center",color:"var(--text-2)",fontSize:14,cursor:"pointer"}}>
+              <input type="checkbox" checked={form.recurrent} onChange={e=>setForm({...form,recurrent:e.target.checked})}/>
               Conta recorrente (mensal)
             </label>
-            <button onClick={add} style={primaryBtn()}>Salvar</button>
+            <button onClick={add} style={btn()}>Salvar</button>
           </div>
         </Modal>
       )}
@@ -674,63 +636,60 @@ function BillsSection() {
   );
 }
 
-// ─── EVENTS ───────────────────────────────────────────────────────────────────
-function EventsSection() {
-  const [events, setEvents] = useState(() => S.get("events", []));
+// ─── EVENTS PAGE ──────────────────────────────────────────────────────────────
+function EventsPage() {
+  const [events, setEvents, synced] = useDB("events","events",[]);
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ title:"", date:"", time:"", local:"", cat:"Pessoal", notes:"" });
+  const [form, setForm]   = useState({title:"",date:"",time:"",local:"",cat:"Pessoal",notes:""});
   const cats = ["Pessoal","Médico","Reunião","Viagem","Aniversário","Outros"];
-  const catColors = { Pessoal:"var(--accent)", Médico:"var(--red)", Reunião:"var(--purple)", Viagem:"var(--green)", Aniversário:"var(--yellow)", Outros:"var(--text-3)" };
+  const catColors = {Pessoal:"var(--accent)",Médico:"var(--red)",Reunião:"var(--purple)",Viagem:"var(--green)",Aniversário:"var(--yellow)",Outros:"var(--text-3)"};
 
-  const add = () => {
-    if (!form.title.trim() || !form.date) return;
-    const n = [...events, { id:Date.now(), ...form }].sort((a,b) => new Date(a.date+"T"+(a.time||"00:00")) - new Date(b.date+"T"+(b.time||"00:00")));
-    setEvents(n); S.set("events", n); setModal(false); setForm({ title:"", date:"", time:"", local:"", cat:"Pessoal", notes:"" });
+  const add = ()=>{
+    if(!form.title.trim()||!form.date) return;
+    const e={id:Date.now(),...form};
+    const n=[...events,e].sort((a,b)=>new Date(a.date+"T"+(a.time||"00:00"))-new Date(b.date+"T"+(b.time||"00:00")));
+    setEvents(n); S.set("events",n); DB.insert("events",e);
+    setModal(false); setForm({title:"",date:"",time:"",local:"",cat:"Pessoal",notes:""});
   };
-  const del = (id) => { const n = events.filter(e => e.id !== id); setEvents(n); S.set("events", n); };
+  const del = id=>{ const n=events.filter(e=>e.id!==id); setEvents(n); S.set("events",n); DB.delete("events",id); };
   const todayStr = new Date().toISOString().split("T")[0];
-  const upcoming = events.filter(e => e.date >= todayStr);
-  const past     = events.filter(e => e.date < todayStr);
 
-  const Card = ({ e }) => (
-    <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:12, padding:"14px 18px", display:"flex", gap:14, alignItems:"flex-start", marginBottom:10 }}>
-      <div style={{ width:4, borderRadius:4, background: catColors[e.cat]||"var(--accent)", alignSelf:"stretch", flexShrink:0 }} />
-      <div style={{ flex:1 }}>
-        <div style={{ fontWeight:700, fontSize:14, marginBottom:4 }}>{e.title}</div>
-        <div style={{ fontSize:12, color:"var(--text-3)" }}>
-          📅 {new Date(e.date+"T12:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}
-          {e.time && ` · ⏰ ${e.time}`}{e.local && ` · 📍 ${e.local}`}
-        </div>
-        {e.notes && <div style={{ fontSize:12, color:"var(--text-2)", marginTop:6 }}>{e.notes}</div>}
+  const Card = ({e})=>(
+    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 18px",display:"flex",gap:14,alignItems:"flex-start",marginBottom:10}}>
+      <div style={{width:4,borderRadius:4,background:catColors[e.cat]||"var(--accent)",alignSelf:"stretch",flexShrink:0}}/>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{e.title}</div>
+        <div style={{fontSize:12,color:"var(--text-3)"}}>📅 {new Date(e.date+"T12:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}{e.time&&` · ⏰ ${e.time}`}{e.local&&` · 📍 ${e.local}`}</div>
+        {e.notes&&<div style={{fontSize:12,color:"var(--text-2)",marginTop:6}}>{e.notes}</div>}
       </div>
-      <button onClick={() => del(e.id)} style={{ background:"none", border:"none", color:"var(--text-3)", cursor:"pointer" }}>
-        <Icon path={I.trash} size={14} />
-      </button>
+      <button onClick={()=>del(e.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
     </div>
   );
 
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:20 }}>
-        <button onClick={() => setModal(true)} style={{ ...primaryBtn(), display:"flex", alignItems:"center", gap:6 }}>
-          <Icon path={I.plus} size={14} /> Novo Compromisso
-        </button>
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:20}}>
+        <button onClick={()=>setModal(true)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Novo Compromisso</button>
       </div>
-      {upcoming.length > 0 && <><Label text="PRÓXIMOS" color="var(--accent)" />{upcoming.map(e => <Card key={e.id} e={e} />)}</>}
-      {past.length > 0 && <><Label text="PASSADOS" color="var(--text-3)" style={{ marginTop:20 }} />{past.map(e => <Card key={e.id} e={e} />)}</>}
-      {events.length === 0 && <Empty text="Nenhum compromisso cadastrado." />}
-      {modal && (
-        <Modal title="Novo Compromisso" onClose={() => setModal(false)}>
-          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-            <input style={inp} placeholder="Título" value={form.title} onChange={e => setForm({...form, title:e.target.value})} />
-            <input style={inp} type="date" value={form.date} onChange={e => setForm({...form, date:e.target.value})} />
-            <input style={inp} type="time" value={form.time} onChange={e => setForm({...form, time:e.target.value})} />
-            <input style={inp} placeholder="Local (opcional)" value={form.local} onChange={e => setForm({...form, local:e.target.value})} />
-            <select style={inp} value={form.cat} onChange={e => setForm({...form, cat:e.target.value})}>
-              {cats.map(c => <option key={c}>{c}</option>)}
-            </select>
-            <textarea style={{ ...inp, resize:"vertical" }} rows={3} placeholder="Observações (opcional)" value={form.notes} onChange={e => setForm({...form, notes:e.target.value})} />
-            <button onClick={add} style={primaryBtn()}>Salvar</button>
+      {events.filter(e=>e.date>=todayStr).length>0&&<>
+        <div style={{fontSize:11,color:"var(--accent)",letterSpacing:2,fontWeight:700,marginBottom:14,paddingBottom:8,borderBottom:"1px solid var(--border-2)"}}>PRÓXIMOS</div>
+        {events.filter(e=>e.date>=todayStr).map(e=><Card key={e.id} e={e}/>)}
+      </>}
+      {events.filter(e=>e.date<todayStr).length>0&&<>
+        <div style={{fontSize:11,color:"var(--text-3)",letterSpacing:2,fontWeight:700,margin:"20px 0 14px",paddingBottom:8,borderBottom:"1px solid var(--border-2)"}}>PASSADOS</div>
+        {events.filter(e=>e.date<todayStr).map(e=><Card key={e.id} e={e}/>)}
+      </>}
+      {events.length===0&&<Empty text="Nenhum compromisso cadastrado."/>}
+      {modal&&(
+        <Modal title="Novo Compromisso" onClose={()=>setModal(false)}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <input style={inp} placeholder="Título" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/>
+            <input style={inp} type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>
+            <input style={inp} type="time" value={form.time} onChange={e=>setForm({...form,time:e.target.value})}/>
+            <input style={inp} placeholder="Local (opcional)" value={form.local} onChange={e=>setForm({...form,local:e.target.value})}/>
+            <select style={inp} value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})}>{cats.map(c=><option key={c}>{c}</option>)}</select>
+            <textarea style={{...inp,resize:"vertical"}} rows={3} placeholder="Observações" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
+            <button onClick={add} style={btn()}>Salvar</button>
           </div>
         </Modal>
       )}
@@ -738,524 +697,395 @@ function EventsSection() {
   );
 }
 
-// ─── CURIOSITIES ─────────────────────────────────────────────────────────────
-function CuriositiesSection() {
-  const [cards, setCards]   = useState(() => S.get("curiosities", []));
-  const [modal, setModal]   = useState(false);
-  const [detail, setDetail] = useState(null);
-  const [form, setForm]     = useState({ title:"", content:"", link:"", imageUrl:"", tag:"" });
-  const [updTxt, setUpdTxt] = useState("");
+// ─── WHITEBOARD ───────────────────────────────────────────────────────────────
+function WhiteboardPage() {
+  const canvasRef = useRef(null);
+  const [drawing, setDrawing] = useState(false);
+  const [color, setColor]     = useState("#3a8fd4");
+  const [size, setSize]       = useState(3);
+  const [tool, setTool]       = useState("pen"); // pen | eraser
+  const last = useRef(null);
 
-  const add = () => {
-    if (!form.title.trim()) return;
-    const n = [...cards, { id:Date.now(), ...form, updates:[], created:now() }];
-    setCards(n); S.set("curiosities", n); setModal(false); setForm({ title:"", content:"", link:"", imageUrl:"", tag:"" });
+  useEffect(()=>{
+    const canvas = canvasRef.current; if(!canvas) return;
+    canvas.width  = canvas.offsetWidth;
+    canvas.height = Math.max(600, window.innerHeight - 280);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#091828";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    // Load saved drawing
+    const saved = localStorage.getItem("whiteboard");
+    if(saved){ const img=new Image(); img.onload=()=>ctx.drawImage(img,0,0); img.src=saved; }
+  },[]);
+
+  const getPos = e=>{
+    const r = canvasRef.current.getBoundingClientRect();
+    const src = e.touches?e.touches[0]:e;
+    return [src.clientX-r.left, src.clientY-r.top];
   };
-  const addUpdate = (id) => {
-    if (!updTxt.trim()) return;
-    const n = cards.map(c => c.id===id ? {...c, updates:[...c.updates, {text:updTxt, date:now()}]} : c);
-    setCards(n); S.set("curiosities", n); setDetail(n.find(c=>c.id===id)); setUpdTxt("");
+
+  const startDraw = e=>{ setDrawing(true); last.current=getPos(e); };
+  const endDraw   = ()=>{
+    setDrawing(false); last.current=null;
+    localStorage.setItem("whiteboard", canvasRef.current.toDataURL());
   };
-  const del = (id) => { const n = cards.filter(c => c.id!==id); setCards(n); S.set("curiosities", n); setDetail(null); };
+  const draw = e=>{
+    if(!drawing||!last.current) return;
+    e.preventDefault();
+    const canvas=canvasRef.current, ctx=canvas.getContext("2d");
+    const [x,y]=getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(last.current[0],last.current[1]);
+    ctx.lineTo(x,y);
+    ctx.strokeStyle = tool==="eraser"?"#091828":color;
+    ctx.lineWidth   = tool==="eraser"?size*8:size;
+    ctx.lineCap     = "round";
+    ctx.stroke();
+    last.current=[x,y];
+  };
+  const clear = ()=>{
+    const canvas=canvasRef.current, ctx=canvas.getContext("2d");
+    ctx.fillStyle="#091828"; ctx.fillRect(0,0,canvas.width,canvas.height);
+    localStorage.removeItem("whiteboard");
+  };
+  const colors=["#3a8fd4","#f07070","#2ecc8a","#f0c040","#a070e0","#f09050","#ffffff","#7ab0d8"];
 
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:20 }}>
-        <button onClick={() => setModal(true)} style={{ ...primaryBtn(), display:"flex", alignItems:"center", gap:6 }}>
-          <Icon path={I.plus} size={14} /> Nova Curiosidade
-        </button>
+      {/* Toolbar */}
+      <div style={{display:"flex",gap:12,alignItems:"center",marginBottom:12,flexWrap:"wrap",background:"var(--bg-card)",padding:"10px 16px",borderRadius:12,border:"1px solid var(--border)"}}>
+        <div style={{display:"flex",gap:6}}>
+          {[["pen","✏️ Caneta"],["eraser","🧹 Borracha"]].map(([t,l])=>(
+            <button key={t} onClick={()=>setTool(t)} style={{background:tool===t?"var(--accent)":"var(--bg-input)",border:"none",borderRadius:8,padding:"6px 12px",color:tool===t?"#fff":"var(--text-2)",fontSize:12,cursor:"pointer",fontWeight:600}}>{l}</button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:4}}>
+          {colors.map(c=><button key={c} onClick={()=>{setColor(c);setTool("pen");}} style={{width:22,height:22,borderRadius:"50%",background:c,border:`2px solid ${color===c?"white":"transparent"}`,cursor:"pointer"}}/>)}
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{fontSize:11,color:"var(--text-3)"}}>Espessura</span>
+          <input type="range" min="1" max="20" value={size} onChange={e=>setSize(+e.target.value)} style={{width:80}}/>
+          <span style={{fontSize:11,color:"var(--text-2)"}}>{size}px</span>
+        </div>
+        <button onClick={clear} style={{background:"rgba(240,112,112,0.1)",border:"1px solid rgba(240,112,112,0.3)",borderRadius:8,padding:"6px 14px",color:"var(--red)",fontSize:12,cursor:"pointer",marginLeft:"auto"}}>🗑 Limpar</button>
       </div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))", gap:14 }}>
-        {cards.map(c => (
-          <div key={c.id} onClick={() => setDetail(c)} style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:16, overflow:"hidden", cursor:"pointer" }}>
-            {c.imageUrl && <div style={{ height:120, background:`url(${c.imageUrl}) center/cover`, borderBottom:"1px solid var(--border)" }} />}
-            <div style={{ padding:16 }}>
-              {c.tag && <span style={{ background:"var(--bg-input)", borderRadius:4, padding:"2px 8px", fontSize:10, color:"var(--accent)", fontWeight:700, display:"inline-block", marginBottom:8, letterSpacing:1 }}>{c.tag.toUpperCase()}</span>}
-              <div style={{ fontWeight:700, marginBottom:6, fontSize:14 }}>{c.title}</div>
-              <div style={{ fontSize:12, color:"var(--text-3)", lineHeight:1.5, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{c.content}</div>
-              {c.updates.length > 0 && <div style={{ fontSize:10, color:"var(--accent)", marginTop:10 }}>{c.updates.length} atualização(ões)</div>}
-            </div>
-          </div>
-        ))}
-      </div>
-      {cards.length === 0 && <Empty text="Nenhuma curiosidade ainda. Adicione a primeira!" />}
-      {modal && (
-        <Modal title="Nova Curiosidade" onClose={() => setModal(false)} wide>
-          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-            <input style={inp} placeholder="Título" value={form.title} onChange={e => setForm({...form, title:e.target.value})} />
-            <input style={inp} placeholder="Tag / Categoria" value={form.tag} onChange={e => setForm({...form, tag:e.target.value})} />
-            <textarea style={{ ...inp, resize:"vertical" }} rows={5} placeholder="Conteúdo / texto sobre o tema" value={form.content} onChange={e => setForm({...form, content:e.target.value})} />
-            <input style={inp} placeholder="URL de imagem (opcional)" value={form.imageUrl} onChange={e => setForm({...form, imageUrl:e.target.value})} />
-            <input style={inp} placeholder="Link de referência (opcional)" value={form.link} onChange={e => setForm({...form, link:e.target.value})} />
-            <button onClick={add} style={primaryBtn()}>Salvar Card</button>
-          </div>
-        </Modal>
-      )}
-      {detail && (
-        <Modal title={detail.title} onClose={() => setDetail(null)} wide>
-          {detail.imageUrl && <img src={detail.imageUrl} alt="" style={{ width:"100%", borderRadius:10, marginBottom:16, maxHeight:240, objectFit:"cover" }} />}
-          {detail.tag && <span style={{ background:"var(--bg-input)", borderRadius:4, padding:"2px 8px", fontSize:10, color:"var(--accent)", fontWeight:700, display:"inline-block", marginBottom:12, letterSpacing:1 }}>{detail.tag.toUpperCase()}</span>}
-          <p style={{ color:"var(--text-2)", lineHeight:1.7, fontSize:14, marginBottom:16 }}>{detail.content}</p>
-          {detail.link && <a href={detail.link} target="_blank" rel="noreferrer" style={{ color:"var(--accent)", fontSize:12, display:"flex", gap:6, alignItems:"center", marginBottom:16 }}><Icon path={I.link} size={14} />{detail.link}</a>}
-          <div style={{ borderTop:"1px solid var(--border)", paddingTop:16 }}>
-            <Label text="ATUALIZAÇÕES" color="var(--text-3)" />
-            {detail.updates.map((u,i) => (
-              <div key={i} style={{ background:"var(--bg-input)", borderRadius:10, padding:"10px 14px", marginBottom:10 }}>
-                <div style={{ color:"var(--text-2)", fontSize:13, lineHeight:1.6 }}>{u.text}</div>
-                <div style={{ fontSize:10, color:"var(--text-3)", marginTop:6 }}>🕐 {u.date}</div>
-              </div>
-            ))}
-            <div style={{ display:"flex", gap:10, marginTop:12 }}>
-              <textarea style={{ ...inp, flex:1, resize:"none" }} rows={2} placeholder="Adicionar atualização..." value={updTxt} onChange={e => setUpdTxt(e.target.value)} />
-              <button onClick={() => addUpdate(detail.id)} style={{ ...primaryBtn("var(--green)"), alignSelf:"flex-end" }}>+</button>
-            </div>
-          </div>
-          <button onClick={() => del(detail.id)} style={{ marginTop:16, background:"rgba(248,113,113,0.08)", border:"1px solid rgba(248,113,113,0.25)", borderRadius:10, padding:"8px 16px", color:"var(--red)", fontSize:13, cursor:"pointer" }}>
-            Excluir card
-          </button>
-        </Modal>
-      )}
+      <canvas ref={canvasRef} className="wb-canvas"
+        style={{width:"100%",borderRadius:12,border:"1px solid var(--border)",touchAction:"none",display:"block"}}
+        onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+        onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
+      />
     </div>
   );
 }
 
-// ─── NEWS BOARD — Google News ─────────────────────────────────────────────────
-const DEFAULT_TOPICS = [
-  { id:1, label:"Economia BR",    q:"economia brasil" },
-  { id:2, label:"Política BR",    q:"politica brasil" },
-  { id:3, label:"Mercados",       q:"ibovespa bolsa mercado financeiro" },
-  { id:4, label:"Bitcoin/Cripto", q:"bitcoin criptomoeda" },
-  { id:5, label:"EUA",            q:"estados unidos trump" },
-  { id:6, label:"Guerras",        q:"guerra conflito ucr%C3%A2nia oriente m%C3%A9dio" },
-];
-
-function fmtTime(dateStr) {
-  if (!dateStr) return "";
-  try {
-    const d = new Date(dateStr);
-    const diff = Math.floor((Date.now() - d) / 60000);
-    if (diff < 60)   return `há ${diff}min`;
-    if (diff < 1440) return `há ${Math.floor(diff/60)}h`;
-    return d.toLocaleDateString("pt-BR");
-  } catch { return ""; }
-}
-
-function NewsItem({ item, onClick }) {
-  return (
-    <div onClick={() => onClick(item)}
-      style={{ padding:"12px 0", borderBottom:"1px solid var(--border-2)", cursor:"pointer" }}>
-      <div style={{ fontSize:13, color:"var(--text-1)", lineHeight:1.5, marginBottom:4 }}>{item.title}</div>
-      <div style={{ display:"flex", gap:8, fontSize:10, color:"var(--text-3)" }}>
-        <span>{item.src}</span>
-        {item.date && <span>{fmtTime(item.date)}</span>}
-      </div>
-    </div>
-  );
-}
-
-function NewsBlock({ mode, q, label }) {
-  const { news, loading } = useGNews(mode, q);
-  const [active, setActive] = useState(null);
-
-  return (
-    <>
-      <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, overflow:"hidden" }}>
-        <div style={{ padding:"10px 16px", background:"var(--bg-bar)", borderBottom:"1px solid var(--border)", display:"flex", justifyContent:"space-between" }}>
-          <span style={{ fontSize:11, fontWeight:800, color:"var(--accent)", letterSpacing:1.5 }}>{label}</span>
-          <span style={{ fontSize:10, color:"var(--text-3)" }}>{loading ? "carregando..." : `${news.length} matérias`}</span>
-        </div>
-        <div style={{ padding:"0 16px" }}>
-          {loading
-            ? [1,2,3].map(i => (
-                <div key={i} style={{ padding:"12px 0", borderBottom:"1px solid var(--border-2)" }}>
-                  <div style={{ height:12, background:"var(--border)", borderRadius:4, marginBottom:6, width:"85%" }} />
-                  <div style={{ height:9,  background:"var(--border-2)", borderRadius:4, width:"35%" }} />
-                </div>
-              ))
-            : news.slice(0,5).map((item, i) => <NewsItem key={i} item={item} onClick={setActive} />)
-          }
-          {!loading && news.length === 0 && (
-            <div style={{ padding:"20px 0", textAlign:"center", fontSize:12, color:"var(--text-3)" }}>Sem notícias no momento</div>
-          )}
-        </div>
-      </div>
-      {active && (
-        <Modal title={active.title} onClose={() => setActive(null)}>
-          <div style={{ fontSize:12, color:"var(--text-3)", marginBottom:16 }}>
-            {active.src} {active.date && `· ${fmtTime(active.date)}`}
-          </div>
-          <a href={active.link} target="_blank" rel="noreferrer"
-            style={{ display:"inline-flex", alignItems:"center", gap:8, background:"var(--accent)", color:"#fff", padding:"10px 18px", borderRadius:10, fontSize:14, fontWeight:700, textDecoration:"none" }}>
-            <Icon path={I.external} size={14} color="#fff" /> Ler matéria completa
-          </a>
-        </Modal>
-      )}
-    </>
-  );
-}
-
-function NewsBoardSection() {
-  const [topics, setTopics]   = useState(() => S.get("news_topics", DEFAULT_TOPICS));
-  const [editMode, setEdit]   = useState(false);
-  const [newTopic, setNewTopic] = useState("");
-
-  const addTopic = () => {
-    if (!newTopic.trim()) return;
-    const t = { id: Date.now(), label: newTopic, q: newTopic };
-    const n = [...topics, t];
-    setTopics(n); S.set("news_topics", n); setNewTopic("");
-  };
-  const delTopic = (id) => { const n = topics.filter(t => t.id !== id); setTopics(n); S.set("news_topics", n); };
-
-  return (
-    <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:10 }}>
-        <LiveBadge label="Google Notícias · PT-BR" />
-        <button onClick={() => setEdit(!editMode)}
-          style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, padding:"7px 14px", color:"var(--text-2)", fontSize:13, cursor:"pointer" }}>
-          {editMode ? "✓ Concluir" : "✏️ Editar tópicos"}
-        </button>
-      </div>
-
-      {editMode && (
-        <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, padding:16, marginBottom:20 }}>
-          <div style={{ fontSize:12, color:"var(--text-3)", marginBottom:12 }}>Adicione tópicos de busca personalizados:</div>
-          <div style={{ display:"flex", gap:10, marginBottom:16 }}>
-            <input style={{ ...inp, flex:1 }} placeholder="Ex: Petrobras, Copa do Mundo, IPCA..." value={newTopic} onChange={e => setNewTopic(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addTopic()} />
-            <button onClick={addTopic} style={primaryBtn()}>Adicionar</button>
-          </div>
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-            {topics.map(t => (
-              <div key={t.id} style={{ display:"flex", alignItems:"center", gap:6, background:"var(--bg-input)", borderRadius:20, padding:"4px 12px" }}>
-                <span style={{ fontSize:12, color:"var(--text-2)" }}>{t.label}</span>
-                <button onClick={() => delTopic(t.id)} style={{ background:"none", border:"none", color:"var(--text-3)", cursor:"pointer", fontSize:14, lineHeight:1 }}>×</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Feed Geral */}
-      <div style={{ marginBottom:20 }}>
-        <Label text="FEED GERAL · BRASIL" />
-        <NewsBlock mode="top" q="" label="DESTAQUES DO DIA" />
-      </div>
-
-      {/* Tópicos */}
-      <Label text="SEUS TÓPICOS" />
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:14 }}>
-        {topics.map(t => (
-          <NewsBlock key={t.id} mode="search" q={t.q} label={t.label.toUpperCase()} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-
-// ─── INDICATORS — TRADINGVIEW ────────────────────────────────────────────────
-function TradingViewWidget({ type, config, height = 400 }) {
+// ─── TRADINGVIEW WIDGET ───────────────────────────────────────────────────────
+function TVWidget({ type, config, height=400 }) {
   const ref = useRef(null);
-
-  useEffect(() => {
-    if (!ref.current) return;
-    ref.current.innerHTML = "";
-    const script = document.createElement("script");
-    script.src = `https://s3.tradingview.com/external-embedding/embed-widget-${type}.js`;
-    script.async = true;
-    script.innerHTML = JSON.stringify({ ...config, width: "100%", height });
+  useEffect(()=>{
+    if(!ref.current) return;
+    ref.current.innerHTML="";
+    const script=document.createElement("script");
+    script.src=`https://s3.tradingview.com/external-embedding/embed-widget-${type}.js`;
+    script.async=true;
+    script.innerHTML=JSON.stringify({...config,width:"100%",height});
     ref.current.appendChild(script);
-  }, [type]);
-
-  return (
-    <div ref={ref} style={{ width:"100%", height, minHeight: height }}>
-      <div className="tradingview-widget-container__widget" style={{ width:"100%", height:"100%" }} />
-    </div>
-  );
+  },[type]);
+  return <div ref={ref} style={{width:"100%",height,minHeight:height}}><div className="tradingview-widget-container__widget" style={{width:"100%",height:"100%"}}/></div>;
 }
 
-function TVCard({ title, children, fullWidth }) {
+function TVCard({ title, children }) {
   return (
-    <div style={{
-      background:"var(--bg-card)", border:"1px solid var(--border)",
-      borderRadius:14, overflow:"hidden",
-      gridColumn: fullWidth ? "1 / -1" : undefined,
-    }}>
-      {title && (
-        <div style={{ padding:"10px 16px", background:"var(--bg-bar)", borderBottom:"1px solid var(--border)", fontSize:10, fontWeight:800, color:"var(--accent)", letterSpacing:2 }}>
-          {title}
-        </div>
-      )}
+    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}>
+      {title&&<div style={{padding:"10px 16px",background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",fontSize:10,fontWeight:800,color:"var(--accent)",letterSpacing:2}}>{title}</div>}
       {children}
     </div>
   );
 }
 
-function IndicatorsSection() {
-  const [monitor, setMonitor] = useState(false);
+// ─── MARKET & INDICATORS PAGE ─────────────────────────────────────────────────
+const NEWS_CATS=["GLOBAL/GEOPOLÍTICA","EUA","BRASIL","ECONOMIA","BOLSA","MOEDA","COMMODITIES","CRIPTO","GUERRAS","TECNOLOGIA","GERAL"];
+const gNewsCache={};
+async function fetchGNews(mode,q=""){
+  const key=mode+q;
+  if(gNewsCache[key]&&Date.now()-gNewsCache[key].ts<15*60*1000) return gNewsCache[key].data;
+  try{
+    const p=new URLSearchParams({mode}); if(q)p.set("q",q);
+    const r=await fetch(`/api/gnews?${p}`); const d=await r.json();
+    const items=d.items||[]; if(items.length)gNewsCache[key]={data:items,ts:Date.now()};
+    return items;
+  }catch{return[];}
+}
+function useGNews(mode,q){
+  const [news,setNews]=useState([]); const [loading,setLoading]=useState(true);
+  useEffect(()=>{ setLoading(true); setNews([]); fetchGNews(mode,q).then(i=>{setNews(i);setLoading(false);}); },[mode,q]);
+  return {news,loading};
+}
+function fmtTime(d){
+  if(!d) return ""; try{
+    const diff=Math.floor((Date.now()-new Date(d))/60000);
+    if(diff<60) return `há ${diff}min`; if(diff<1440) return `há ${Math.floor(diff/60)}h`;
+    return new Date(d).toLocaleDateString("pt-BR");
+  }catch{return "";}
+}
 
-  const dark = { colorTheme:"dark", locale:"pt_BR", isTransparent: true };
+function NewsBlock({mode,q,label}){
+  const {news,loading}=useGNews(mode,q); const [active,setActive]=useState(null);
+  return(
+    <>
+      <TVCard title={label}>
+        <div style={{padding:"0 16px"}}>
+          {loading?[1,2,3].map(i=><div key={i} style={{padding:"12px 0",borderBottom:"1px solid var(--border-2)"}}><div style={{height:12,background:"var(--border)",borderRadius:4,marginBottom:6,width:"85%"}}/><div style={{height:9,background:"var(--border-2)",borderRadius:4,width:"35%"}}/></div>):
+           news.slice(0,5).map((n,i)=>(
+            <div key={i} onClick={()=>setActive(n)} style={{padding:"10px 0",borderBottom:i<4?"1px solid var(--border-2)":"none",cursor:"pointer"}}>
+              <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:3}}>{n.title}</div>
+              <div style={{display:"flex",gap:8,fontSize:10,color:"var(--text-3)"}}><span>{n.src}</span><span>{fmtTime(n.date)}</span></div>
+            </div>
+           ))
+          }
+          {!loading&&news.length===0&&<div style={{padding:"16px 0",fontSize:12,color:"var(--text-3)",textAlign:"center"}}>Sem notícias no momento</div>}
+        </div>
+      </TVCard>
+      {active&&<Modal title={active.title} onClose={()=>setActive(null)}>
+        <div style={{fontSize:12,color:"var(--text-3)",marginBottom:16}}>{active.src} {active.date&&`· ${fmtTime(active.date)}`}</div>
+        <a href={active.link} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:8,background:"var(--accent)",color:"#fff",padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:700,textDecoration:"none"}}>
+          <Icon path={I.link} size={14} color="#fff"/> Ler matéria completa
+        </a>
+      </Modal>}
+    </>
+  );
+}
+
+function MarketPage() {
+  const [tab, setTab] = useState("indicadores");
+  const dark = {colorTheme:"dark",locale:"pt_BR",isTransparent:true};
+  const tabs = [{id:"indicadores",l:"📊 Indicadores"},{id:"noticias",l:"📰 Notícias"},{id:"curiosidades",l:"⭐ Curiosidades"}];
 
   return (
     <div>
-      {/* Header */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-        <LiveBadge label="TradingView · Dados ao vivo" />
-        <button onClick={() => setMonitor(!monitor)}
-          style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:10, padding:"8px 16px", color:"var(--text-2)", fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:6 }}>
-          <Icon path={I.monitor} size={14} /> {monitor ? "Visão Completa" : "Monitor 1-Pager"}
-        </button>
+      <div style={{display:"flex",gap:6,marginBottom:20,flexWrap:"wrap"}}>
+        {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"8px 18px",color:tab===t.id?"#fff":"var(--text-2)",fontSize:13,fontWeight:600,cursor:"pointer"}}>{t.l}</button>)}
       </div>
 
-      {/* Ticker tape sempre visível */}
-      <div style={{ borderRadius:12, overflow:"hidden", marginBottom:20, height:56 }}>
-        <TradingViewWidget type="ticker-tape" height={56} config={{
-          ...dark,
-          symbols: [
-            { proName:"BMFBOVESPA:IBOV", title:"IBOV"      },
-            { proName:"FX:USDBRL",        title:"USD/BRL"   },
-            { proName:"FX:EURBRL",        title:"EUR/BRL"   },
-            { proName:"TVC:SPX",          title:"S&P 500"   },
-            { proName:"NASDAQ:NDX",       title:"Nasdaq"    },
-            { proName:"DJ:DJI",           title:"Dow Jones" },
-            { proName:"BITSTAMP:BTCUSD",  title:"Bitcoin"   },
-            { proName:"BITSTAMP:ETHUSD",  title:"Ethereum"  },
-            { proName:"TVC:GOLD",         title:"Ouro"      },
-            { proName:"TVC:USOIL",        title:"WTI"       },
-            { proName:"TVC:UKOIL",        title:"Brent"     },
-            { proName:"CBOE:VIX",         title:"VIX"       },
-          ],
-          showSymbolLogo: true,
-          displayMode: "adaptive",
-        }} />
-      </div>
-
-      {/* Monitor 1-Pager */}
-      {monitor ? (
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:14 }}>
-          {[
-            { sym:"BMFBOVESPA:IBOV", label:"IBOVESPA"   },
-            { sym:"FX:USDBRL",       label:"DÓLAR / BRL" },
-            { sym:"TVC:SPX",         label:"S&P 500"     },
-            { sym:"BITSTAMP:BTCUSD", label:"BITCOIN"     },
-            { sym:"TVC:GOLD",        label:"OURO"        },
-            { sym:"TVC:USOIL",       label:"PETRÓLEO WTI"},
-          ].map(({ sym, label }) => (
-            <TVCard key={sym} title={label}>
-              <TradingViewWidget type="mini-symbol-overview" height={150} config={{
-                ...dark, symbol: sym, dateRange:"1D",
-                trendLineColor:"rgba(58,143,212,1)",
-                underLineColor:"rgba(58,143,212,0.1)",
-              }} />
-            </TVCard>
-          ))}
-        </div>
-      ) : (
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
-
-          {/* ÍNDICES */}
+      {tab==="indicadores"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
           <TVCard title="📊 ÍNDICES — BOLSAS GLOBAIS">
-            <TradingViewWidget type="market-overview" height={500} config={{
-              ...dark,
-              tabs: [{
-                title: "Índices",
-                symbols: [
-                  { s:"BMFBOVESPA:IBOV", d:"Ibovespa"   },
-                  { s:"TVC:SPX",         d:"S&P 500"     },
-                  { s:"NASDAQ:NDX",      d:"Nasdaq 100"  },
-                  { s:"DJ:DJI",          d:"Dow Jones"   },
-                  { s:"CBOE:VIX",        d:"VIX"         },
-                  { s:"TVC:FTSE",        d:"FTSE 100"    },
-                  { s:"XETR:DAX",        d:"DAX"         },
-                  { s:"TVC:NI225",       d:"Nikkei 225"  },
-                  { s:"SSE:000001",      d:"Shanghai"    },
-                ],
-                originalTitle: "Índices",
-              }],
-            }} />
+            <TVWidget type="market-overview" height={500} config={{...dark,tabs:[{title:"Índices",symbols:[{s:"BMFBOVESPA:IBOV",d:"Ibovespa"},{s:"TVC:SPX",d:"S&P 500"},{s:"NASDAQ:NDX",d:"Nasdaq 100"},{s:"DJ:DJI",d:"Dow Jones"},{s:"CBOE:VIX",d:"VIX"},{s:"TVC:FTSE",d:"FTSE 100"},{s:"XETR:DAX",d:"DAX"},{s:"TVC:NI225",d:"Nikkei 225"}],originalTitle:"Índices"}]}}/>
           </TVCard>
-
-          {/* CÂMBIO */}
-          <TVCard title="💱 CÂMBIO — MOEDAS">
-            <TradingViewWidget type="forex-cross-rates" height={500} config={{
-              ...dark,
-              currencies: ["USD","BRL","EUR","GBP","JPY","CNY","CHF","AUD"],
-            }} />
+          <TVCard title="💱 CÂMBIO">
+            <TVWidget type="forex-cross-rates" height={500} config={{...dark,currencies:["USD","BRL","EUR","GBP","JPY","CNY","CHF","AUD"]}}/>
           </TVCard>
-
-          {/* CRIPTO */}
-          <TVCard title="₿ CRIPTO — CRIPTOMOEDAS">
-            <TradingViewWidget type="market-overview" height={480} config={{
-              ...dark,
-              tabs: [{
-                title: "Cripto",
-                symbols: [
-                  { s:"BITSTAMP:BTCUSD", d:"Bitcoin"    },
-                  { s:"BITSTAMP:ETHUSD", d:"Ethereum"   },
-                  { s:"BINANCE:BNBUSD",  d:"BNB"        },
-                  { s:"BINANCE:SOLUSD",  d:"Solana"     },
-                  { s:"BINANCE:XRPUSD",  d:"XRP"        },
-                  { s:"BINANCE:ADAUSD",  d:"Cardano"    },
-                  { s:"BINANCE:DOTUSD",  d:"Polkadot"   },
-                  { s:"BINANCE:AVAXUSD", d:"Avalanche"  },
-                ],
-                originalTitle: "Cripto",
-              }],
-            }} />
+          <TVCard title="₿ CRIPTO">
+            <TVWidget type="market-overview" height={480} config={{...dark,tabs:[{title:"Cripto",symbols:[{s:"BITSTAMP:BTCUSD",d:"Bitcoin"},{s:"BITSTAMP:ETHUSD",d:"Ethereum"},{s:"BINANCE:BNBUSD",d:"BNB"},{s:"BINANCE:SOLUSD",d:"Solana"},{s:"BINANCE:XRPUSD",d:"XRP"},{s:"BINANCE:ADAUSD",d:"Cardano"}],originalTitle:"Cripto"}]}}/>
           </TVCard>
-
-          {/* COMMODITIES */}
           <TVCard title="🛢 COMMODITIES">
-            <TradingViewWidget type="market-overview" height={480} config={{
-              ...dark,
-              tabs: [{
-                title: "Commodities",
-                symbols: [
-                  { s:"TVC:GOLD",   d:"Ouro"           },
-                  { s:"TVC:SILVER", d:"Prata"          },
-                  { s:"TVC:USOIL",  d:"Petróleo WTI"   },
-                  { s:"TVC:UKOIL",  d:"Petróleo Brent" },
-                  { s:"CBOT:ZS1!",  d:"Soja"           },
-                  { s:"CBOT:ZC1!",  d:"Milho"          },
-                  { s:"CBOT:ZW1!",  d:"Trigo"          },
-                  { s:"NYMEX:NG1!", d:"Gás Natural"    },
-                ],
-                originalTitle: "Commodities",
-              }],
-            }} />
+            <TVWidget type="market-overview" height={480} config={{...dark,tabs:[{title:"Commodities",symbols:[{s:"TVC:GOLD",d:"Ouro"},{s:"TVC:SILVER",d:"Prata"},{s:"TVC:USOIL",d:"Petróleo WTI"},{s:"TVC:UKOIL",d:"Petróleo Brent"},{s:"CBOT:ZS1!",d:"Soja"},{s:"CBOT:ZC1!",d:"Milho"},{s:"CBOT:ZW1!",d:"Trigo"},{s:"NYMEX:NG1!",d:"Gás Natural"}],originalTitle:"Commodities"}]}}/>
           </TVCard>
-
         </div>
       )}
+
+      {tab==="noticias"&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:14}}>
+          <TVCard title="🌍 DESTAQUES DO DIA">
+            <div style={{padding:"0 16px"}}>
+              {useGNews("top","").news.slice(0,6).map((n,i)=>(
+                <div key={i} style={{padding:"10px 0",borderBottom:i<5?"1px solid var(--border-2)":"none"}}>
+                  <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:3}}>{n.title}</div>
+                  <div style={{fontSize:10,color:"var(--text-3)"}}>{n.src}</div>
+                </div>
+              ))}
+            </div>
+          </TVCard>
+          {[["economia brasil","🇧🇷 BRASIL"],["ibovespa bolsa b3","📈 BOLSA"],["bitcoin cripto ethereum","₿ CRIPTO"],["trump estados unidos","🇺🇸 EUA"],["guerra conflito militar","⚔️ GUERRAS"],["tecnologia inteligencia artificial","🤖 TECNOLOGIA"]].map(([q,l])=>(
+            <NewsBlock key={q} mode="search" q={q} label={l}/>
+          ))}
+        </div>
+      )}
+
+      {tab==="curiosidades"&&<CuriositiesPage/>}
     </div>
   );
 }
 
+// ─── CURIOSITIES PAGE ─────────────────────────────────────────────────────────
+function CuriositiesPage() {
+  const [cards,setCards]=useState(()=>S.get("curiosities",[]));
+  const [modal,setModal]=useState(false);
+  const [detail,setDetail]=useState(null);
+  const [form,setForm]=useState({title:"",content:"",link:"",imageUrl:"",tag:""});
+  const [updTxt,setUpdTxt]=useState("");
 
-// ─── PROFESSIONAL PLACEHOLDER ─────────────────────────────────────────────────
-function ProfessionalSection() {
+  const add=()=>{ if(!form.title.trim()) return; const n=[...cards,{id:Date.now(),...form,updates:[],created:now()}]; setCards(n); S.set("curiosities",n); setModal(false); setForm({title:"",content:"",link:"",imageUrl:"",tag:""}); };
+  const addUpdate=id=>{ if(!updTxt.trim()) return; const n=cards.map(c=>c.id===id?{...c,updates:[...c.updates,{text:updTxt,date:now()}]}:c); setCards(n); S.set("curiosities",n); setDetail(n.find(c=>c.id===id)); setUpdTxt(""); };
+  const del=id=>{ setCards(cards.filter(c=>c.id!==id)); S.set("curiosities",cards.filter(c=>c.id!==id)); setDetail(null); };
+
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:20}}>
+        <button onClick={()=>setModal(true)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Nova Curiosidade</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:14}}>
+        {cards.map(c=>(
+          <div key={c.id} onClick={()=>setDetail(c)} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,overflow:"hidden",cursor:"pointer"}}>
+            {c.imageUrl&&<div style={{height:120,background:`url(${c.imageUrl}) center/cover`,borderBottom:"1px solid var(--border)"}}/>}
+            <div style={{padding:16}}>
+              {c.tag&&<span style={{background:"var(--bg-input)",borderRadius:4,padding:"2px 8px",fontSize:10,color:"var(--accent)",fontWeight:700,display:"inline-block",marginBottom:8,letterSpacing:1}}>{c.tag.toUpperCase()}</span>}
+              <div style={{fontWeight:700,marginBottom:6,fontSize:14}}>{c.title}</div>
+              <div style={{fontSize:12,color:"var(--text-3)",lineHeight:1.5,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{c.content}</div>
+              {c.updates.length>0&&<div style={{fontSize:10,color:"var(--accent)",marginTop:8}}>{c.updates.length} atualização(ões)</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+      {cards.length===0&&<Empty text="Nenhuma curiosidade ainda."/>}
+      {modal&&<Modal title="Nova Curiosidade" onClose={()=>setModal(false)} wide>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <input style={inp} placeholder="Título" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/>
+          <input style={inp} placeholder="Tag / Categoria" value={form.tag} onChange={e=>setForm({...form,tag:e.target.value})}/>
+          <textarea style={{...inp,resize:"vertical"}} rows={5} placeholder="Conteúdo" value={form.content} onChange={e=>setForm({...form,content:e.target.value})}/>
+          <input style={inp} placeholder="URL de imagem (opcional)" value={form.imageUrl} onChange={e=>setForm({...form,imageUrl:e.target.value})}/>
+          <input style={inp} placeholder="Link de referência (opcional)" value={form.link} onChange={e=>setForm({...form,link:e.target.value})}/>
+          <button onClick={add} style={btn()}>Salvar Card</button>
+        </div>
+      </Modal>}
+      {detail&&<Modal title={detail.title} onClose={()=>setDetail(null)} wide>
+        {detail.imageUrl&&<img src={detail.imageUrl} alt="" style={{width:"100%",borderRadius:10,marginBottom:16,maxHeight:240,objectFit:"cover"}}/>}
+        {detail.tag&&<span style={{background:"var(--bg-input)",borderRadius:4,padding:"2px 8px",fontSize:10,color:"var(--accent)",fontWeight:700,display:"inline-block",marginBottom:12,letterSpacing:1}}>{detail.tag.toUpperCase()}</span>}
+        <p style={{color:"var(--text-2)",lineHeight:1.7,fontSize:14,marginBottom:16}}>{detail.content}</p>
+        {detail.link&&<a href={detail.link} target="_blank" rel="noreferrer" style={{color:"var(--accent)",fontSize:12,display:"flex",gap:6,alignItems:"center",marginBottom:16}}><Icon path={I.link} size={14}/>{detail.link}</a>}
+        <div style={{borderTop:"1px solid var(--border)",paddingTop:16}}>
+          <div style={{fontSize:10,color:"var(--text-3)",letterSpacing:2,fontWeight:700,marginBottom:12}}>ATUALIZAÇÕES</div>
+          {detail.updates.map((u,i)=><div key={i} style={{background:"var(--bg-input)",borderRadius:10,padding:"10px 14px",marginBottom:10}}><div style={{color:"var(--text-2)",fontSize:13}}>{u.text}</div><div style={{fontSize:10,color:"var(--text-3)",marginTop:4}}>🕐 {u.date}</div></div>)}
+          <div style={{display:"flex",gap:10,marginTop:12}}>
+            <textarea style={{...inp,flex:1,resize:"none"}} rows={2} placeholder="Adicionar atualização..." value={updTxt} onChange={e=>setUpdTxt(e.target.value)}/>
+            <button onClick={()=>addUpdate(detail.id)} style={{...btn("var(--green)"),alignSelf:"flex-end",padding:"10px 16px"}}>+</button>
+          </div>
+        </div>
+        <button onClick={()=>del(detail.id)} style={{marginTop:16,background:"rgba(240,112,112,0.08)",border:"1px solid rgba(240,112,112,0.25)",borderRadius:10,padding:"8px 16px",color:"var(--red)",fontSize:13,cursor:"pointer"}}>Excluir card</button>
+      </Modal>}
+    </div>
+  );
+}
+
+// ─── MENU (HOME) ──────────────────────────────────────────────────────────────
+function MenuTile({ color, emoji, label, sub, wide, tall, onClick }) {
   return (
-    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"80px 0", gap:16 }}>
-      <Icon path={I.briefcase} size={52} color="var(--border)" />
-      <div style={{ fontSize:16, color:"var(--text-3)", fontWeight:600 }}>Área Profissional</div>
-      <div style={{ fontSize:13, color:"var(--border)", textAlign:"center", maxWidth:320 }}>Em construção. Em breve você poderá organizar projetos, tarefas e recursos profissionais aqui.</div>
+    <div className={`tile${wide?" wide":""}${tall?" tall":""}`}
+      style={{background:color}} onClick={onClick}>
+      <span className="tile-icon">{emoji}</span>
+      <div>
+        <div className="tile-label">{label}</div>
+        {sub&&<div className="tile-sub">{sub}</div>}
+      </div>
     </div>
   );
 }
 
-
-
-// ─── GOOGLE NEWS HOOK ────────────────────────────────────────────────────────
-const gNewsCache = {};
-const GNEWS_TTL  = 15 * 60 * 1000;
-
-async function fetchGNews(mode, q = "") {
-  const key = mode + "|" + q;
-  if (gNewsCache[key] && Date.now() - gNewsCache[key].ts < GNEWS_TTL) return gNewsCache[key].data;
-  try {
-    const p = new URLSearchParams({ mode });
-    if (q) p.set("q", q);
-    const res  = await fetch(`/api/gnews?${p}`);
-    const data = await res.json();
-    const items = data.items || [];
-    if (items.length) gNewsCache[key] = { data: items, ts: Date.now() };
-    return items;
-  } catch { return []; }
+function WeatherTile({ onClick }) {
+  const w = useWeather();
+  return (
+    <div className="tile" style={{background:"var(--tile-weather)"}} onClick={onClick}>
+      <span className="tile-live">CLIMA</span>
+      <span className="tile-icon">{w?.desc?.split(" ")[0]||"🌡"}</span>
+      <div>
+        {w&&!w.error
+          ? <><div className="tile-label" style={{fontSize:28,fontFamily:"'DM Mono',monospace"}}>{w.temp}{w.unit}</div><div className="tile-sub">{w.city||"..."}</div></>
+          : <div className="tile-label">Clima</div>}
+      </div>
+    </div>
+  );
 }
 
-function useGNews(mode, q) {
-  const [news, setNews]       = useState([]);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    setLoading(true); setNews([]);
-    fetchGNews(mode, q).then(items => { setNews(items); setLoading(false); });
-  }, [mode, q]);
-  return { news, loading };
+function HomePage({ onNavigate }) {
+  return (
+    <div className="tiles-grid">
+      <MenuTile color="var(--tile-diary)"  emoji="📓" label="Diário"       sub="Registros, ideias, lembretes" wide onClick={()=>onNavigate("diary")}/>
+      <MenuTile color="var(--tile-tasks)"  emoji="✅" label="Tarefas"      sub="Cards editáveis"              onClick={()=>onNavigate("tasks")}/>
+      <MenuTile color="var(--tile-docs)"   emoji="📁" label="Documentos"   sub="Arquivos e anexos"            onClick={()=>onNavigate("docs")}/>
+      <MenuTile color="var(--tile-bills)"  emoji="💳" label="Contas"       sub="Vencimentos e pagamentos"     onClick={()=>onNavigate("bills")}/>
+      <MenuTile color="var(--tile-events)" emoji="📅" label="Compromissos" sub="Agenda e eventos"             onClick={()=>onNavigate("events")}/>
+      <MenuTile color="var(--tile-lists)"  emoji="📋" label="Listas"       sub="Checklists e anotações"       onClick={()=>onNavigate("lists")}/>
+      <WeatherTile onClick={()=>onNavigate("weather")}/>
+      <MenuTile color="var(--tile-market)" emoji="📈" label="Mercado & Indicadores" sub="Bolsas, câmbio, cripto, notícias" wide onClick={()=>onNavigate("market")}/>
+      <MenuTile color="var(--tile-white)"  emoji="🖊️" label="Whiteboard"   sub="Lousa digital"               onClick={()=>onNavigate("whiteboard")}/>
+    </div>
+  );
 }
 
-// ─── APP SHELL ────────────────────────────────────────────────────────────────
-const NAV = [
-  { id:"pessoal",      label:"Pessoal",      icon: I.user },
-  { id:"profissional", label:"Profissional", icon: I.briefcase },
-  { id:"informacoes",  label:"Informações",  icon: I.info },
-];
-const TABS = {
-  pessoal:      [{ id:"diario",       label:"Diário",       icon: I.diary    },
-                 { id:"tarefas",      label:"Tarefas",      icon: I.check    },
-                 { id:"documentos",   label:"Documentos",   icon: I.folder   },
-                 { id:"contas",       label:"Contas",       icon: I.bill     },
-                 { id:"compromissos", label:"Compromissos", icon: I.calendar }],
-  profissional: [],
-  informacoes:  [{ id:"curiosidades", label:"Curiosidades", icon: I.star     },
-                 { id:"noticias",     label:"Notícias",     icon: I.newspaper},
-                 { id:"indicadores",  label:"Indicadores",  icon: I.chart    }],
+// ─── PAGE TITLES ─────────────────────────────────────────────────────────────
+const PAGE_META = {
+  home:       {label:"Menu",                emoji:"🏠"},
+  diary:      {label:"Diário",              emoji:"📓"},
+  tasks:      {label:"Tarefas",             emoji:"✅"},
+  docs:       {label:"Documentos",          emoji:"📁"},
+  bills:      {label:"Contas",              emoji:"💳"},
+  events:     {label:"Compromissos",        emoji:"📅"},
+  lists:      {label:"Listas",              emoji:"📋"},
+  weather:    {label:"Clima",               emoji:"🌤"},
+  market:     {label:"Mercado & Indicadores",emoji:"📈"},
+  whiteboard: {label:"Whiteboard",          emoji:"🖊️"},
 };
 
+// ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [section, setSection] = useState("pessoal");
-  const [subTab,  setSubTab]  = useState("diario");
-  const marketData = useMarketData();
+  const [page, setPage] = useState("home");
+  const market = useMarketData();
+  const meta = PAGE_META[page]||PAGE_META.home;
 
-  useEffect(() => {
-    const tabs = TABS[section];
-    setSubTab(tabs.length > 0 ? tabs[0].id : "");
-  }, [section]);
-
-  const renderContent = () => {
-    if (section === "profissional") return <ProfessionalSection />;
-    switch (subTab) {
-      case "diario":       return <DiarySection />;
-      case "tarefas":      return <TasksSection />;
-      case "documentos":   return <DocsSection />;
-      case "contas":       return <BillsSection />;
-      case "compromissos": return <EventsSection />;
-      case "curiosidades": return <CuriositiesSection />;
-      case "noticias":     return <NewsBoardSection />;
-      case "indicadores":  return <IndicatorsSection />;
-      default:             return null;
+  const renderPage = () => {
+    switch(page) {
+      case "diary":      return <DiaryPage/>;
+      case "tasks":      return <TasksPage/>;
+      case "docs":       return <DocsPage/>;
+      case "bills":      return <BillsPage/>;
+      case "events":     return <EventsPage/>;
+      case "lists":      return <ListsPage/>;
+      case "weather":    return <WeatherPage/>;
+      case "market":     return <MarketPage/>;
+      case "whiteboard": return <WhiteboardPage/>;
+      default:           return <HomePage onNavigate={setPage}/>;
     }
   };
 
   return (
-    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column" }}>
-      <header style={{ background:"var(--bg-bar)", borderBottom:"1px solid var(--border)", padding:"0 32px", display:"flex", alignItems:"center", justifyContent:"space-between", height:56, flexShrink:0 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:30, height:30, borderRadius:9, background:"linear-gradient(135deg,#4f8ef7,#8b5cf6)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:15, fontWeight:900, color:"#fff" }}>P</div>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+      {/* TOP BAR */}
+      <header style={{background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:54,flexShrink:0,gap:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <div style={{width:30,height:30,borderRadius:8,background:"linear-gradient(135deg,#3a8fd4,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:900,color:"#fff"}}>P</div>
           <div>
-            <div style={{ fontWeight:800, fontSize:12, letterSpacing:1.5, lineHeight:1 }}>PAINEL DE CONTROLE</div>
-            <div style={{ fontWeight:400, fontSize:9, letterSpacing:2, color:"var(--text-3)", lineHeight:1, marginTop:2 }}>PESSOAL</div>
+            <div style={{fontWeight:800,fontSize:11,letterSpacing:1.5,lineHeight:1}}>PAINEL DE CONTROLE</div>
+            <div style={{fontWeight:400,fontSize:9,letterSpacing:2,color:"var(--text-3)",lineHeight:1,marginTop:2}}>PESSOAL</div>
           </div>
         </div>
-        <nav style={{ display:"flex", gap:2 }}>
-          {NAV.map(n => (
-            <button key={n.id} onClick={() => setSection(n.id)}
-              style={{ background: section===n.id ? "var(--accent-dim)" : "none", border: section===n.id ? "1px solid var(--accent-bdr)" : "1px solid transparent", borderRadius:9, padding:"6px 16px", color: section===n.id ? "var(--accent)" : "var(--text-3)", fontSize:13, fontWeight: section===n.id ? 700 : 500, cursor:"pointer", display:"flex", alignItems:"center", gap:7, transition:"all .2s" }}>
-              <Icon path={n.icon} size={14} /> {n.label}
-            </button>
-          ))}
-        </nav>
-        <MarketTicker compact marketData={marketData} />
+        {/* Ticker always visible */}
+        <div style={{flex:1,overflow:"hidden"}}>
+          <TickerStrip market={market}/>
+        </div>
       </header>
 
-      {TABS[section]?.length > 0 && (
-        <div style={{ background:"var(--bg-sub)", borderBottom:"1px solid var(--border-2)", padding:"0 32px", display:"flex", gap:4 }}>
-          {TABS[section].map(t => (
-            <button key={t.id} onClick={() => setSubTab(t.id)}
-              style={{ background:"none", border:"none", padding:"11px 16px", color: subTab===t.id ? "var(--text-1)" : "var(--text-3)", fontSize:13, fontWeight: subTab===t.id ? 700 : 400, cursor:"pointer", borderBottom: subTab===t.id ? "2px solid var(--accent)" : "2px solid transparent", display:"flex", alignItems:"center", gap:6, transition:"all .2s" }}>
-              <Icon path={t.icon} size={13} /> {t.label}
-            </button>
-          ))}
+      {/* BREADCRUMB BAR */}
+      <div style={{background:"var(--bg-sub)",borderBottom:"1px solid var(--border-2)",padding:"0 20px",height:40,display:"flex",alignItems:"center",gap:10}}>
+        {page!=="home"&&(
+          <button onClick={()=>setPage("home")} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontSize:12}}>
+            <Icon path={I.back} size={14}/> Menu
+          </button>
+        )}
+        {page!=="home"&&<span style={{color:"var(--border)",fontSize:12}}>/</span>}
+        <span style={{fontSize:13,fontWeight:700,color:"var(--text-1)"}}>{meta.emoji} {meta.label}</span>
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
+          <LiveBadge label=""/>
+          <span style={{fontSize:10,color:"var(--text-3)"}}>v3.0</span>
         </div>
-      )}
+      </div>
 
-      <main id="main-content" style={{ flex:1, padding: subTab==="indicadores" ? "16px" : 32, maxWidth: subTab==="indicadores" ? "100%" : 1280, width:"100%", margin:"0 auto", animation:"fadeIn .25s ease", transition:"max-width .2s" }}>
-        {renderContent()}
+      {/* CONTENT */}
+      <main style={{flex:1,padding: page==="home"?"0":"24px 20px",maxWidth: page==="market"||page==="home"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease"}}>
+        {renderPage()}
       </main>
 
-      <footer style={{ borderTop:"1px solid var(--border-2)", padding:"10px 32px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-        <span style={{ fontSize:10, color:"var(--border)", letterSpacing:1 }}>PAINEL DE CONTROLE PESSOAL · v2.0</span>
-        <span style={{ fontSize:10, color:"var(--border)" }}>{new Date().toLocaleDateString("pt-BR")}</span>
+      <footer style={{borderTop:"1px solid var(--border-2)",padding:"8px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <span style={{fontSize:10,color:"var(--border)",letterSpacing:1}}>PAINEL DE CONTROLE PESSOAL · v3.0</span>
+        <span style={{fontSize:10,color:"var(--border)"}}>{new Date().toLocaleDateString("pt-BR")}</span>
       </footer>
     </div>
   );

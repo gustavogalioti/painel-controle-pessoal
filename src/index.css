@@ -1,6 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
 
-/* ── TEMA AZUL MARINHO PROFUNDO ────────────────────────────────────────────── */
 :root {
   --bg:         #0d2137;
   --bg-card:    #163350;
@@ -20,10 +19,20 @@
   --yellow:     #f0c040;
   --purple:     #a070e0;
   --orange:     #f09050;
+
+  /* tile colors */
+  --tile-diary:    #2563eb;
+  --tile-tasks:    #7c3aed;
+  --tile-docs:     #0891b2;
+  --tile-bills:    #dc2626;
+  --tile-events:   #059669;
+  --tile-lists:    #d97706;
+  --tile-weather:  #0284c7;
+  --tile-market:   #1d4ed8;
+  --tile-white:    #374151;
 }
 
-/* ── RESET ─────────────────────────────────────────────────────────────────── */
-*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
 body {
   background: var(--bg);
@@ -34,16 +43,81 @@ body {
   min-height: 100vh;
 }
 
-/* ── SCROLLBAR ─────────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar { width:4px; height:4px; }
+::-webkit-scrollbar-track { background:var(--bg); }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
 
-/* ── ANIMATIONS ────────────────────────────────────────────────────────────── */
 @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:.35} }
 @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+@keyframes slideIn{ from{opacity:0;transform:translateX(-12px)} to{opacity:1;transform:translateX(0)} }
 
-/* ── RESPONSIVE DIARY GRID ─────────────────────────────────────────────────── */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator { filter:invert(0.5) brightness(1.4); }
+input, textarea, select { color-scheme:dark; }
+::selection { background:var(--accent); color:#fff; }
+
+/* Tiles grid */
+.tiles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px;
+  padding: 20px;
+}
+@media (min-width: 900px) {
+  .tiles-grid { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+}
+@media (min-width: 1400px) {
+  .tiles-grid { grid-template-columns: repeat(5, 1fr); }
+}
+
+.tile {
+  aspect-ratio: 1 / 1;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 16px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: filter .15s, transform .15s;
+  user-select: none;
+}
+.tile:hover  { filter: brightness(1.12); transform: scale(1.02); }
+.tile:active { transform: scale(0.97); }
+.tile.wide   { grid-column: span 2; aspect-ratio: 2 / 1; }
+.tile.tall   { grid-row: span 2; aspect-ratio: 1 / 2; }
+
+.tile-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.95);
+  letter-spacing: 0.5px;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+.tile-sub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.65);
+  margin-top: 2px;
+}
+.tile-icon {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  font-size: 28px;
+  opacity: 0.7;
+}
+.tile-live {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.5);
+  letter-spacing: 1.5px;
+}
+
+/* Responsive diary grid */
 .diary-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -54,8 +128,9 @@ body {
   .diary-grid { grid-template-columns: 1fr; }
 }
 
-/* ── INPUTS ────────────────────────────────────────────────────────────────── */
-input[type="date"]::-webkit-calendar-picker-indicator,
-input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.5) brightness(1.4); }
-input, textarea, select { color-scheme: dark; }
-::selection { background: var(--accent); color: #fff; }
+/* Whiteboard */
+.wb-canvas {
+  cursor: crosshair;
+  touch-action: none;
+  display: block;
+}
