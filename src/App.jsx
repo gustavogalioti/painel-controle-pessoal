@@ -241,13 +241,158 @@ function NoteColumn({ storageKey, title, placeholder, accent, emoji, hasCheck })
   );
 }
 
+// ─── IDEIAS — CARDS ──────────────────────────────────────────────────────────
+function IdeasCards() {
+  const [entries, setEntries, synced] = useDB("ideas","ideas",[]);
+  const [text, setText]   = useState("");
+  const [tag, setTag]     = useState("");
+  const [editing, setEditing] = useState(null);
+  const [editText, setEditText] = useState("");
+  const [editTag, setEditTag]   = useState("");
+
+  const add = () => {
+    if(!text.trim()) return;
+    const e={id:Date.now(),text,tag,mood:"💡",date:nowISO()};
+    const n=[e,...entries]; setEntries(n); S.set("ideas",n); DB.insert("ideas",e); setText(""); setTag("");
+  };
+  const del = id=>{ const n=entries.filter(e=>e.id!==id); setEntries(n); S.set("ideas",n); DB.delete("ideas",id); };
+  const openEdit = e=>{ setEditing(e); setEditText(e.text); setEditTag(e.tag||""); };
+  const saveEdit = ()=>{
+    const n=entries.map(e=>e.id===editing.id?{...e,text:editText,tag:editTag}:e);
+    setEntries(n); S.set("ideas",n); DB.update("ideas",{id:editing.id,text:editText,mood:editing.mood}); setEditing(null);
+  };
+
+  return (
+    <div>
+      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:18,marginBottom:20}}>
+        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Anote uma ideia..." rows={3}
+          style={{...inp,resize:"none",marginBottom:10}} onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          <input style={{...inp,flex:1}} placeholder="Tag (opcional)" value={tag} onChange={e=>setTag(e.target.value)}/>
+          <button onClick={add} style={{...btn("var(--purple)"),padding:"10px 20px",whiteSpace:"nowrap"}}>+ Salvar</button>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:14}}>
+        {entries.map(e=>(
+          <div key={e.id} style={{background:"var(--bg-card)",border:"1px solid rgba(160,112,224,0.3)",borderRadius:14,padding:16,display:"flex",flexDirection:"column",gap:10}}>
+            {e.tag&&<span style={{background:"rgba(160,112,224,0.15)",border:"1px solid rgba(160,112,224,0.3)",borderRadius:20,padding:"2px 10px",fontSize:10,color:"var(--purple)",fontWeight:700,letterSpacing:1,alignSelf:"flex-start"}}>{e.tag.toUpperCase()}</span>}
+            <p style={{margin:0,color:"var(--text-1)",lineHeight:1.7,fontSize:14,whiteSpace:"pre-wrap",flex:1}}>{e.text}</p>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:10,color:"var(--text-3)"}}>{new Date(e.date).toLocaleDateString("pt-BR")} {new Date(e.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>openEdit(e)} style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:8,padding:"4px 10px",color:"var(--accent)",fontSize:11,cursor:"pointer"}}>✏️ Editar</button>
+                <button onClick={()=>del(e.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {entries.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",color:"var(--text-3)",padding:"40px 0",fontSize:14}}>Nenhuma ideia ainda. Anote a primeira! 💡</div>}
+      </div>
+      {editing&&<Modal title="Editar Ideia" onClose={()=>setEditing(null)}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <textarea style={{...inp,resize:"vertical"}} rows={6} value={editText} onChange={e=>setEditText(e.target.value)}/>
+          <input style={inp} placeholder="Tag" value={editTag} onChange={e=>setEditTag(e.target.value)}/>
+          <button onClick={saveEdit} style={btn()}>Salvar</button>
+        </div>
+      </Modal>}
+    </div>
+  );
+}
+
+// ─── LEMBRETES — CARDS ───────────────────────────────────────────────────────
+function RemindersCards() {
+  const [entries, setEntries, synced] = useDB("reminders","reminders",[]);
+  const [text, setText]   = useState("");
+  const [editing, setEditing] = useState(null);
+  const [editText, setEditText] = useState("");
+  const [filter, setFilter]   = useState("all");
+
+  const add = () => {
+    if(!text.trim()) return;
+    const e={id:Date.now(),text,mood:"🔔",done:false,date:nowISO()};
+    const n=[e,...entries]; setEntries(n); S.set("reminders",n); DB.insert("reminders",e); setText("");
+  };
+  const tick = id=>{
+    const cur=entries.find(e=>e.id===id);
+    const n=entries.map(e=>e.id===id?{...e,done:!e.done}:e);
+    setEntries(n); S.set("reminders",n); DB.update("reminders",{id,done:!cur.done});
+  };
+  const del = id=>{ const n=entries.filter(e=>e.id!==id); setEntries(n); S.set("reminders",n); DB.delete("reminders",id); };
+  const openEdit = e=>{ setEditing(e); setEditText(e.text); };
+  const saveEdit = ()=>{
+    const n=entries.map(e=>e.id===editing.id?{...e,text:editText}:e);
+    setEntries(n); S.set("reminders",n); DB.update("reminders",{id:editing.id,text:editText,mood:editing.mood}); setEditing(null);
+  };
+  const filtered = filter==="all"?entries: filter==="done"?entries.filter(e=>e.done): entries.filter(e=>!e.done);
+
+  return (
+    <div>
+      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:18,marginBottom:16}}>
+        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Adicione um lembrete..." rows={2}
+          style={{...inp,resize:"none",marginBottom:10}} onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
+        <div style={{display:"flex",justifyContent:"flex-end"}}>
+          <button onClick={add} style={{...btn("var(--yellow)"),padding:"10px 20px",color:"#000"}}>+ Salvar</button>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:16}}>
+        {[["all","Todos"],["todo","Pendentes"],["done","Feitos"]].map(([id,l])=>(
+          <button key={id} onClick={()=>setFilter(id)} style={{background:filter===id?"var(--yellow)":"var(--bg-card)",border:"none",borderRadius:20,padding:"5px 14px",color:filter===id?"#000":"var(--text-2)",fontSize:12,fontWeight:600,cursor:"pointer"}}>{l}</button>
+        ))}
+        <span style={{marginLeft:"auto",fontSize:11,color:"var(--text-3)",alignSelf:"center"}}>{entries.filter(e=>!e.done).length} pendentes</span>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:14}}>
+        {filtered.map(e=>(
+          <div key={e.id} style={{background:"var(--bg-card)",border:`1px solid ${e.done?"var(--border-2)":"rgba(240,192,64,0.3)"}`,borderRadius:14,padding:16,opacity:e.done?0.6:1,transition:"opacity .2s"}}>
+            <div style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:10}}>
+              <button onClick={()=>tick(e.id)} style={{width:24,height:24,borderRadius:6,border:`2px solid ${e.done?"var(--green)":"var(--yellow)"}`,background:e.done?"var(--green)":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+                {e.done&&<Icon path={I.check} size={13} color="#fff"/>}
+              </button>
+              <p style={{margin:0,color:"var(--text-1)",lineHeight:1.7,fontSize:14,flex:1,textDecoration:e.done?"line-through":"none",whiteSpace:"pre-wrap"}}>{e.text}</p>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:10,color:"var(--text-3)"}}>{new Date(e.date).toLocaleDateString("pt-BR")} {new Date(e.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>openEdit(e)} style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:8,padding:"4px 10px",color:"var(--accent)",fontSize:11,cursor:"pointer"}}>✏️</button>
+                <button onClick={()=>del(e.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {filtered.length===0&&<div style={{gridColumn:"1/-1",textAlign:"center",color:"var(--text-3)",padding:"40px 0",fontSize:14}}>Nenhum lembrete aqui.</div>}
+      </div>
+      {editing&&<Modal title="Editar Lembrete" onClose={()=>setEditing(null)}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <textarea style={{...inp,resize:"vertical"}} rows={4} value={editText} onChange={e=>setEditText(e.target.value)}/>
+          <button onClick={saveEdit} style={btn()}>Salvar</button>
+        </div>
+      </Modal>}
+    </div>
+  );
+}
+
 // ─── DIARY PAGE ───────────────────────────────────────────────────────────────
 function DiaryPage() {
+  const [active, setActive] = useState("diary");
+  const tabs = [
+    {id:"diary",     label:"📓 Diário",    color:"var(--accent)"},
+    {id:"ideas",     label:"💡 Ideias",    color:"var(--purple)"},
+    {id:"reminders", label:"🔔 Lembretes", color:"var(--yellow)"},
+  ];
   return (
-    <div className="diary-grid">
-      <NoteColumn storageKey="diary"     title="Diário"    placeholder="O que está em sua mente hoje?" accent="var(--accent)"  emoji="📓"/>
-      <NoteColumn storageKey="ideas"     title="Ideias"    placeholder="Anote uma ideia..."             accent="var(--purple)" emoji="💡"/>
-      <NoteColumn storageKey="reminders" title="Lembretes" placeholder="Adicione um lembrete..."        accent="var(--yellow)" emoji="🔔" hasCheck/>
+    <div>
+      <div style={{display:"flex",gap:8,marginBottom:24}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setActive(t.id)}
+            style={{background:active===t.id?t.color:"var(--bg-card)",border:`1px solid ${active===t.id?t.color:"var(--border)"}`,borderRadius:24,padding:"10px 24px",color:active===t.id?t.id==="reminders"?"#000":"#fff":"var(--text-2)",fontSize:14,fontWeight:700,cursor:"pointer",transition:"all .2s"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div style={{animation:"fadeIn .2s ease"}}>
+        {active==="diary"     && <NoteColumn storageKey="diary" title="Diário" placeholder="O que está em sua mente hoje?" accent="var(--accent)" emoji="📓"/>}
+        {active==="ideas"     && <IdeasCards/>}
+        {active==="reminders" && <RemindersCards/>}
+      </div>
     </div>
   );
 }
