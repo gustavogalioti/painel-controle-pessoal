@@ -174,69 +174,101 @@ function TickerStrip({ market }) {
   );
 }
 
-// ─── NOTE COLUMN (Diary / Ideas / Reminders) ─────────────────────────────────
+// ─── DIARY CARDS ─────────────────────────────────────────────────────────────
 function NoteColumn({ storageKey, title, placeholder, accent, emoji, hasCheck }) {
   const [entries, setEntries, synced] = useDB(storageKey, storageKey, []);
-  const [text, setText]   = useState("");
-  const [mood, setMood]   = useState("🙂");
+  const [text, setText] = useState("");
+  const [mood, setMood] = useState("🙂");
   const moods = ["😄","🙂","😐","😔","😤","🤔","🎉"];
-  const showMoods = storageKey==="diary";
+  const showMoods = storageKey === "diary";
 
   const add = () => {
     if(!text.trim()) return;
-    const e = {id:Date.now(),text,mood,done:false,date:nowISO()};
-    const n = [e,...entries];
-    setEntries(n); S.set(storageKey,n); DB.insert(storageKey,e); setText("");
+    const e = {id:Date.now(), text, mood, done:false, date:nowISO()};
+    const n = [e, ...entries];
+    setEntries(n); S.set(storageKey, n); DB.insert(storageKey, e); setText("");
   };
-  const del   = id=>{ const n=entries.filter(e=>e.id!==id); setEntries(n); S.set(storageKey,n); DB.delete(storageKey,id); };
-  const tick  = id=>{ const n=entries.map(e=>e.id===id?{...e,done:!e.done}:e); setEntries(n); S.set(storageKey,n); DB.update(storageKey,{id,done:!entries.find(e=>e.id===id)?.done}); };
+  const del  = id => { const n=entries.filter(e=>e.id!==id); setEntries(n); S.set(storageKey,n); DB.delete(storageKey,id); };
+  const tick = id => {
+    const cur = entries.find(e=>e.id===id);
+    const n = entries.map(e=>e.id===id?{...e,done:!e.done}:e);
+    setEntries(n); S.set(storageKey,n); DB.update(storageKey,{id,done:!cur.done});
+  };
 
-  const grouped = entries.reduce((acc,e)=>{
-    const d=new Date(e.date).toLocaleDateString("pt-BR",{day:"numeric",month:"short",year:"numeric"});
-    (acc[d]=acc[d]||[]).push(e); return acc;
-  },{});
+  // Group by day
+  const grouped = entries.reduce((acc, e) => {
+    const d = new Date(e.date).toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+    (acc[d] = acc[d] || []).push(e); return acc;
+  }, {});
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:0}}>
-      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:16,marginBottom:16}}>
+    <div>
+      {/* Input box */}
+      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:16,marginBottom:24}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <div style={{fontSize:10,color:accent,letterSpacing:2,fontWeight:800}}>{emoji} {title.toUpperCase()}</div>
-          <div style={{fontSize:9,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"syncing..."}</div>
+          {showMoods && (
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              {moods.map(m=><button key={m} onClick={()=>setMood(m)} style={{fontSize:20,background:mood===m?"var(--bg-input)":"none",border:mood===m?`1px solid ${accent}`:"1px solid transparent",borderRadius:8,padding:"3px 7px",cursor:"pointer"}}>{m}</button>)}
+            </div>
+          )}
+          <span style={{fontSize:9,color:synced?"var(--green)":"var(--text-3)",marginLeft:"auto"}}>
+            {synced?"☁ sync":"syncing..."}
+          </span>
         </div>
-        {showMoods&&<div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
-          {moods.map(m=><button key={m} onClick={()=>setMood(m)} style={{fontSize:18,background:mood===m?"var(--bg-input)":"none",border:mood===m?`1px solid ${accent}`:"1px solid transparent",borderRadius:8,padding:"3px 6px",cursor:"pointer"}}>{m}</button>)}
-        </div>}
         <textarea value={text} onChange={e=>setText(e.target.value)} placeholder={placeholder} rows={3}
           style={{...inp,resize:"vertical",marginBottom:10,fontSize:13}}
           onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <span style={{fontSize:10,color:"var(--text-3)"}}>{entries.length} registro{entries.length!==1?"s":""}</span>
-          <button onClick={add} style={{...btn(accent),padding:"7px 16px",fontSize:13}}>+ Salvar</button>
+          <button onClick={add} style={{...btn(accent),padding:"8px 20px"}}>+ Salvar</button>
         </div>
       </div>
-      <div style={{overflowY:"auto",maxHeight:"calc(100vh - 380px)"}}>
-        {Object.entries(grouped).map(([date,es])=>(
-          <div key={date} style={{marginBottom:16}}>
-            <div style={{fontSize:9,color:accent,letterSpacing:2,fontWeight:700,marginBottom:8,paddingBottom:4,borderBottom:"1px solid var(--border-2)"}}>{date.toUpperCase()}</div>
+
+      {/* Cards grouped by day */}
+      {Object.entries(grouped).map(([date, es]) => (
+        <div key={date} style={{marginBottom:28}}>
+          {/* Day header */}
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+            <div style={{height:1,flex:1,background:"var(--border-2)"}}/>
+            <span style={{fontSize:10,color:accent,letterSpacing:2,fontWeight:800,whiteSpace:"nowrap"}}>{date.toUpperCase()}</span>
+            <div style={{height:1,flex:1,background:"var(--border-2)"}}/>
+          </div>
+          {/* Cards row — masonry-like, no stretching */}
+          <div style={{columns:"300px",columnGap:12}}>
             {es.map(e=>(
-              <div key={e.id} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 14px",marginBottom:8,display:"flex",gap:10,alignItems:"flex-start",opacity:e.done?0.55:1}}>
-                {hasCheck&&<button onClick={()=>tick(e.id)} style={{width:20,height:20,borderRadius:5,border:`2px solid ${e.done?"var(--green)":"var(--border)"}`,background:e.done?"var(--green)":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
-                  {e.done&&<Icon path={I.check} size={11} color="#fff"/>}
-                </button>}
-                {showMoods&&<span style={{fontSize:18,flexShrink:0}}>{e.mood}</span>}
+              <div key={e.id} style={{
+                breakInside:"avoid",
+                background:"var(--bg-card)",
+                border:"1px solid var(--border)",
+                borderRadius:12,
+                padding:"12px 14px",
+                marginBottom:12,
+                display:"flex",
+                gap:10,
+                alignItems:"flex-start",
+                opacity: e.done ? 0.55 : 1,
+              }}>
+                {hasCheck && (
+                  <button onClick={()=>tick(e.id)} style={{width:20,height:20,borderRadius:5,border:`2px solid ${e.done?"var(--green)":"var(--border)"}`,background:e.done?"var(--green)":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}>
+                    {e.done&&<Icon path={I.check} size={11} color="#fff"/>}
+                  </button>
+                )}
+                {showMoods && <span style={{fontSize:20,flexShrink:0,lineHeight:1.4}}>{e.mood}</span>}
                 <div style={{flex:1,minWidth:0}}>
-                  <p style={{margin:0,color:"var(--text-2)",lineHeight:1.6,fontSize:13,whiteSpace:"pre-wrap",wordBreak:"break-word",textDecoration:e.done?"line-through":"none"}}>{e.text}</p>
-                  <span style={{fontSize:10,color:"var(--text-3)",marginTop:4,display:"block"}}>{new Date(e.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
+                  <p style={{margin:0,color:"var(--text-1)",lineHeight:1.65,fontSize:13,whiteSpace:"pre-wrap",wordBreak:"break-word",textDecoration:e.done?"line-through":"none"}}>{e.text}</p>
+                  <span style={{fontSize:10,color:"var(--text-3)",marginTop:5,display:"block"}}>
+                    🕐 {new Date(e.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
+                  </span>
                 </div>
-                <button onClick={()=>del(e.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",flexShrink:0}}>
+                <button onClick={()=>del(e.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",flexShrink:0,marginTop:2}}>
                   <Icon path={I.trash} size={12}/>
                 </button>
               </div>
             ))}
           </div>
-        ))}
-        {entries.length===0&&<Empty text="Nenhum registro ainda"/>}
-      </div>
+        </div>
+      ))}
+      {entries.length===0&&<Empty text="Nenhum registro ainda"/>}
     </div>
   );
 }
