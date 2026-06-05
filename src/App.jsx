@@ -664,6 +664,7 @@ function DocsPage() {
   const [fileData, setFileData] = useState(null);
   const [fileName, setFileName] = useState("");
   const fileRef = useRef(null);
+  const [editingId, setEditingId] = useState(null);
   const cats = ["Pessoal","Financeiro","Saúde","Legal","Trabalho","Outros"];
   const icons = {pdf:"📕",doc:"📘",docx:"📘",xls:"📗",xlsx:"📗",png:"🖼️",jpg:"🖼️",jpeg:"🖼️",default:"📄"};
   const getIcon = n=>{ const e=n.split(".").pop().toLowerCase(); return icons[e]||icons.default; };
@@ -679,15 +680,22 @@ function DocsPage() {
 
   const add = ()=>{
     if(!form.name.trim()) return;
-    const doc={id:Date.now(),...form,date:now(),tags:form.tags.split(",").map(t=>t.trim()).filter(Boolean),file:fileData};
-    const n=[doc,...docs]; setDocs(n); S.set("docs",n);
-    // DB insert with flattened file
-    const dbRow={id:doc.id,name:doc.name,cat:doc.cat,tags:doc.tags,notes:doc.notes,date:doc.date,
-      file_data:fileData?.data||"",file_name:fileData?.name||"",file_size:fileData?.size||0,file_type:fileData?.type||""};
-    DB.insert("documents",dbRow);
-    setModal(false); setForm({name:"",cat:"Pessoal",tags:"",notes:""}); setFileData(null); setFileName("");
+    const tags = form.tags.split(",").map(t=>t.trim()).filter(Boolean);
+    if(editingId) {
+      const n=docs.map(d=>d.id===editingId?{...d,...form,tags,file:fileData||d.file}:d);
+      setDocs(n); S.set("docs",n);
+      DB.update("documents",{id:editingId,name:form.name,cat:form.cat,notes:form.notes});
+    } else {
+      const doc={id:Date.now(),...form,date:now(),tags,file:fileData};
+      const n=[doc,...docs]; setDocs(n); S.set("docs",n);
+      const dbRow={id:doc.id,name:doc.name,cat:doc.cat,tags:doc.tags,notes:doc.notes,date:doc.date,
+        file_data:fileData?.data||"",file_name:fileData?.name||"",file_size:fileData?.size||0,file_type:fileData?.type||""};
+      DB.insert("documents",dbRow);
+    }
+    setModal(false); setEditingId(null); setForm({name:"",cat:"Pessoal",tags:"",notes:""}); setFileData(null); setFileName("");
   };
-  const del = id=>{ const n=docs.filter(d=>d.id!==id); setDocs(n); S.set("docs",n); DB.delete("documents",id); };
+  const del  = id=>{ const n=docs.filter(d=>d.id!==id); setDocs(n); S.set("docs",n); DB.delete("documents",id); };
+  const edit = id=>{ const d=docs.find(d=>d.id===id); if(d){ setForm({name:d.name,cat:d.cat,tags:Array.isArray(d.tags)?d.tags.join(", "):"",notes:d.notes||""}); setFileData(d.file||null); setFileName(d.file?.name||""); setEditingId(id); setModal(true); } };
   const download = doc=>{ if(!doc.file?.data) return; const a=document.createElement("a"); a.href=doc.file.data; a.download=doc.file.name; a.click(); };
 
   const filtered = filter==="Todos"?docs:docs.filter(d=>d.cat===filter);
@@ -716,7 +724,10 @@ function DocsPage() {
               <span style={{fontSize:10,color:"var(--text-3)"}}>{d.date}</span>
               {d.file?.data&&<button onClick={()=>download(d)} style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:6,padding:"3px 8px",color:"var(--accent)",fontSize:10,cursor:"pointer",fontWeight:600}}>⬇ Baixar</button>}
             </div>
-            <button onClick={()=>del(d.id)} style={{position:"absolute",top:12,right:12,background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={13}/></button>
+            <div style={{position:"absolute",top:10,right:10,display:"flex",gap:4}}>
+              <button onClick={()=>edit(d.id)} style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:6,padding:"3px 8px",color:"var(--accent)",fontSize:10,cursor:"pointer"}}>✏️</button>
+              <button onClick={()=>del(d.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={13}/></button>
+            </div>
           </div>
         ))}
       </div>
@@ -1178,6 +1189,456 @@ function CuriositiesPage() {
   );
 }
 
+
+// ─── MACRO CARDS PAGE ─────────────────────────────────────────────────────────
+function MacroPage() {
+  const [cards, setCards] = useState(() => S.get("macro_cards", []));
+  const [modal, setModal] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ title:"", content:"", link:"", tag:"", color:"#1a3d5c" });
+
+  const COLORS = ["#1a3d5c","#2d1a5c","#1a4a2e","#5c2d1a","#1a4a4a","#3d1a1a"];
+
+  const save = n => { setCards(n); S.set("macro_cards", n); };
+  const add = () => {
+    if(!form.title.trim()) return;
+    const c = { id:Date.now(), ...form, created:now(), updates:[] };
+    save([c, ...cards]);
+    setModal(false); setForm({ title:"", content:"", link:"", tag:"", color:"#1a3d5c" });
+  };
+  const del = id => save(cards.filter(c => c.id !== id));
+  const openEdit = c => { setEditing({...c}); };
+  const saveEdit = () => {
+    save(cards.map(c => c.id === editing.id ? { ...editing, lastEdit: now() } : c));
+    setEditing(null);
+  };
+  const addUpdate = (id, text) => {
+    if(!text.trim()) return;
+    const upd = { text, date: now() };
+    save(cards.map(c => c.id === id ? { ...c, updates: [...(c.updates||[]), upd] } : c));
+  };
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <div style={{fontSize:12,color:"var(--text-3)"}}>Cards estratégicos, projetos e contexto macro</div>
+        <button onClick={()=>setModal(true)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}>
+          <Icon path={I.plus} size={14}/> Novo Card
+        </button>
+      </div>
+
+      <div style={{columns:"320px",columnGap:14}}>
+        {cards.map(c => (
+          <div key={c.id} style={{breakInside:"avoid",background:c.color||"var(--bg-card)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:14,padding:18,marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+              <div style={{flex:1}}>
+                {c.tag && <span style={{background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"2px 10px",fontSize:10,color:"rgba(255,255,255,0.8)",fontWeight:700,letterSpacing:1,display:"inline-block",marginBottom:6}}>{c.tag.toUpperCase()}</span>}
+                <div style={{fontWeight:700,fontSize:15,color:"#fff"}}>{c.title}</div>
+              </div>
+              <div style={{display:"flex",gap:6,marginLeft:10}}>
+                <button onClick={()=>openEdit(c)} style={{background:"rgba(255,255,255,0.1)",border:"none",borderRadius:8,padding:"5px 8px",color:"rgba(255,255,255,0.7)",fontSize:11,cursor:"pointer"}}>✏️</button>
+                <button onClick={()=>del(c.id)} style={{background:"none",border:"none",color:"rgba(255,255,255,0.4)",cursor:"pointer"}}><Icon path={I.trash} size={13}/></button>
+              </div>
+            </div>
+            {c.content && <p style={{fontSize:13,color:"rgba(255,255,255,0.8)",lineHeight:1.7,marginBottom:10,whiteSpace:"pre-wrap"}}>{c.content}</p>}
+            {c.link && <a href={c.link} target="_blank" rel="noreferrer" style={{fontSize:11,color:"rgba(255,255,255,0.6)",display:"flex",alignItems:"center",gap:4,marginBottom:8,textDecoration:"none"}}>🔗 {c.link.replace(/https?:\/\//,"").slice(0,40)}</a>}
+            {c.updates?.length > 0 && (
+              <div style={{borderTop:"1px solid rgba(255,255,255,0.1)",paddingTop:8,marginTop:8}}>
+                {c.updates.slice(-2).map((u,i) => (
+                  <div key={i} style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginBottom:4}}>
+                    <span style={{color:"rgba(255,255,255,0.4)",marginRight:6}}>↳ {u.date}</span>{u.text}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{fontSize:10,color:"rgba(255,255,255,0.35)",marginTop:8}}>{c.lastEdit||c.created}</div>
+          </div>
+        ))}
+      </div>
+      {cards.length===0&&<Empty text="Nenhum card ainda. Crie o primeiro!"/>}
+
+      {modal && <Modal title="Novo Card Macro" onClose={()=>setModal(false)} wide>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <input style={inp} placeholder="Título" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/>
+          <input style={inp} placeholder="Tag (ex: Estratégia, Mercado, Projeto)" value={form.tag} onChange={e=>setForm({...form,tag:e.target.value})}/>
+          <textarea style={{...inp,resize:"vertical"}} rows={5} placeholder="Conteúdo, contexto, análise..." value={form.content} onChange={e=>setForm({...form,content:e.target.value})}/>
+          <input style={inp} placeholder="Link (opcional)" value={form.link} onChange={e=>setForm({...form,link:e.target.value})}/>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <span style={{fontSize:12,color:"var(--text-3)"}}>Cor:</span>
+            {COLORS.map(c=><button key={c} onClick={()=>setForm({...form,color:c})} style={{width:24,height:24,borderRadius:6,background:c,border:`2px solid ${form.color===c?"white":"transparent"}`,cursor:"pointer"}}/>)}
+          </div>
+          <button onClick={add} style={btn()}>Criar Card</button>
+        </div>
+      </Modal>}
+
+      {editing && <Modal title="Editar Card" onClose={()=>setEditing(null)} wide>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <input style={inp} value={editing.title} onChange={e=>setEditing({...editing,title:e.target.value})}/>
+          <input style={inp} value={editing.tag||""} onChange={e=>setEditing({...editing,tag:e.target.value})}/>
+          <textarea style={{...inp,resize:"vertical"}} rows={6} value={editing.content||""} onChange={e=>setEditing({...editing,content:e.target.value})}/>
+          <input style={inp} placeholder="Link" value={editing.link||""} onChange={e=>setEditing({...editing,link:e.target.value})}/>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <span style={{fontSize:12,color:"var(--text-3)"}}>Cor:</span>
+            {COLORS.map(c=><button key={c} onClick={()=>setEditing({...editing,color:c})} style={{width:24,height:24,borderRadius:6,background:c,border:`2px solid ${editing.color===c?"white":"transparent"}`,cursor:"pointer"}}/>)}
+          </div>
+          <div style={{borderTop:"1px solid var(--border)",paddingTop:14}}>
+            <div style={{fontSize:10,color:"var(--text-3)",letterSpacing:2,marginBottom:10,fontWeight:700}}>ADICIONAR ATUALIZAÇÃO</div>
+            <UpdateInput onSave={text=>addUpdate(editing.id,text)}/>
+          </div>
+          <button onClick={saveEdit} style={btn()}>Salvar</button>
+        </div>
+      </Modal>}
+    </div>
+  );
+}
+
+function UpdateInput({ onSave }) {
+  const [text, setText] = useState("");
+  return (
+    <div style={{display:"flex",gap:10}}>
+      <input style={{...inp,flex:1}} placeholder="Adicionar atualização..." value={text} onChange={e=>setText(e.target.value)}
+        onKeyDown={e=>{ if(e.key==="Enter"&&text.trim()){ onSave(text); setText(""); } }}/>
+      <button onClick={()=>{ if(text.trim()){ onSave(text); setText(""); } }} style={{...btn("var(--green)"),padding:"10px 16px"}}>+</button>
+    </div>
+  );
+}
+
+// ─── FERRAMENTAS / SIMULADORES ────────────────────────────────────────────────
+function PortfolioSimulator() {
+  const [assets, setAssets] = useState(() => S.get("sim_assets", []));
+  const [form, setForm] = useState({ name:"", ticker:"", qty:"", price:"", type:"Ação" });
+  const types = ["Ação","FII","Cripto","Renda Fixa","ETF","Outro"];
+
+  const save = n => { setAssets(n); S.set("sim_assets", n); };
+  const add = () => {
+    if(!form.name||!form.qty||!form.price) return;
+    save([...assets, { id:Date.now(), ...form, qty:+form.qty, price:+form.price }]);
+    setForm({ name:"", ticker:"", qty:"", price:"", type:"Ação" });
+  };
+  const del = id => save(assets.filter(a => a.id !== id));
+
+  const total = assets.reduce((s,a) => s + a.qty*a.price, 0);
+  const byType = types.map(t => ({ type:t, value:assets.filter(a=>a.type===t).reduce((s,a)=>s+a.qty*a.price,0) })).filter(t=>t.value>0);
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+      {/* Input */}
+      <div>
+        <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:18,marginBottom:16}}>
+          <div style={{fontSize:11,color:"var(--accent)",letterSpacing:2,fontWeight:800,marginBottom:14}}>📊 ADICIONAR ATIVO</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <input style={inp} placeholder="Nome (ex: Petrobras)" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+            <input style={inp} placeholder="Ticker (ex: PETR4)" value={form.ticker} onChange={e=>setForm({...form,ticker:e.target.value})}/>
+            <div style={{display:"flex",gap:10}}>
+              <input style={{...inp,flex:1}} placeholder="Qtd" type="number" value={form.qty} onChange={e=>setForm({...form,qty:e.target.value})}/>
+              <input style={{...inp,flex:1}} placeholder="Preço R$" type="number" value={form.price} onChange={e=>setForm({...form,price:e.target.value})}/>
+            </div>
+            <select style={inp} value={form.type} onChange={e=>setForm({...form,type:e.target.value})}>{types.map(t=><option key={t}>{t}</option>)}</select>
+            <button onClick={add} style={btn()}>+ Adicionar</button>
+          </div>
+        </div>
+        {/* Summary */}
+        <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:18}}>
+          <div style={{fontSize:11,color:"var(--accent)",letterSpacing:2,fontWeight:800,marginBottom:14}}>DISTRIBUIÇÃO</div>
+          {byType.map(t => (
+            <div key={t.type} style={{marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+                <span style={{color:"var(--text-2)"}}>{t.type}</span>
+                <span style={{fontWeight:700}}>{total>0?((t.value/total)*100).toFixed(1):0}%</span>
+              </div>
+              <div style={{height:6,background:"var(--bg-input)",borderRadius:3,overflow:"hidden"}}>
+                <div style={{height:"100%",width:`${total>0?(t.value/total)*100:0}%`,background:"var(--accent)",borderRadius:3,transition:"width .3s"}}/>
+              </div>
+            </div>
+          ))}
+          <div style={{marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-between"}}>
+            <span style={{color:"var(--text-3)",fontSize:13}}>Total carteira</span>
+            <span style={{fontWeight:800,fontSize:16,color:"var(--green)",fontFamily:"'DM Mono',monospace"}}>{fmtMoney(total)}</span>
+          </div>
+        </div>
+      </div>
+      {/* Asset list */}
+      <div>
+        <div style={{fontSize:11,color:"var(--text-3)",letterSpacing:2,fontWeight:700,marginBottom:12}}>ATIVOS</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {assets.map(a => (
+            <div key={a.id} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700,fontSize:14}}>{a.ticker||a.name}</div>
+                <div style={{fontSize:11,color:"var(--text-3)"}}>{a.type} · {a.qty} cotas · {fmtMoney(a.price)} cada</div>
+              </div>
+              <div style={{fontWeight:700,color:"var(--green)",fontFamily:"'DM Mono',monospace",fontSize:14}}>{fmtMoney(a.qty*a.price)}</div>
+              <button onClick={()=>del(a.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
+            </div>
+          ))}
+          {assets.length===0&&<Empty text="Adicione ativos para simular"/>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CashFlowSimulator() {
+  const [items, setItems] = useState(() => S.get("sim_cashflow", []));
+  const [form, setForm] = useState({ desc:"", value:"", type:"entrada", month:"", recurrent:false });
+
+  const save = n => { setItems(n); S.set("sim_cashflow", n); };
+  const add = () => {
+    if(!form.desc||!form.value) return;
+    save([...items, { id:Date.now(), ...form, value:+form.value }]);
+    setForm({ desc:"", value:"", type:"entrada", month:"", recurrent:false });
+  };
+  const del = id => save(items.filter(i => i.id !== id));
+
+  const entradas = items.filter(i=>i.type==="entrada").reduce((s,i)=>s+i.value,0);
+  const saidas   = items.filter(i=>i.type==="saida").reduce((s,i)=>s+i.value,0);
+  const saldo    = entradas - saidas;
+
+  return (
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20}}>
+        {[["Entradas",entradas,"var(--green)","📈"],["Saídas",saidas,"var(--red)","📉"],["Saldo",saldo,saldo>=0?"var(--green)":"var(--red)","💰"]].map(([l,v,c,e])=>(
+          <div key={l} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 18px",textAlign:"center"}}>
+            <div style={{fontSize:20,marginBottom:4}}>{e}</div>
+            <div style={{fontSize:11,color:"var(--text-3)",letterSpacing:1,marginBottom:4}}>{l.toUpperCase()}</div>
+            <div style={{fontSize:20,fontWeight:800,color:c,fontFamily:"'DM Mono',monospace"}}>{fmtMoney(Math.abs(v))}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <div>
+          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:18,marginBottom:16}}>
+            <div style={{fontSize:11,color:"var(--accent)",letterSpacing:2,fontWeight:800,marginBottom:14}}>ADICIONAR ITEM</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <input style={inp} placeholder="Descrição" value={form.desc} onChange={e=>setForm({...form,desc:e.target.value})}/>
+              <input style={inp} type="number" placeholder="Valor R$" value={form.value} onChange={e=>setForm({...form,value:e.target.value})}/>
+              <select style={inp} value={form.type} onChange={e=>setForm({...form,type:e.target.value})}>
+                <option value="entrada">📈 Entrada</option>
+                <option value="saida">📉 Saída</option>
+              </select>
+              <input style={inp} placeholder="Mês (ex: Jan 2026)" value={form.month} onChange={e=>setForm({...form,month:e.target.value})}/>
+              <button onClick={add} style={btn()}>+ Adicionar</button>
+            </div>
+          </div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {items.map(i=>(
+            <div key={i.id} style={{background:"var(--bg-card)",border:`1px solid ${i.type==="entrada"?"rgba(46,204,138,0.3)":"rgba(240,112,112,0.3)"}`,borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:18}}>{i.type==="entrada"?"📈":"📉"}</span>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:600,fontSize:13}}>{i.desc}</div>
+                {i.month&&<div style={{fontSize:10,color:"var(--text-3)"}}>{i.month}</div>}
+              </div>
+              <span style={{fontWeight:700,color:i.type==="entrada"?"var(--green)":"var(--red)",fontFamily:"'DM Mono',monospace",fontSize:14}}>{i.type==="saida"?"-":""}{fmtMoney(i.value)}</span>
+              <button onClick={()=>del(i.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={13}/></button>
+            </div>
+          ))}
+          {items.length===0&&<Empty text="Nenhum item ainda"/>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfessionalPortfolioSim() {
+  const [projects, setProjects] = useState(() => S.get("sim_portfolio", []));
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ name:"", desc:"", status:"Em andamento", client:"", value:"", tags:"" });
+  const statuses = ["Em andamento","Concluído","Pausado","Proposta"];
+  const statusColor = {"Em andamento":"var(--accent)","Concluído":"var(--green)","Pausado":"var(--yellow)","Proposta":"var(--purple)"};
+
+  const save = n => { setProjects(n); S.set("sim_portfolio", n); };
+  const add = () => {
+    if(!form.name) return;
+    save([{ id:Date.now(), ...form, value:+form.value||0, tags:form.tags.split(",").map(t=>t.trim()).filter(Boolean), date:now() }, ...projects]);
+    setModal(false); setForm({ name:"", desc:"", status:"Em andamento", client:"", value:"", tags:"" });
+  };
+  const del = id => save(projects.filter(p => p.id !== id));
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <div style={{display:"flex",gap:8}}>
+          {statuses.map(s => <span key={s} style={{fontSize:11,color:statusColor[s],fontWeight:700}}>{projects.filter(p=>p.status===s).length} {s}</span>)}
+        </div>
+        <button onClick={()=>setModal(true)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Novo Projeto</button>
+      </div>
+      <div style={{columns:"300px",columnGap:14}}>
+        {projects.map(p => (
+          <div key={p.id} style={{breakInside:"avoid",background:"var(--bg-card)",border:`1px solid ${statusColor[p.status]}44`,borderRadius:14,padding:16,marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <div style={{flex:1}}>
+                <span style={{fontSize:10,color:statusColor[p.status],fontWeight:700,letterSpacing:1}}>{p.status.toUpperCase()}</span>
+                <div style={{fontWeight:700,fontSize:15,marginTop:2}}>{p.name}</div>
+                {p.client&&<div style={{fontSize:11,color:"var(--text-3)"}}>👤 {p.client}</div>}
+              </div>
+              <button onClick={()=>del(p.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={13}/></button>
+            </div>
+            {p.desc&&<p style={{fontSize:13,color:"var(--text-2)",lineHeight:1.6,marginBottom:8}}>{p.desc}</p>}
+            {p.value>0&&<div style={{fontSize:13,fontWeight:700,color:"var(--green)",fontFamily:"'DM Mono',monospace",marginBottom:6}}>{fmtMoney(p.value)}</div>}
+            {p.tags?.length>0&&<div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              {p.tags.map(t=><span key={t} style={{background:"var(--bg-input)",borderRadius:4,padding:"2px 8px",fontSize:10,color:"var(--text-3)"}}>{t}</span>)}
+            </div>}
+          </div>
+        ))}
+      </div>
+      {projects.length===0&&<Empty text="Nenhum projeto no portfólio ainda."/>}
+      {modal&&<Modal title="Novo Projeto" onClose={()=>setModal(false)}>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <input style={inp} placeholder="Nome do projeto" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+          <input style={inp} placeholder="Cliente" value={form.client} onChange={e=>setForm({...form,client:e.target.value})}/>
+          <textarea style={{...inp,resize:"vertical"}} rows={3} placeholder="Descrição" value={form.desc} onChange={e=>setForm({...form,desc:e.target.value})}/>
+          <select style={inp} value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>{statuses.map(s=><option key={s}>{s}</option>)}</select>
+          <input style={inp} type="number" placeholder="Valor R$" value={form.value} onChange={e=>setForm({...form,value:e.target.value})}/>
+          <input style={inp} placeholder="Tags (separadas por vírgula)" value={form.tags} onChange={e=>setForm({...form,tags:e.target.value})}/>
+          <button onClick={add} style={btn()}>Adicionar</button>
+        </div>
+      </Modal>}
+    </div>
+  );
+}
+
+function ToolsPage() {
+  const [sim, setSim] = useState("portfolio");
+  const sims = [
+    { id:"portfolio", label:"📊 Carteira de Investimentos" },
+    { id:"cashflow",  label:"💰 Fluxo de Caixa"           },
+    { id:"projetos",  label:"🗂 Portfólio Profissional"    },
+  ];
+  return (
+    <div>
+      <div style={{display:"flex",gap:6,marginBottom:24,flexWrap:"wrap"}}>
+        {sims.map(s=>(
+          <button key={s.id} onClick={()=>setSim(s.id)} style={{background:sim===s.id?"var(--accent)":"var(--bg-card)",border:`1px solid ${sim===s.id?"var(--accent)":"var(--border)"}`,borderRadius:24,padding:"9px 20px",color:sim===s.id?"#fff":"var(--text-2)",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+      {sim==="portfolio" && <PortfolioSimulator/>}
+      {sim==="cashflow"  && <CashFlowSimulator/>}
+      {sim==="projetos"  && <ProfessionalPortfolioSim/>}
+    </div>
+  );
+}
+
+// ─── BEDROCK PAGE ─────────────────────────────────────────────────────────────
+function BedrockPage() {
+  const [info, setInfo]   = useState(() => S.get("bedrock_info", { name:"BEDROCK", desc:"", mission:"", vision:"", site:"", status:"Ativo" }));
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({});
+  const [notes, setNotes] = useState(() => S.get("bedrock_notes", []));
+  const [noteText, setNoteText] = useState("");
+
+  const saveInfo = () => { S.set("bedrock_info", draft); setInfo(draft); setEditing(false); };
+  const addNote  = () => {
+    if(!noteText.trim()) return;
+    const n = [...notes, { id:Date.now(), text:noteText, date:now() }];
+    setNotes(n); S.set("bedrock_notes", n); setNoteText("");
+  };
+  const delNote = id => { const n=notes.filter(n=>n.id!==id); setNotes(n); S.set("bedrock_notes",n); };
+
+  return (
+    <div style={{maxWidth:900,margin:"0 auto"}}>
+      {/* Header */}
+      <div style={{background:"linear-gradient(135deg,#0a1628,#1a3d5c)",border:"1px solid var(--border)",borderRadius:20,padding:28,marginBottom:20,position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",top:-20,right:-20,fontSize:120,opacity:0.05}}>🪨</div>
+        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:16}}>
+          <div style={{width:56,height:56,borderRadius:14,background:"linear-gradient(135deg,#1a78c2,#0a4a8c)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,boxShadow:"0 4px 20px rgba(26,120,194,0.4)"}}>🪨</div>
+          <div>
+            <div style={{fontSize:26,fontWeight:900,letterSpacing:2,color:"#fff"}}>{info.name||"BEDROCK"}</div>
+            <div style={{fontSize:12,color:"rgba(255,255,255,0.5)",letterSpacing:3}}>PROJETO · {info.status||"ATIVO"}</div>
+          </div>
+          <button onClick={()=>{ setDraft({...info}); setEditing(true); }} style={{marginLeft:"auto",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:10,padding:"8px 16px",color:"rgba(255,255,255,0.8)",fontSize:12,cursor:"pointer"}}>✏️ Editar</button>
+        </div>
+        {info.desc&&<p style={{color:"rgba(255,255,255,0.7)",lineHeight:1.7,fontSize:14,marginBottom:12}}>{info.desc}</p>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          {info.mission&&<div><div style={{fontSize:10,color:"rgba(255,255,255,0.4)",letterSpacing:2,marginBottom:4}}>MISSÃO</div><p style={{color:"rgba(255,255,255,0.8)",fontSize:13,lineHeight:1.6}}>{info.mission}</p></div>}
+          {info.vision&&<div><div style={{fontSize:10,color:"rgba(255,255,255,0.4)",letterSpacing:2,marginBottom:4}}>VISÃO</div><p style={{color:"rgba(255,255,255,0.8)",fontSize:13,lineHeight:1.6}}>{info.vision}</p></div>}
+        </div>
+        {info.site&&<a href={info.site} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:12,color:"rgba(100,180,255,0.8)",fontSize:12,textDecoration:"none"}}>🔗 {info.site}</a>}
+      </div>
+
+      {/* Notes */}
+      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:20}}>
+        <div style={{fontSize:11,color:"var(--accent)",letterSpacing:2,fontWeight:800,marginBottom:16}}>📋 NOTAS DO PROJETO</div>
+        <div style={{display:"flex",gap:10,marginBottom:16}}>
+          <textarea style={{...inp,flex:1,resize:"none"}} rows={2} placeholder="Adicionar nota, ideia ou atualização..." value={noteText} onChange={e=>setNoteText(e.target.value)}/>
+          <button onClick={addNote} style={{...btn("var(--green)"),alignSelf:"flex-end",padding:"10px 16px"}}>+</button>
+        </div>
+        <div style={{columns:"280px",columnGap:12}}>
+          {notes.map(n=>(
+            <div key={n.id} style={{breakInside:"avoid",background:"var(--bg-input)",borderRadius:10,padding:"10px 14px",marginBottom:10}}>
+              <p style={{margin:0,color:"var(--text-1)",fontSize:13,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{n.text}</p>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}}>
+                <span style={{fontSize:10,color:"var(--text-3)"}}>{n.date}</span>
+                <button onClick={()=>delNote(n.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={12}/></button>
+              </div>
+            </div>
+          ))}
+          {notes.length===0&&<div style={{color:"var(--text-3)",fontSize:13,textAlign:"center",padding:"20px 0"}}>Nenhuma nota ainda</div>}
+        </div>
+      </div>
+
+      {editing&&<Modal title="Editar BEDROCK" onClose={()=>setEditing(false)} wide>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <input style={inp} placeholder="Nome" value={draft.name||""} onChange={e=>setDraft({...draft,name:e.target.value})}/>
+          <select style={inp} value={draft.status||"Ativo"} onChange={e=>setDraft({...draft,status:e.target.value})}>
+            {["Ativo","Em desenvolvimento","Pausado","Lançado"].map(s=><option key={s}>{s}</option>)}
+          </select>
+          <textarea style={{...inp,resize:"vertical"}} rows={3} placeholder="Descrição do projeto" value={draft.desc||""} onChange={e=>setDraft({...draft,desc:e.target.value})}/>
+          <textarea style={{...inp,resize:"vertical"}} rows={2} placeholder="Missão" value={draft.mission||""} onChange={e=>setDraft({...draft,mission:e.target.value})}/>
+          <textarea style={{...inp,resize:"vertical"}} rows={2} placeholder="Visão" value={draft.vision||""} onChange={e=>setDraft({...draft,vision:e.target.value})}/>
+          <input style={inp} placeholder="Site / URL" value={draft.site||""} onChange={e=>setDraft({...draft,site:e.target.value})}/>
+          <button onClick={saveInfo} style={btn()}>Salvar</button>
+        </div>
+      </Modal>}
+    </div>
+  );
+}
+
+// ─── PROFESSIONAL PAGE ────────────────────────────────────────────────────────
+function ProfessionalPage() {
+  const [section, setSection] = useState("home");
+
+  const tiles = [
+    { id:"macro",    label:"MACRO",        emoji:"🌐", color:"#1a3a5c", sub:"Estratégia e contexto" },
+    { id:"tools",    label:"FERRAMENTAS",  emoji:"🛠",  color:"#2d1a5c", sub:"Simuladores e análises" },
+    { id:"bedrock",  label:"BEDROCK",      emoji:"🪨", color:"#0a2a4a", sub:"Seu projeto" },
+  ];
+
+  if(section !== "home") {
+    const meta = tiles.find(t=>t.id===section)||{};
+    return (
+      <div>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
+          <button onClick={()=>setSection("home")} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"7px 14px",color:"var(--text-2)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            <Icon path={I.back} size={14}/> Profissional
+          </button>
+          <span style={{color:"var(--border)"}}>/</span>
+          <span style={{fontSize:14,fontWeight:700}}>{meta.emoji} {meta.label}</span>
+        </div>
+        {section==="macro"   && <MacroPage/>}
+        {section==="tools"   && <ToolsPage/>}
+        {section==="bedrock" && <BedrockPage/>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="tiles-grid" style={{maxWidth:900}}>
+      {tiles.map(t=>(
+        <div key={t.id} className="tile" style={{background:t.color,aspectRatio:"1/1"}} onClick={()=>setSection(t.id)}>
+          <span className="tile-icon">{t.emoji}</span>
+          <div>
+            <div className="tile-label">{t.label}</div>
+            <div className="tile-sub">{t.sub}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── MENU (HOME) ──────────────────────────────────────────────────────────────
 function MenuTile({ color, emoji, label, sub, wide, tall, onClick }) {
   return (
@@ -1217,6 +1678,7 @@ function HomePage({ onNavigate }) {
       <MenuTile color="var(--tile-events)" emoji="📅" label="Compromissos" sub="Agenda e eventos"             onClick={()=>onNavigate("events")}/>
       <MenuTile color="var(--tile-lists)"  emoji="📋" label="Listas"       sub="Checklists e anotações"       onClick={()=>onNavigate("lists")}/>
       <WeatherTile onClick={()=>onNavigate("weather")}/>
+      <MenuTile color="#1a3050"             emoji="💼" label="Profissional"         sub="Macro, Ferramentas, BEDROCK"  onClick={()=>onNavigate("professional")}/>
       <MenuTile color="var(--tile-market)" emoji="📈" label="Mercado & Indicadores" sub="Bolsas, câmbio, cripto, notícias" wide onClick={()=>onNavigate("market")}/>
       <MenuTile color="var(--tile-white)"  emoji="🖊️" label="Whiteboard"   sub="Lousa digital"               onClick={()=>onNavigate("whiteboard")}/>
       <MenuTile color="#1a3a2a"             emoji="💻" label=".BAT / Scripts" sub="Automações e comandos"       onClick={()=>onNavigate("bat")}/>
@@ -1236,7 +1698,8 @@ const PAGE_META = {
   weather:    {label:"Clima",               emoji:"🌤"},
   market:     {label:"Mercado & Indicadores",emoji:"📈"},
   whiteboard: {label:"Whiteboard",          emoji:"🖊️"},
-  bat:        {label:".BAT / Scripts",       emoji:"💻"},
+  bat:          {label:".BAT / Scripts",     emoji:"💻"},
+  professional: {label:"Profissional",        emoji:"💼"},
 };
 
 // ─── BAT PAGE ─────────────────────────────────────────────────────────────────
@@ -1324,7 +1787,8 @@ export default function App() {
       case "weather":    return <WeatherPage/>;
       case "market":     return <MarketPage/>;
       case "whiteboard": return <WhiteboardPage/>;
-      case "bat":        return <BatPage/>;
+      case "bat":          return <BatPage/>;
+      case "professional": return <ProfessionalPage/>;
       default:           return <HomePage onNavigate={setPage}/>;
     }
   };
