@@ -1682,6 +1682,7 @@ function HomePage({ onNavigate }) {
       <MenuTile color="var(--tile-market)" emoji="📈" label="Mercado & Indicadores" sub="Bolsas, câmbio, cripto, notícias" wide onClick={()=>onNavigate("market")}/>
       <MenuTile color="var(--tile-white)"  emoji="🖊️" label="Whiteboard"   sub="Lousa digital"               onClick={()=>onNavigate("whiteboard")}/>
       <MenuTile color="#1a3a2a"             emoji="💻" label=".BAT / Scripts" sub="Automações e comandos"       onClick={()=>onNavigate("bat")}/>
+      <MenuTile color="#0d1a2e"             emoji="🎛️" label="DJ Studio"     sub="Pads · Mixer · Studio · Gravação" wide onClick={()=>onNavigate("dj")}/>
     </div>
   );
 }
@@ -1700,6 +1701,7 @@ const PAGE_META = {
   whiteboard: {label:"Whiteboard",          emoji:"🖊️"},
   bat:          {label:".BAT / Scripts",     emoji:"💻"},
   professional: {label:"Profissional",        emoji:"💼"},
+  dj:           {label:"DJ Studio",            emoji:"🎛️"},
 };
 
 // ─── BAT PAGE ─────────────────────────────────────────────────────────────────
@@ -1770,6 +1772,718 @@ function BatPage() {
   );
 }
 
+
+// ─── DJ STUDIO PAGE ──────────────────────────────────────────────────────────
+function DJStudioPage() {
+  const TOTAL_PADS = 32;
+  const KEY_LABELS = ['1','2','3','4','5','6','7','8','Q','W','E','R','T','Y','U','I','A','S','D','F','G','H','J','K','Z','X','C','V','B','N','M',','];
+  const KEY_MAP = {'1':0,'2':1,'3':2,'4':3,'5':4,'6':5,'7':6,'8':7,'q':8,'w':9,'e':10,'r':11,'t':12,'y':13,'u':14,'i':15,'a':16,'s':17,'d':18,'f':19,'g':20,'h':21,'j':22,'k':23,'z':24,'x':25,'c':26,'v':27,'b':28,'n':29,'m':30,',':31};
+
+  const defaultPads = () => Array.from({length:TOTAL_PADS},(_,i)=>({id:i,label:null,icon:null,sound:null,synthType:null,freq:null,audioBuffer:null}));
+  const [pads, setPads] = useState(()=>{
+    try { const s=localStorage.getItem('dj_pads'); return s?JSON.parse(s):null; } catch{return null;}
+  });
+  const [activePads, setActivePads] = useState(defaultPads());
+  const [view, setView] = useState('pads'); // 'pads' | 'mixer' | 'studio'
+  const [layout, setLayout] = useState('4x8'); // '4x8' | '4x4' | '2x8'
+  const [currentCat, setCurrentCat] = useState('🎉 Memes BR');
+  const [flashIdx, setFlashIdx] = useState(null);
+  const [padVol, setPadVol] = useState(80);
+  const [assignModal, setAssignModal] = useState(null); // sound def
+  const [uploadedSounds, setUploadedSounds] = useState({});
+  const [padConfig, setPadConfig] = useState(null); // {idx, label}
+  const [ytUrlA, setYtUrlA] = useState('');
+  const [ytUrlB, setYtUrlB] = useState('');
+  const [ytIdA, setYtIdA] = useState(null);
+  const [ytIdB, setYtIdB] = useState(null);
+  const [tracks, setTracks] = useState([]);
+  const [clips, setClips] = useState([]);
+  const [playheadPx, setPlayheadPx] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recTime, setRecTime] = useState(0);
+  const [micLevel, setMicLevel] = useState(0);
+  const [zoom, setZoom] = useState(100);
+  const [bpm, setBpmState] = useState(120);
+  const [statusMsg, setStatusMsg] = useState('32 pads · Teclas 1-8 Q-I A-K Z-vírgula · Duplo clique = configurar');
+  const [toastMsg, setToastMsg] = useState('');
+  const [toastVisible, setToastVisible] = useState(false);
+
+  const audioCtxRef = useRef(null);
+  const micStreamRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const recChunksRef = useRef([]);
+  const recIntervalRef = useRef(null);
+  const analyserRef = useRef(null);
+  const analyserAnimRef = useRef(null);
+  const playAnimRef = useRef(null);
+  const playStartRef = useRef(0);
+  const playheadSecRef = useRef(0);
+  const waveformRef = useRef(null);
+  const studioRecTrackRef = useRef(null);
+
+  // ── Pad state stored in localStorage ──
+  const [padState, setPadState] = useState(() => {
+    try {
+      const s = localStorage.getItem('dj_pads');
+      return s ? JSON.parse(s) : defaultPads();
+    } catch { return defaultPads(); }
+  });
+
+  const savePads = (next) => {
+    setPadState(next);
+    try { localStorage.setItem('dj_pads', JSON.stringify(next)); } catch {}
+  };
+
+  // Preload defaults on first mount
+  useEffect(() => {
+    const stored = localStorage.getItem('dj_pads');
+    if (!stored) {
+      const preloads = [
+        {i:0,n:'Kick 808',ic:'🥁',t:'drum',st:'kick',f:55},
+        {i:1,n:'Snare',ic:'💥',t:'drum',st:'snare',f:200},
+        {i:2,n:'Hi-Hat',ic:'🎩',t:'drum',st:'hat_c',f:8000},
+        {i:3,n:'Clap',ic:'👏',t:'drum',st:'clap',f:900},
+        {i:4,n:'Sirene',ic:'🚨',t:'fx',st:'siren',f:700},
+        {i:5,n:'Air Horn',ic:'📢',t:'fx',st:'airhorn',f:300},
+        {i:6,n:'Tiro',ic:'🔫',t:'fx',st:'gunshot',f:200},
+        {i:7,n:'Rewind',ic:'⏪',t:'fx',st:'rewind',f:500},
+        {i:8,n:'Kick Electro',ic:'⚡',t:'elec',st:'kick_e',f:55},
+        {i:9,n:'Bass Drop',ic:'📉',t:'elec',st:'drop',f:40},
+        {i:10,n:'Riser',ic:'🚀',t:'elec',st:'riser',f:200},
+        {i:11,n:'Stab',ic:'🗡️',t:'elec',st:'stab',f:440},
+        {i:12,n:'Warner',ic:'🎬',t:'fx',st:'warner',f:440},
+        {i:13,n:'Champions',ic:'🏆',t:'fx',st:'champions',f:392},
+        {i:14,n:'Contagem',ic:'🔢',t:'fx',st:'contagem',f:440},
+        {i:15,n:'Houston',ic:'🌌',t:'fx',st:'houston',f:300},
+      ];
+      const next = defaultPads();
+      preloads.forEach(p => {
+        next[p.i] = {...next[p.i], label:p.n, icon:p.ic, sound:p.t, synthType:p.st, freq:p.f};
+      });
+      savePads(next);
+    }
+  }, []);
+
+  // Keyboard
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const idx = KEY_MAP[e.key.toLowerCase()];
+      if (idx !== undefined) triggerPad(idx);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [padState, padVol, uploadedSounds]);
+
+  // ── Audio Context ──
+  const getCtx = () => {
+    if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
+    return audioCtxRef.current;
+  };
+
+  const showToast = (msg) => {
+    setToastMsg(msg); setToastVisible(true);
+    setTimeout(() => setToastVisible(false), 2400);
+  };
+
+  // ── Synth engine ──
+  const playSynth = (type, freq, vol) => {
+    const c = getCtx(); const now = c.currentTime;
+    const g = c.createGain(); g.gain.value = vol; g.connect(c.destination);
+    const noise = (dur) => {
+      const b = c.createBuffer(1, c.sampleRate*dur, c.sampleRate);
+      const d = b.getChannelData(0); for(let j=0;j<d.length;j++) d[j]=Math.random()*2-1; return b;
+    };
+    const osc = (type2, fr, dur, env='exp') => {
+      const o = c.createOscillator(); o.type = type2||'sine'; o.frequency.value = fr||440;
+      o.connect(g); g.gain.setValueAtTime(vol, now);
+      if(env==='exp') g.gain.exponentialRampToValueAtTime(0.001, now+dur);
+      else g.gain.linearRampToValueAtTime(0.001, now+dur);
+      o.start(now); o.stop(now+dur); return o;
+    };
+    switch(type) {
+      case 'kick': { const o=c.createOscillator(); o.connect(g); o.frequency.setValueAtTime(180,now); o.frequency.exponentialRampToValueAtTime(0.001,now+.5); g.gain.exponentialRampToValueAtTime(0.001,now+.5); o.start(now); o.stop(now+.5); break; }
+      case 'snare': { const s=c.createBufferSource(); s.buffer=noise(.25); const f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=2000; f.Q.value=.7; s.connect(f); f.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.25); s.start(now); break; }
+      case 'hat_c': { const s=c.createBufferSource(); s.buffer=noise(.08); const f=c.createBiquadFilter(); f.type='highpass'; f.frequency.value=8000; s.connect(f); f.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.08); s.start(now); break; }
+      case 'hat_o': { const s=c.createBufferSource(); s.buffer=noise(.4); const f=c.createBiquadFilter(); f.type='highpass'; f.frequency.value=6000; s.connect(f); f.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.4); s.start(now); break; }
+      case 'clap': { [0,.01,.02].forEach(off=>{ const s=c.createBufferSource(); s.buffer=noise(.18); const f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=1200; s.connect(f); f.connect(g); g.gain.setValueAtTime(vol*.5,now+off); g.gain.exponentialRampToValueAtTime(0.001,now+off+.18); s.start(now+off); }); break; }
+      case 'tom': { const o=c.createOscillator(); o.connect(g); o.frequency.setValueAtTime(freq*2,now); o.frequency.exponentialRampToValueAtTime(freq*.5,now+.35); g.gain.exponentialRampToValueAtTime(0.001,now+.35); o.start(now); o.stop(now+.35); break; }
+      case 'crash': { const s=c.createBufferSource(); s.buffer=noise(1.2); const f1=c.createBiquadFilter(); f1.type='highpass'; f1.frequency.value=4000; s.connect(f1); f1.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+1.2); s.start(now); break; }
+      case 'ride': { const s=c.createBufferSource(); s.buffer=noise(.6); const f=c.createBiquadFilter(); f.type='highpass'; f.frequency.value=5000; s.connect(f); f.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.6); s.start(now); break; }
+      case 'rim': { osc('sine',800,.08); break; }
+      case 'cowbell': { const o1=c.createOscillator(); const o2=c.createOscillator(); o1.frequency.value=562; o2.frequency.value=845; o1.type='square'; o2.type='square'; o1.connect(g); o2.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.6); o1.start(now); o1.stop(now+.6); o2.start(now); o2.stop(now+.6); break; }
+      case 'shaker': { const s=c.createBufferSource(); s.buffer=noise(.12); const f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=7000; s.connect(f); f.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.12); s.start(now); break; }
+      case 'kick_e': { const o=c.createOscillator(); o.connect(g); o.frequency.setValueAtTime(200,now); o.frequency.exponentialRampToValueAtTime(0.001,now+.7); g.gain.exponentialRampToValueAtTime(0.001,now+.7); o.start(now); o.stop(now+.7); break; }
+      case 'drop': { const o=c.createOscillator(); o.type='sawtooth'; o.connect(g); o.frequency.setValueAtTime(400,now); o.frequency.exponentialRampToValueAtTime(30,now+1.5); g.gain.exponentialRampToValueAtTime(0.001,now+1.5); o.start(now); o.stop(now+1.5); break; }
+      case 'riser': { const o=c.createOscillator(); o.type='sawtooth'; o.connect(g); o.frequency.setValueAtTime(80,now); o.frequency.exponentialRampToValueAtTime(2000,now+2); g.gain.setValueAtTime(0.01,now); g.gain.linearRampToValueAtTime(vol,now+1.8); g.gain.exponentialRampToValueAtTime(0.001,now+2); o.start(now); o.stop(now+2); break; }
+      case 'stab': { const o=c.createOscillator(); o.type='sawtooth'; o.frequency.value=freq||440; const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.setValueAtTime(3000,now); f.frequency.exponentialRampToValueAtTime(200,now+.25); o.connect(f); f.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.25); o.start(now); o.stop(now+.25); break; }
+      case 'arp_up': { [1,1.25,1.5,2].forEach((r,i)=>{ const o=c.createOscillator(); o.type='square'; o.frequency.value=(freq||220)*r; o.connect(g); o.start(now+i*.1); o.stop(now+i*.1+.08); }); break; }
+      case 'sub': { osc('sine',freq||30,1.2); break; }
+      case 'glitch': { for(let i=0;i<6;i++){ const o=c.createOscillator(); o.type='square'; o.frequency.value=(freq||1000)*(Math.random()*4+.5); o.connect(g); o.start(now+i*.04); o.stop(now+i*.04+.03); } break; }
+      case 'scratch': { const s=c.createBufferSource(); s.buffer=noise(.3); const f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=2000; s.connect(f); f.connect(g); g.gain.setValueAtTime(vol,now); g.gain.setValueAtTime(vol*.2,now+.1); g.gain.setValueAtTime(vol,now+.15); g.gain.exponentialRampToValueAtTime(0.001,now+.3); s.start(now); break; }
+      case 'piano': { const o=c.createOscillator(); o.type='triangle'; o.frequency.value=freq||261.63; o.connect(g); g.gain.setValueAtTime(vol,now); g.gain.exponentialRampToValueAtTime(0.001,now+1.5); o.start(now); o.stop(now+1.5); break; }
+      case 'bass': { const o=c.createOscillator(); o.type='sawtooth'; o.frequency.value=freq||65.4; const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.value=400; o.connect(f); f.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.5); o.start(now); o.stop(now+.5); break; }
+      case 'guitar': { const o=c.createOscillator(); o.type='sawtooth'; o.frequency.value=freq||220; const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.value=2000; o.connect(f); f.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.8); o.start(now); o.stop(now+.8); break; }
+      case 'trumpet': { const o=c.createOscillator(); o.type='square'; o.frequency.value=freq||440; o.connect(g); g.gain.setValueAtTime(0.01,now); g.gain.linearRampToValueAtTime(vol,now+.05); g.gain.exponentialRampToValueAtTime(0.001,now+.5); o.start(now); o.stop(now+.5); break; }
+      case 'flute': { osc('sine',freq||523.25,1.0,'lin'); break; }
+      case 'sax': { const o=c.createOscillator(); o.type='sawtooth'; o.frequency.value=freq||293.66; const f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=(freq||293.66)*1.5; f.Q.value=3; o.connect(f); f.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.7); o.start(now); o.stop(now+.7); break; }
+      case 'violin': { const o=c.createOscillator(); o.type='sawtooth'; o.frequency.value=freq||659; o.connect(g); g.gain.setValueAtTime(0.01,now); g.gain.linearRampToValueAtTime(vol,now+.1); g.gain.exponentialRampToValueAtTime(0.001,now+1); o.start(now); o.stop(now+1); break; }
+      case 'siren': { const o=c.createOscillator(); o.connect(g); o.frequency.setValueAtTime(700,now); o.frequency.exponentialRampToValueAtTime(1400,now+.5); o.frequency.exponentialRampToValueAtTime(700,now+1); g.gain.exponentialRampToValueAtTime(0.001,now+1); o.start(now); o.stop(now+1); break; }
+      case 'claps': { for(let i=0;i<12;i++){ const s=c.createBufferSource(); s.buffer=noise(.12); const f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=1200; s.connect(f); f.connect(g); s.start(now+i*.08); } break; }
+      case 'gunshot': { const s=c.createBufferSource(); s.buffer=noise(.35); const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.value=2000; s.connect(f); f.connect(g); g.gain.setValueAtTime(vol*1.5,now); g.gain.exponentialRampToValueAtTime(0.001,now+.35); s.start(now); break; }
+      case 'horn': { [261.63,329.63,392,523.25].forEach((fr,i)=>{ const o=c.createOscillator(); o.type='square'; o.frequency.value=fr; o.connect(g); o.start(now+i*.12); o.stop(now+i*.12+.2); }); break; }
+      case 'school': { const o=c.createOscillator(); o.frequency.value=800; o.connect(g); for(let i=0;i<6;i++){ g.gain.setValueAtTime(vol,now+i*.12); g.gain.setValueAtTime(0,now+i*.12+.06); } o.start(now); o.stop(now+.8); break; }
+      case 'brake': { const s=c.createBufferSource(); s.buffer=noise(.8); const f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=3000; f.Q.value=2; s.connect(f); f.connect(g); g.gain.setValueAtTime(vol*.5,now); g.gain.linearRampToValueAtTime(vol,now+.4); g.gain.exponentialRampToValueAtTime(0.001,now+.8); s.start(now); break; }
+      case 'airhorn': { const o=c.createOscillator(); o.type='sawtooth'; o.frequency.value=320; const o2=c.createOscillator(); o2.type='sawtooth'; o2.frequency.value=480; o.connect(g); o2.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.8); o.start(now); o.stop(now+.8); o2.start(now); o2.stop(now+.8); break; }
+      case 'whoosh': { const s=c.createBufferSource(); s.buffer=noise(.5); const f=c.createBiquadFilter(); f.type='bandpass'; f.frequency.value=2000; s.connect(f); f.connect(g); g.gain.setValueAtTime(0,now); g.gain.linearRampToValueAtTime(vol,now+.1); g.gain.exponentialRampToValueAtTime(0.001,now+.5); s.start(now); break; }
+      case 'rewind': { const o=c.createOscillator(); o.type='sawtooth'; o.connect(g); o.frequency.setValueAtTime(2000,now); o.frequency.exponentialRampToValueAtTime(80,now+.8); g.gain.exponentialRampToValueAtTime(0.001,now+.8); o.start(now); o.stop(now+.8); break; }
+      case 'laser': { const o=c.createOscillator(); o.connect(g); o.frequency.setValueAtTime(3000,now); o.frequency.exponentialRampToValueAtTime(100,now+.4); g.gain.exponentialRampToValueAtTime(0.001,now+.4); o.start(now); o.stop(now+.4); break; }
+      case 'bomb': { const s=c.createBufferSource(); s.buffer=noise(.8); const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.value=300; s.connect(f); f.connect(g); g.gain.setValueAtTime(0,now); g.gain.linearRampToValueAtTime(vol*1.5,now+.05); g.gain.exponentialRampToValueAtTime(0.001,now+.8); s.start(now); break; }
+      case 'uepa': { const o=c.createOscillator(); o.connect(g); o.frequency.setValueAtTime(400,now); o.frequency.linearRampToValueAtTime(800,now+.1); o.frequency.linearRampToValueAtTime(600,now+.25); g.gain.exponentialRampToValueAtTime(0.001,now+.3); o.start(now); o.stop(now+.3); break; }
+      case 'adriano': { [300,250,280,300,350].forEach((fr,i)=>{ const o=c.createOscillator(); o.type='triangle'; o.frequency.value=fr; o.connect(g); o.start(now+i*.12); o.stop(now+i*.12+.1); }); break; }
+      case 'ronaldo': { const o=c.createOscillator(); o.type='square'; o.connect(g); o.frequency.setValueAtTime(250,now); o.frequency.linearRampToValueAtTime(400,now+.15); o.frequency.setValueAtTime(350,now+.2); o.frequency.linearRampToValueAtTime(500,now+.45); g.gain.exponentialRampToValueAtTime(0.001,now+.6); o.start(now); o.stop(now+.6); break; }
+      case 'galvao': { [350,300,320,280,350,400].forEach((fr,i)=>{ const o=c.createOscillator(); o.type='sine'; o.frequency.value=fr; o.connect(g); o.start(now+i*.1); o.stop(now+i*.1+.09); }); break; }
+      case 'pamonha': { const o=c.createOscillator(); o.type='triangle'; o.connect(g); o.frequency.setValueAtTime(200,now); o.frequency.linearRampToValueAtTime(280,now+.3); o.frequency.linearRampToValueAtTime(180,now+.7); o.frequency.linearRampToValueAtTime(260,now+1); g.gain.exponentialRampToValueAtTime(0.001,now+1.1); o.start(now); o.stop(now+1.1); break; }
+      case 'houston': { [320,280,300,260,300].forEach((fr,i)=>{ const o=c.createOscillator(); o.type='triangle'; o.frequency.value=fr; o.connect(g); o.start(now+i*.15); o.stop(now+i*.15+.12); }); break; }
+      case 'contagem': { for(let i=0;i<5;i++){ const o=c.createOscillator(); o.frequency.value=i===4?880:440; o.connect(g); o.start(now+i*.5); o.stop(now+i*.5+.1); } break; }
+      case 'warner': { [261.63,329.63,392,493.88,523.25].forEach((fr,i)=>{ const o=c.createOscillator(); o.type='square'; const og=c.createGain(); og.gain.value=vol*.7; o.frequency.value=fr; o.connect(og); og.connect(c.destination); og.gain.exponentialRampToValueAtTime(0.001,now+i*.08+.4); o.start(now+i*.08); o.stop(now+i*.08+.4); }); break; }
+      case 'champions': { [392,523.25,659.25,783.99].forEach((fr,i)=>{ const o=c.createOscillator(); o.type='triangle'; const og=c.createGain(); og.gain.value=vol; o.frequency.value=fr; o.connect(og); og.connect(c.destination); og.gain.exponentialRampToValueAtTime(0.001,now+i*.25+.5); o.start(now+i*.25); o.stop(now+i*.25+.5); }); break; }
+      case 'fanfare': { [523.25,659.25,783.99,1046.5].forEach((fr,i)=>{ const o=c.createOscillator(); o.type='square'; const og=c.createGain(); og.gain.value=vol*.6; o.frequency.value=fr; o.connect(og); og.connect(c.destination); og.gain.exponentialRampToValueAtTime(0.001,now+i*.12+.4); o.start(now+i*.12); o.stop(now+i*.12+.4); }); break; }
+      case 'dramatic': { [196,246.94,261.63].forEach((fr,i)=>{ const o=c.createOscillator(); o.type='sawtooth'; const f=c.createBiquadFilter(); f.type='lowpass'; f.frequency.value=800; const og=c.createGain(); og.gain.value=vol*.5; o.frequency.value=fr; o.connect(f); f.connect(og); og.connect(c.destination); og.gain.exponentialRampToValueAtTime(0.001,now+i*.4+1.5); o.start(now+i*.4); o.stop(now+i*.4+1.5); }); break; }
+      default: { const o=c.createOscillator(); o.frequency.value=freq||440; o.connect(g); g.gain.exponentialRampToValueAtTime(0.001,now+.5); o.start(now); o.stop(now+.5); }
+    }
+  };
+
+  const triggerPad = (i) => {
+    const p = padState[i];
+    if (!p || !p.sound) { setStatusMsg(`PAD ${i+1} vazio — duplo clique para configurar`); return; }
+    setFlashIdx(i); setTimeout(()=>setFlashIdx(null), 130);
+    const vol = (padVol/100)*0.8;
+    if (p.sound === 'sample' && p.audioBuffer) {
+      const c = getCtx();
+      const src = c.createBufferSource(); src.buffer = p.audioBuffer;
+      const g = c.createGain(); g.gain.value = vol;
+      src.connect(g); g.connect(c.destination); src.start();
+    } else {
+      playSynth(p.synthType, p.freq, vol);
+    }
+    setStatusMsg(`▶ PAD ${i+1}: ${p.label}`);
+  };
+
+  // ── Library categories ──
+  const CATS = {
+    '🎉 Memes BR': [
+      {n:'Uepa / Grito',i:'😱',t:'fx',st:'uepa'},{n:'Adriano?',i:'📢',t:'fx',st:'adriano'},
+      {n:'Ronaldo!',i:'⚽',t:'fx',st:'ronaldo'},{n:'Galvão Bueno',i:'🎙️',t:'fx',st:'galvao'},
+      {n:'Pamonha',i:'🌽',t:'fx',st:'pamonha'},{n:'Houston Problem',i:'🌌',t:'fx',st:'houston'},
+      {n:'Contagem',i:'🔢',t:'fx',st:'contagem'},
+    ],
+    '🔔 Efeitos': [
+      {n:'Sirene',i:'🚨',t:'fx',st:'siren'},{n:'Aplausos',i:'👏',t:'fx',st:'claps'},
+      {n:'Tiro',i:'🔫',t:'fx',st:'gunshot'},{n:'Corneta',i:'📯',t:'fx',st:'horn'},
+      {n:'Sinal Escolar',i:'🔔',t:'fx',st:'school'},{n:'Carro Freando',i:'🛑',t:'fx',st:'brake'},
+      {n:'Air Horn',i:'📢',t:'fx',st:'airhorn'},{n:'Whoosh',i:'💨',t:'fx',st:'whoosh'},
+      {n:'Rewind',i:'⏪',t:'fx',st:'rewind'},{n:'Laser',i:'🔴',t:'fx',st:'laser'},
+      {n:'Bomba',i:'💣',t:'fx',st:'bomb'},
+    ],
+    '🎬 Cinemas': [
+      {n:'Warner Bros',i:'🎬',t:'fx',st:'warner'},{n:'Champions Lg',i:'🏆',t:'fx',st:'champions'},
+      {n:'Fanfarra',i:'🎺',t:'fx',st:'fanfare'},{n:'Dramático',i:'🎭',t:'fx',st:'dramatic'},
+    ],
+    '🥁 Bateria': [
+      {n:'Kick 808',i:'🥁',t:'drum',st:'kick',f:55},{n:'Snare',i:'💥',t:'drum',st:'snare'},
+      {n:'Hi-Hat F',i:'🎩',t:'drum',st:'hat_c'},{n:'Hi-Hat A',i:'🎩',t:'drum',st:'hat_o'},
+      {n:'Clap',i:'👏',t:'drum',st:'clap'},{n:'Tom Low',i:'🔵',t:'drum',st:'tom',f:80},
+      {n:'Tom High',i:'🟢',t:'drum',st:'tom',f:260},{n:'Crash',i:'⭐',t:'drum',st:'crash'},
+      {n:'Ride',i:'🟡',t:'drum',st:'ride'},{n:'Rim',i:'🎯',t:'drum',st:'rim'},
+      {n:'Cowbell',i:'🐄',t:'drum',st:'cowbell'},{n:'Shaker',i:'🌊',t:'drum',st:'shaker'},
+    ],
+    '⚡ Eletrônico': [
+      {n:'Kick Electro',i:'⚡',t:'elec',st:'kick_e',f:55},{n:'Bass Drop',i:'📉',t:'elec',st:'drop',f:40},
+      {n:'Riser',i:'🚀',t:'elec',st:'riser'},{n:'Stab',i:'🗡️',t:'elec',st:'stab',f:440},
+      {n:'Arp Up',i:'🌀',t:'elec',st:'arp_up',f:220},{n:'Sub Boom',i:'💠',t:'elec',st:'sub',f:30},
+      {n:'Glitch',i:'📻',t:'elec',st:'glitch'},{n:'Vinyl Scratch',i:'🎵',t:'elec',st:'scratch'},
+    ],
+    '🎹 Instrumentos': [
+      {n:'Piano C4',i:'🎹',t:'inst',st:'piano',f:261.63},{n:'Piano E4',i:'🎹',t:'inst',st:'piano',f:329.63},
+      {n:'Piano G4',i:'🎹',t:'inst',st:'piano',f:392},{n:'Baixo C2',i:'🎸',t:'inst',st:'bass',f:65.4},
+      {n:'Baixo E2',i:'🎸',t:'inst',st:'bass',f:82.4},{n:'Violão',i:'🎸',t:'inst',st:'guitar',f:220},
+      {n:'Trompete',i:'🎺',t:'inst',st:'trumpet',f:440},{n:'Flauta',i:'🪈',t:'inst',st:'flute',f:523.25},
+      {n:'Sax',i:'🎷',t:'inst',st:'sax',f:293.66},{n:'Violino',i:'🎻',t:'inst',st:'violin',f:659},
+    ],
+    '📂 Meus Sons': [],
+  };
+
+  const previewSound = (s) => {
+    const vol = (padVol/100)*0.7;
+    if (s.t === 'sample' && uploadedSounds[s.nm||s.n]) {
+      const c = getCtx(); const src = c.createBufferSource(); src.buffer = uploadedSounds[s.nm||s.n];
+      const g = c.createGain(); g.gain.value = vol; src.connect(g); g.connect(c.destination); src.start();
+    } else { playSynth(s.st, s.f, vol); }
+  };
+
+  const confirmAssign = (padIdx, snd) => {
+    const next = padState.map((p,i) => i!==padIdx ? p : {
+      ...p,
+      label: snd.n, icon: snd.i,
+      sound: snd.t==='sample' ? 'sample' : snd.t,
+      synthType: snd.t==='sample' ? null : snd.st,
+      freq: snd.f || 440,
+      audioBuffer: snd.t==='sample' ? uploadedSounds[snd.nm||snd.n] : null,
+    });
+    savePads(next);
+    setAssignModal(null);
+    showToast(`${snd.n} → PAD ${padIdx+1}`);
+  };
+
+  const uploadSounds = async (e) => {
+    const c = getCtx();
+    for (const file of Array.from(e.target.files)) {
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        try {
+          const buf = await c.decodeAudioData(ev.target.result.slice(0));
+          setUploadedSounds(prev => ({...prev, [file.name]: buf}));
+          CATS['📂 Meus Sons'].push({n:file.name, i:'🎵', t:'sample', nm:file.name});
+          showToast(`✓ ${file.name}`);
+        } catch { showToast(`Erro: ${file.name}`); }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+    e.target.value = '';
+  };
+
+  const clearAllPads = () => {
+    if (!window.confirm('Limpar todos os pads?')) return;
+    savePads(defaultPads()); showToast('Pads limpos.');
+  };
+
+  const exportConfig = () => {
+    const cfg = padState.map(p=>({id:p.id,label:p.label,icon:p.icon,sound:p.sound,synthType:p.synthType,freq:p.freq}));
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(cfg,null,2)],{type:'application/json'}));
+    a.download = 'djstudio-pads.json'; a.click(); showToast('Config exportada!');
+  };
+
+  const importConfig = (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const r = new FileReader();
+    r.onload = (ev) => {
+      try {
+        const cfg = JSON.parse(ev.target.result);
+        const next = padState.map((p,i) => cfg[i] ? {...p,...cfg[i]} : p);
+        savePads(next); showToast('Config importada!');
+      } catch { showToast('Erro ao importar.'); }
+    };
+    r.readAsText(file); e.target.value='';
+  };
+
+  // ── YouTube ──
+  const extractYTId = (s) => { const m=s.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/); return m?m[1]:null; };
+  const loadYtA = () => { const id=extractYTId(ytUrlA); if(id) setYtIdA(id); else showToast('Link inválido'); };
+  const loadYtB = () => { const id=extractYTId(ytUrlB); if(id) setYtIdB(id); else showToast('Link inválido'); };
+
+  // ── Mic / Recording ──
+  const getMic = async () => {
+    if (!micStreamRef.current || !micStreamRef.current.active) {
+      micStreamRef.current = await navigator.mediaDevices.getUserMedia({audio:true});
+    }
+    return micStreamRef.current;
+  };
+
+  const startAnalyser = (stream) => {
+    const c = getCtx();
+    const src = c.createMediaStreamSource(stream);
+    const an = c.createAnalyser(); an.fftSize = 64;
+    src.connect(an); analyserRef.current = an;
+    const tick = () => {
+      analyserAnimRef.current = requestAnimationFrame(tick);
+      const d = new Uint8Array(an.frequencyBinCount); an.getByteFrequencyData(d);
+      const avg = d.reduce((a,b)=>a+b,0)/d.length;
+      setMicLevel(avg/255*100);
+      if (waveformRef.current) {
+        Array.from(waveformRef.current.children).forEach((bar,i) => {
+          bar.style.height = ((d[i]||0)/255*48+4)+'px';
+        });
+      }
+    };
+    tick();
+  };
+
+  const stopAnalyser = () => {
+    if (analyserAnimRef.current) { cancelAnimationFrame(analyserAnimRef.current); analyserAnimRef.current=null; }
+    setMicLevel(0);
+  };
+
+  const toggleRec = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      clearInterval(recIntervalRef.current);
+      setIsRecording(false); stopAnalyser();
+      showToast('Gravação finalizada — disponível em Meus Sons');
+      return;
+    }
+    try {
+      const stream = await getMic();
+      startAnalyser(stream);
+      recChunksRef.current = [];
+      const mr = new MediaRecorder(stream);
+      mr.ondataavailable = e => recChunksRef.current.push(e.data);
+      mr.onstop = async () => {
+        const blob = new Blob(recChunksRef.current, {type:'audio/webm'});
+        const buf = await blob.arrayBuffer();
+        const ab = await getCtx().decodeAudioData(buf);
+        const nm = `Mic ${new Date().toLocaleTimeString('pt-BR')}`;
+        setUploadedSounds(prev => ({...prev, [nm]: ab}));
+        CATS['📂 Meus Sons'].push({n:nm, i:'🎙️', t:'sample', nm});
+        showToast(`✓ "${nm}" salvo em Meus Sons`);
+      };
+      mr.start(); mediaRecorderRef.current = mr;
+      setIsRecording(true); setRecTime(0);
+      recIntervalRef.current = setInterval(() => setRecTime(t=>t+1), 1000);
+      showToast('🔴 Gravando...');
+    } catch { showToast('Permita acesso ao microfone!'); }
+  };
+
+  // ── Studio / Timeline ──
+  const addTrack = (name) => {
+    const colors = ['#00e5ff','#ff2d78','#00ff9d','#ffe000','#9b30ff','#ff7020'];
+    const color = colors[tracks.length % colors.length];
+    setTracks(t => [...t, {id:Date.now(), name, color, muted:false, solo:false}]);
+  };
+
+  const addClipAtPos = (trackId, xFrac, color) => {
+    setClips(c => [...c, {id:Date.now(), trackId, startFrac:xFrac, durFrac:0.05, label:'Clip', color}]);
+  };
+
+  const togglePlay = () => {
+    if (isPlaying) {
+      setIsPlaying(false);
+      cancelAnimationFrame(playAnimRef.current);
+      return;
+    }
+    setIsPlaying(true);
+    playStartRef.current = performance.now() - playheadSecRef.current * 1000;
+    const anim = () => {
+      const sec = (performance.now() - playStartRef.current) / 1000;
+      playheadSecRef.current = sec;
+      setPlayheadPx(sec * zoom);
+      playAnimRef.current = requestAnimationFrame(anim);
+    };
+    playAnimRef.current = requestAnimationFrame(anim);
+  };
+
+  const stopPlayback = () => {
+    setIsPlaying(false);
+    cancelAnimationFrame(playAnimRef.current);
+    playheadSecRef.current = 0;
+    setPlayheadPx(0);
+  };
+
+  const importAudioToStudio = async (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const ab = await getCtx().decodeAudioData(ev.target.result.slice(0));
+      const nm = file.name;
+      setUploadedSounds(prev => ({...prev,[nm]:ab}));
+      if (!tracks.length) addTrack(nm);
+      setTracks(t => {
+        const tr = t[0];
+        if(!tr) return t;
+        setClips(c => [...c, {id:Date.now(),trackId:tr.id,startFrac:0,durFrac:Math.min(ab.duration/60,1),label:nm,color:tr.color,ab}]);
+        return t;
+      });
+      showToast(`✓ "${nm}" importado`);
+    };
+    reader.readAsArrayBuffer(file); e.target.value='';
+  };
+
+  // ── Pad colors (32) ──
+  const PAD_COLORS = [
+    '#ff2d78','#ff7020','#ffe000','#00ff9d','#00e5ff','#0070ff','#9b30ff','#ff30c4',
+    '#ff5050','#ffa020','#ccff20','#20ffb0','#20d4ff','#4455ff','#cc44ff','#ff4499',
+    '#ff2020','#ffaa00','#00ffff','#88ff00','#ff0088','#0088ff','#ff8800','#44ddff',
+    '#dd44ff','#ffdd44','#44ff88','#ff4444','#8888ff','#ff8844','#44ffcc','#cc44ff',
+  ];
+
+  const recFmt = (s) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+
+  const gridCols = layout==='4x8'?8 : layout==='4x4'?4 : 8;
+  const padH = layout==='2x8' ? 48 : layout==='4x4' ? 80 : 60;
+
+  // ── RENDER ──
+  const djStyles = {
+    wrap: { display:'flex', flexDirection:'column', height:'calc(100vh - 140px)', background:'#080810', borderRadius:14, overflow:'hidden', border:'1px solid #1a1a2e', fontFamily:"'Share Tech Mono',monospace" },
+    topBar: { display:'flex', alignItems:'center', gap:8, padding:'8px 12px', background:'#0f0f18', borderBottom:'1px solid #1e1e2e', flexShrink:0 },
+    tab: (active) => ({ background:'transparent', border:`1px solid ${active?'#00e5ff':'#252535'}`, color:active?'#00e5ff':'#505060', fontFamily:"'Orbitron',sans-serif", fontSize:9, letterSpacing:2, padding:'5px 12px', borderRadius:4, cursor:'pointer' }),
+    sidebar: { width:200, flexShrink:0, background:'#0f0f18', borderRight:'1px solid #1a1a2e', display:'flex', flexDirection:'column', overflow:'hidden' },
+    pad: (i, isEmpty, isFlash) => ({
+      background: isEmpty ? '#12121c' : undefined,
+      backgroundImage: isEmpty ? undefined : `linear-gradient(135deg, ${PAD_COLORS[i]}cc, ${PAD_COLORS[i]}66)`,
+      border: `2px solid ${isEmpty ? '#252535' : PAD_COLORS[i]+'44'}`,
+      borderStyle: isEmpty ? 'dashed' : 'solid',
+      borderRadius: 8, cursor:'pointer', position:'relative',
+      display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+      gap:2, overflow:'hidden', userSelect:'none', height:padH,
+      transform: isFlash ? 'scale(0.9)' : 'scale(1)',
+      filter: isFlash ? 'brightness(1.6)' : 'brightness(1)',
+      transition:'transform 0.08s, filter 0.08s',
+      boxShadow: isEmpty ? 'none' : `0 0 10px ${PAD_COLORS[i]}30`,
+    }),
+    catBtn: (active) => ({ background:'transparent', border:`1px solid ${active?'#00e5ff':'#252535'}`, color:active?'#00e5ff':'#505060', fontFamily:"'Orbitron',sans-serif", fontSize:7, letterSpacing:1, padding:'3px 7px', borderRadius:3, cursor:'pointer', margin:'2px' }),
+    sndItem: { display:'flex', alignItems:'center', gap:6, padding:'5px 8px', margin:'2px 0', background:'#14141f', border:'1px solid #1e1e2e', borderRadius:4, cursor:'pointer', fontSize:9 },
+    djBtn: (color='#00e5ff') => ({ background:'transparent', border:`1px solid ${color}`, color, fontFamily:"'Orbitron',sans-serif", fontSize:8, letterSpacing:1, padding:'5px 10px', borderRadius:4, cursor:'pointer', whiteSpace:'nowrap' }),
+    inp2: { background:'#08080f', border:'1px solid #252535', borderRadius:5, color:'#c8d0e0', fontFamily:"'Share Tech Mono',monospace", fontSize:11, padding:'6px 10px', outline:'none', width:'100%' },
+  };
+
+  const cats = Object.keys(CATS);
+  const catItems = CATS[currentCat]||[];
+
+  return (
+    <div style={{fontFamily:"'Share Tech Mono',monospace"}}>
+      <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+
+      {/* Toast */}
+      {toastVisible && (
+        <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',background:'#0f0f18',border:'1px solid #00e5ff',color:'#00e5ff',fontFamily:"'Orbitron',sans-serif",fontSize:9,letterSpacing:2,padding:'8px 18px',borderRadius:6,boxShadow:'0 0 20px #00e5ff33',zIndex:9999}}>
+          {toastMsg}
+        </div>
+      )}
+
+      {/* Assign Modal */}
+      {assignModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setAssignModal(null)}>
+          <div style={{background:'#0f0f18',border:'1px solid #00e5ff',borderRadius:12,padding:20,width:380,boxShadow:'0 0 40px #00e5ff18'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:11,letterSpacing:3,color:'#00e5ff',marginBottom:10}}>ATRIBUIR AO PAD</div>
+            <div style={{fontSize:9,color:'#505060',marginBottom:12,letterSpacing:1}}>{assignModal.i} {assignModal.n} → selecione o pad:</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(8,1fr)',gap:5,marginBottom:14}}>
+              {padState.map((_,i)=>(
+                <div key={i} onClick={()=>confirmAssign(i,assignModal)} style={{aspectRatio:'1',borderRadius:5,background:`linear-gradient(135deg,${PAD_COLORS[i]}cc,${PAD_COLORS[i]}66)`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Orbitron',sans-serif",fontSize:8,fontWeight:700,transition:'transform .12s'}} onMouseEnter={e=>e.target.style.transform='scale(1.12)'} onMouseLeave={e=>e.target.style.transform='scale(1)'}>
+                  {i+1}
+                </div>
+              ))}
+            </div>
+            <div style={{display:'flex',justifyContent:'flex-end'}}>
+              <button onClick={()=>setAssignModal(null)} style={djStyles.djBtn('#ff2d78')}>CANCELAR</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pad Config Modal */}
+      {padConfig && (
+        <Modal title={`Configurar PAD ${padConfig.idx+1}`} onClose={()=>setPadConfig(null)}>
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <div style={{fontSize:12,color:'var(--text-3)'}}>Nome atual: <b>{padState[padConfig.idx].label||'Vazio'}</b></div>
+            <input style={{...inp}} placeholder="Novo nome (vazio para limpar)" value={padConfig.label} onChange={e=>setPadConfig({...padConfig,label:e.target.value})}/>
+            <div style={{display:'flex',gap:8}}>
+              <button style={{...btn()}} onClick={()=>{
+                if(padConfig.label.trim()===''){
+                  savePads(padState.map((p,i)=>i===padConfig.idx?{id:i,label:null,icon:null,sound:null,synthType:null,freq:null,audioBuffer:null}:p));
+                } else {
+                  const next=padState.map((p,i)=>i===padConfig.idx?{...p,label:padConfig.label.trim(),sound:p.sound||'synth',synthType:p.synthType||'stab',freq:p.freq||440,icon:p.icon||'🎵'}:p);
+                  savePads(next);
+                }
+                setPadConfig(null);
+              }}>Salvar</button>
+              <button style={{...btn('var(--red,#e74c3c)')}} onClick={()=>{
+                savePads(padState.map((p,i)=>i===padConfig.idx?{id:i,label:null,icon:null,sound:null,synthType:null,freq:null,audioBuffer:null}:p));
+                setPadConfig(null);
+              }}>Limpar Pad</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      <div style={djStyles.wrap}>
+        {/* TOP BAR */}
+        <div style={djStyles.topBar}>
+          <span style={{fontFamily:"'Orbitron',sans-serif",fontWeight:900,fontSize:14,letterSpacing:4,color:'#00e5ff',textShadow:'0 0 12px #00e5ff88'}}>DJ<span style={{color:'#ff2d78'}}>STUDIO</span></span>
+          <div style={{display:'flex',gap:4,marginLeft:8}}>
+            {['pads','mixer','studio'].map(v=><button key={v} style={djStyles.tab(view===v)} onClick={()=>setView(v)}>{v==='pads'?'⬛ PADS':v==='mixer'?'🎚 MIXER':'🎞 STUDIO'}</button>)}
+          </div>
+          <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
+            {isRecording && <span style={{fontFamily:"'Orbitron',sans-serif",fontSize:9,color:'#ff3333',letterSpacing:2}}>⏺ {recFmt(recTime)}</span>}
+            <span style={{fontSize:9,color:'#505060',letterSpacing:1,maxWidth:280,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{statusMsg}</span>
+          </div>
+        </div>
+
+        {/* BODY */}
+        <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+
+          {/* SIDEBAR */}
+          <div style={djStyles.sidebar}>
+            <div style={{padding:'8px 10px 4px',fontSize:8,letterSpacing:2,color:'#505060',fontFamily:"'Orbitron',sans-serif",borderBottom:'1px solid #1e1e2e'}}>🎵 BIBLIOTECA</div>
+            <div style={{display:'flex',flexWrap:'wrap',padding:6,borderBottom:'1px solid #1e1e2e'}}>
+              {cats.map(c=><button key={c} style={djStyles.catBtn(c===currentCat)} onClick={()=>setCurrentCat(c)}>{c}</button>)}
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:4}}>
+              {(catItems.length===0&&currentCat==='📂 Meus Sons') ? (
+                <div style={{padding:12,fontSize:9,color:'#505060',textAlign:'center',letterSpacing:1}}>Upload sons abaixo</div>
+              ) : catItems.map((s,i)=>(
+                <div key={i} style={djStyles.sndItem}>
+                  <span style={{fontSize:13}}>{s.i}</span>
+                  <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:9,color:'#c8d0e0'}}>{s.n}</span>
+                  <button style={{...djStyles.djBtn('#505060'),fontSize:7,padding:'2px 5px'}} onClick={()=>previewSound(s)}>▶</button>
+                  <button style={{...djStyles.djBtn('#00ff9d'),fontSize:7,padding:'2px 5px'}} onClick={()=>setAssignModal(s)}>PAD</button>
+                </div>
+              ))}
+            </div>
+            {/* Sidebar actions */}
+            <div style={{padding:8,borderTop:'1px solid #1e1e2e',display:'flex',flexDirection:'column',gap:5}}>
+              <label style={{...djStyles.djBtn('#00ff9d'),textAlign:'center',cursor:'pointer'}}>
+                + SOM (MP3/WAV)
+                <input type="file" accept="audio/*" multiple style={{display:'none'}} onChange={uploadSounds}/>
+              </label>
+              <button style={djStyles.djBtn('#505060')} onClick={clearAllPads}>LIMPAR PADS</button>
+              <button style={djStyles.djBtn('#ffe000')} onClick={exportConfig}>EXPORT CFG</button>
+              <label style={{...djStyles.djBtn('#ff2d78'),textAlign:'center',cursor:'pointer'}}>
+                IMPORT CFG
+                <input type="file" accept=".json" style={{display:'none'}} onChange={importConfig}/>
+              </label>
+            </div>
+          </div>
+
+          {/* CENTER */}
+          <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+
+            {/* ── PAD VIEW ── */}
+            {view==='pads' && (
+              <div style={{flex:1,display:'flex',flexDirection:'column',padding:10,gap:8,overflow:'hidden'}}>
+                <div style={{display:'flex',gap:8,alignItems:'center',flexShrink:0}}>
+                  <span style={{fontSize:9,color:'#505060'}}>VOL</span>
+                  <input type="range" min={0} max={100} value={padVol} onChange={e=>setPadVol(Number(e.target.value))} style={{width:80,accentColor:'#00e5ff'}}/>
+                  <span style={{fontSize:9,color:'#00e5ff'}}>{padVol}%</span>
+                  <div style={{marginLeft:8,display:'flex',gap:4}}>
+                    {['4x8','4x4','2x8'].map(l=><button key={l} style={djStyles.tab(layout===l)} onClick={()=>setLayout(l)}>{l}</button>)}
+                  </div>
+                </div>
+                <div style={{flex:1,display:'grid',gridTemplateColumns:`repeat(${gridCols},1fr)`,gap:7,alignContent:'start',overflow:'auto'}}>
+                  {padState.map((p,i)=>(
+                    <div key={i} style={djStyles.pad(i, !p.sound, flashIdx===i)}
+                      onClick={()=>triggerPad(i)}
+                      onDoubleClick={()=>setPadConfig({idx:i,label:p.label||''})}
+                      title={`PAD ${i+1}: ${p.label||'Vazio'} | Duplo clique = configurar`}
+                    >
+                      <span style={{position:'absolute',top:3,left:5,fontSize:7,opacity:.4,fontFamily:"'Orbitron',sans-serif"}}>{String(i+1).padStart(2,'0')}</span>
+                      <span style={{position:'absolute',top:3,right:5,fontSize:6,opacity:.35,color:'#ffe000',fontFamily:"'Orbitron',sans-serif"}}>{KEY_LABELS[i]}</span>
+                      <span style={{fontSize:layout==='2x8'?12:16}}>{p.icon||(p.sound?'🎵':'＋')}</span>
+                      <span style={{fontFamily:"'Orbitron',sans-serif",fontSize:6,fontWeight:700,letterSpacing:.5,textAlign:'center',lineHeight:1.2,padding:'0 3px',wordBreak:'break-word',textShadow:'0 1px 4px #0008',color:!p.sound?'#303040':'inherit'}}>
+                        {p.label||(p.sound?'':'')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── MIXER VIEW ── */}
+            {view==='mixer' && (
+              <div style={{flex:1,overflow:'auto',padding:12,display:'flex',flexDirection:'column',gap:10}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                  {/* Track A */}
+                  {[{lbl:'FAIXA A',url:ytUrlA,setUrl:setYtUrlA,ytId:ytIdA,load:loadYtA},{lbl:'FAIXA B',url:ytUrlB,setUrl:setYtUrlB,ytId:ytIdB,load:loadYtB}].map((tr,ti)=>(
+                    <div key={ti} style={{background:'#0f0f18',border:'1px solid #1e1e2e',borderRadius:8,padding:10}}>
+                      <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:8,letterSpacing:2,color:'#505060',marginBottom:8}}>▶ {tr.lbl} — YouTube</div>
+                      <div style={{display:'flex',gap:6,marginBottom:8}}>
+                        <input style={djStyles.inp2} placeholder="Cole link YouTube..." value={tr.url} onChange={e=>tr.setUrl(e.target.value)}/>
+                        <button style={djStyles.djBtn()} onClick={tr.load}>LOAD</button>
+                      </div>
+                      <div style={{width:'100%',aspectRatio:'16/9',background:'#000',borderRadius:6,overflow:'hidden',border:'1px solid #1e1e2e'}}>
+                        {tr.ytId ? (
+                          <iframe src={`https://www.youtube.com/embed/${tr.ytId}?autoplay=1&controls=1`} style={{width:'100%',height:'100%',border:'none'}} allow="autoplay;encrypted-media" allowFullScreen/>
+                        ) : (
+                          <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',color:'#303040',fontSize:10,letterSpacing:2}}>▶ AGUARDANDO LINK</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Mic Rec */}
+                <div style={{background:'#0f0f18',border:'1px solid #1e1e2e',borderRadius:8,padding:12}}>
+                  <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:8,letterSpacing:2,color:'#505060',marginBottom:8}}>🎙️ GRAVAR ÁUDIO DO DISPOSITIVO</div>
+                  <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                    <span style={{fontFamily:"'Orbitron',sans-serif",fontSize:18,color:'#ff2d78',letterSpacing:4,minWidth:60}}>{recFmt(recTime)}</span>
+                    <div style={{flex:1,height:10,background:'#08080f',border:'1px solid #1e1e2e',borderRadius:2,overflow:'hidden'}}>
+                      <div style={{height:'100%',background:'linear-gradient(90deg,#00ff9d,#ffe000,#ff3333)',width:micLevel+'%',transition:'width .05s'}}/>
+                    </div>
+                    <button style={{...djStyles.djBtn(isRecording?'#ff3333':'#00ff9d'),minWidth:80}} onClick={toggleRec}>{isRecording?'⏹ PARAR':'⏺ GRAVAR'}</button>
+                  </div>
+                  <div style={{fontSize:9,color:'#404050',marginTop:6}}>Grava microfone → salva em Meus Sons → atribua a um pad</div>
+                </div>
+              </div>
+            )}
+
+            {/* ── STUDIO VIEW ── */}
+            {view==='studio' && (
+              <div style={{flex:1,display:'flex',flexDirection:'column',padding:10,gap:8,overflow:'hidden'}}>
+                {/* Toolbar */}
+                <div style={{display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
+                  <button style={djStyles.djBtn(isRecording?'#ff3333':'#00ff9d')} onClick={toggleRec}>{isRecording?'⏹ STOP REC':'⏺ REC'}</button>
+                  <button style={djStyles.djBtn(isPlaying?'#ffe000':'#00e5ff')} onClick={togglePlay}>{isPlaying?'⏸ PAUSE':'▶ PLAY'}</button>
+                  <button style={djStyles.djBtn('#ff2d78')} onClick={stopPlayback}>⏹ STOP</button>
+                  <span style={{fontSize:9,color:'#505060',marginLeft:4}}>BPM</span>
+                  <input type="number" value={bpm} min={40} max={300} onChange={e=>setBpmState(Number(e.target.value)||120)} style={{width:50,background:'#0f0f18',border:'1px solid #252535',color:'#00e5ff',fontFamily:"'Orbitron',sans-serif",fontSize:11,padding:'3px 6px',borderRadius:4,outline:'none'}}/>
+                  <span style={{fontSize:9,color:'#505060',marginLeft:4}}>ZOOM</span>
+                  <input type="range" min={30} max={300} value={zoom} onChange={e=>setZoom(Number(e.target.value))} style={{width:70,accentColor:'#00e5ff'}}/>
+                  <div style={{marginLeft:'auto',display:'flex',gap:4}}>
+                    <button style={djStyles.djBtn('#00ff9d')} onClick={()=>addTrack('Trilha '+(tracks.length+1))}>+ TRILHA</button>
+                    <label style={{...djStyles.djBtn('#00e5ff'),cursor:'pointer'}}>+ AUDIO<input type="file" accept="audio/*" style={{display:'none'}} onChange={importAudioToStudio}/></label>
+                  </div>
+                </div>
+                {/* Waveform */}
+                <div ref={waveformRef} style={{height:44,background:'#0f0f18',border:'1px solid #1e1e2e',borderRadius:6,display:'flex',alignItems:'center',padding:'0 8px',gap:2,flexShrink:0,overflow:'hidden'}}>
+                  <span style={{fontSize:8,color:'#505060',letterSpacing:2,marginRight:6,flexShrink:0}}>INPUT</span>
+                  {Array.from({length:40},(_,i)=>(
+                    <div key={i} style={{flex:1,height:4,background:'#00e5ff',opacity:.5,borderRadius:1,transition:'height .05s'}}/>
+                  ))}
+                </div>
+                {/* Timeline */}
+                <div style={{flex:1,overflow:'auto',display:'flex',flexDirection:'column',gap:4}}>
+                  {tracks.length===0 && (
+                    <div style={{textAlign:'center',color:'#303040',fontSize:11,letterSpacing:2,padding:'40px 0'}}>Clique em "+ TRILHA" para começar</div>
+                  )}
+                  {tracks.map(tr=>(
+                    <div key={tr.id} style={{display:'flex',gap:0,height:52,flexShrink:0}}>
+                      <div style={{width:110,flexShrink:0,background:'#0f0f18',border:'1px solid #1e1e2e',borderRadius:'6px 0 0 6px',padding:'6px 8px',display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
+                        <div style={{fontFamily:"'Orbitron',sans-serif",fontSize:8,color:'#c8d0e0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{tr.name}</div>
+                        <div style={{display:'flex',gap:3}}>
+                          {['M','S','✕'].map((lbl,li)=>(
+                            <button key={li} onClick={()=>{
+                              if(li===0) setTracks(t=>t.map(x=>x.id===tr.id?{...x,muted:!x.muted}:x));
+                              else if(li===1) setTracks(t=>t.map(x=>x.id===tr.id?{...x,solo:!x.solo}:x));
+                              else setTracks(t=>t.filter(x=>x.id!==tr.id));
+                            }} style={{background:'transparent',border:`1px solid ${li===2?'#ff3333':li===0&&tr.muted?'#ff3333':li===1&&tr.solo?'#ffe000':'#252535'}`,color:li===2?'#ff3333':li===0&&tr.muted?'#ff3333':li===1&&tr.solo?'#ffe000':'#505060',fontSize:7,padding:'1px 4px',borderRadius:2,cursor:'pointer',fontFamily:"'Orbitron',sans-serif"}}>{lbl}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{flex:1,background:'#0f0f18',border:'1px solid #1e1e2e',borderLeft:'none',borderRadius:'0 6px 6px 0',position:'relative',cursor:'crosshair',overflow:'hidden'}}
+                        onClick={e=>{const rect=e.currentTarget.getBoundingClientRect();addClipAtPos(tr.id,(e.clientX-rect.left)/rect.width,tr.color);}}>
+                        {/* Playhead */}
+                        <div style={{position:'absolute',top:0,bottom:0,left:playheadPx,width:2,background:'#ffe000',pointerEvents:'none',zIndex:5,boxShadow:'0 0 6px #ffe000'}}/>
+                        {/* Clips */}
+                        {clips.filter(c=>c.trackId===tr.id).map(cl=>(
+                          <div key={cl.id} style={{position:'absolute',top:4,height:'calc(100% - 8px)',left:(cl.startFrac*100)+'%',width:Math.max(cl.durFrac*100,4)+'%',background:cl.color+'33',border:`1px solid ${cl.color}`,borderRadius:4,display:'flex',alignItems:'center',padding:'0 6px',fontSize:8,color:cl.color,overflow:'hidden',whiteSpace:'nowrap',cursor:'grab',fontFamily:"'Orbitron',sans-serif",letterSpacing:.5}}
+                            onContextMenu={e=>{e.preventDefault();if(window.confirm('Remover clip?'))setClips(c=>c.filter(x=>x.id!==cl.id));}}
+                          >{cl.label}</div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [page, setPage] = useState("home");
@@ -1789,6 +2503,7 @@ export default function App() {
       case "whiteboard": return <WhiteboardPage/>;
       case "bat":          return <BatPage/>;
       case "professional": return <ProfessionalPage/>;
+      case "dj":            return <DJStudioPage/>;
       default:           return <HomePage onNavigate={setPage}/>;
     }
   };
@@ -1837,3 +2552,4 @@ export default function App() {
     </div>
   );
 }
+
