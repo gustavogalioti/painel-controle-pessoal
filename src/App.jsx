@@ -45,6 +45,58 @@ const DB = {
   delete:async (t,id)=>{ try{ await fetch(`/api/db?table=${t}&id=${id}`,{method:"DELETE"}); }catch{} },
 };
 
+// ── Generic key/value cloud sync (whiteboard, dayboard, letreiro, dj banks) ──
+const KV = {
+  get: async (key) => {
+    try {
+      const r = await fetch(`/api/db?table=sync_kv&key=${encodeURIComponent(key)}`);
+      const v = await r.json();
+      return v ? JSON.parse(v) : null;
+    } catch { return null; }
+  },
+  set: async (key, value) => {
+    try {
+      await fetch(`/api/db?table=sync_kv`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: JSON.stringify(value) }),
+      });
+    } catch {}
+  },
+  del: async (key) => {
+    try { await fetch(`/api/db?table=sync_kv&key=${encodeURIComponent(key)}`, { method: "DELETE" }); } catch {}
+  },
+};
+
+// useKV — like useState but synced to cloud + localStorage
+function useKV(key, def) {
+  const [data, setData] = useState(() => {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
+  });
+  const [synced, setSynced] = useState(false);
+
+  // On mount: pull from cloud, merge with local, push any local-only data
+  useEffect(() => {
+    KV.get(key).then(cloud => {
+      if (cloud !== null) {
+        setData(cloud);
+        try { localStorage.setItem(key, JSON.stringify(cloud)); } catch {}
+      }
+      setSynced(true);
+    });
+  }, [key]);
+
+  const save = (next) => {
+    const value = typeof next === 'function' ? next(data) : next;
+    setData(value);
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+    KV.set(key, value);
+    return value;
+  };
+
+  return [data, save, synced];
+}
+
 function useDB(table, localKey, def=[]) {
   const [data, setData] = useState(()=>S.get(localKey,def));
   const [synced, setSynced] = useState(false);
@@ -282,12 +334,15 @@ const POST_COLORS = [
   '#FFE066','#FFB347','#FF6B6B','#C3E88D','#89DDFF','#C792EA','#F78C6C','#80CBC4',
 ];
 
-// Salva/carrega boards do localStorage (estrutura: {YYYY-MM-DD: {nodes:[...], edges:[...]}})
+// loadBoards / saveBoards — localStorage only (fast local access)
+// Cloud sync is handled by useKV inside DayBoardPage
 function loadBoards() {
   try { const r = localStorage.getItem(DB_BOARD_KEY); return r ? JSON.parse(r) : {}; } catch { return {}; }
 }
 function saveBoards(boards) {
   try { localStorage.setItem(DB_BOARD_KEY, JSON.stringify(boards)); } catch {}
+  // async cloud push (fire-and-forget)
+  KV.set(DB_BOARD_KEY, boards);
 }
 
 function todayKey() {
@@ -747,10 +802,24 @@ function DayBoardCanvas({ dayKey, readOnly }) {
 function DayBoardPage() {
   const [allBoards, setAllBoards] = useState(loadBoards);
   const today  = todayKey();
-  const [viewKey, setViewKey] = useState(today);  // which day is shown
+  const [viewKey, setViewKey] = useState(today);
   const [showHistory, setShowHistory] = useState(false);
+  const [kvSynced, setKvSynced] = useState(false);
 
-  // Refresh board list when coming back from history
+  // On mount: pull boards from cloud, merge with local
+  useEffect(() => {
+    KV.get(DB_BOARD_KEY).then(cloud => {
+      if (cloud && typeof cloud === 'object') {
+        const local = loadBoards();
+        // Merge: cloud wins for same day, local adds days cloud doesn't have
+        const merged = { ...local, ...cloud };
+        saveBoards(merged);
+        setAllBoards(merged);
+      }
+      setKvSynced(true);
+    });
+  }, []);
+
   const refreshBoards = () => setAllBoards(loadBoards());
 
   // All days that have data, sorted desc
@@ -1466,8 +1535,11 @@ function WhiteboardCanvas({ boardId }) {
     canvas.height=Math.max(600, window.innerHeight-300);
     const ctx=canvas.getContext("2d");
     ctx.fillStyle="#091828"; ctx.fillRect(0,0,canvas.width,canvas.height);
-    const saved=localStorage.getItem(storKey);
-    if(saved){ const img=new Image(); img.onload=()=>ctx.drawImage(img,0,0); img.src=saved; }
+    // Try cloud first, fall back to localStorage
+    KV.get(storKey).then(cloud => {
+      const src = cloud || localStorage.getItem(storKey);
+      if(src){ const img=new Image(); img.onload=()=>ctx.drawImage(img,0,0); img.src=src; }
+    });
   },[boardId]);
 
   const getPos=e=>{ const r=canvasRef.current.getBoundingClientRect(); const src=e.touches?e.touches[0]:e; return [src.clientX-r.left,src.clientY-r.top]; };
@@ -1480,7 +1552,9 @@ function WhiteboardCanvas({ boardId }) {
   };
   const endDraw=()=>{
     setDrawing(false); last.current=null;
-    localStorage.setItem(storKey, canvasRef.current.toDataURL());
+    const dataUrl = canvasRef.current.toDataURL();
+    localStorage.setItem(storKey, dataUrl);
+    KV.set(storKey, dataUrl);
   };
   const draw=e=>{
     if(!drawing||!last.current) return;
@@ -1498,6 +1572,7 @@ function WhiteboardCanvas({ boardId }) {
     const prev=history.current.pop();
     const img=new Image(); img.onload=()=>{ const ctx=canvasRef.current.getContext("2d"); ctx.drawImage(img,0,0); }; img.src=prev;
     localStorage.setItem(storKey, prev);
+    KV.set(storKey, prev);
   };
   const clear=()=>{
     history.current.push(canvasRef.current.toDataURL());
@@ -1543,6 +1618,7 @@ function WhiteboardPage() {
   const delBoard=id=>{
     if(boards.length===1) return;
     localStorage.removeItem(`whiteboard_${id}`);
+    KV.del(`whiteboard_${id}`);
     const n=boards.filter(b=>b.id!==id); setBoards(n); S.set("wb_boards",n);
     setActive(n[n.length-1].id);
   };
@@ -2274,17 +2350,27 @@ function LetreirPage() {
     { label:'Cinza',    value:'#1a1a1a' },
   ];
 
-  const saved = (() => {
-    try { return JSON.parse(localStorage.getItem('letreiro_v1')||'{}'); } catch { return {}; }
-  })();
+  const [kvConfig, setKvConfig, kvSynced] = useKV('letreiro_v1', {});
 
-  const [text,     setText]     = useState(saved.text     || 'Bem-vindo ao Painel!');
-  const [color,    setColor]    = useState(saved.color    || '#ffe030');
-  const [bgColor,  setBgColor]  = useState(saved.bgColor  || '#000000');
-  const [fontSize, setFontSize] = useState(saved.fontSize || 96);
-  const [speed,    setSpeed]    = useState(saved.speed    || 60);   // px/s
-  const [bold,     setBold]     = useState(saved.bold     ?? true);
-  const [italic,   setItalic]   = useState(saved.italic   || false);
+  const [text,     setText]     = useState(kvConfig.text     || 'Bem-vindo ao Painel!');
+  const [color,    setColor]    = useState(kvConfig.color    || '#ffe030');
+  const [bgColor,  setBgColor]  = useState(kvConfig.bgColor  || '#000000');
+  const [fontSize, setFontSize] = useState(kvConfig.fontSize || 96);
+  const [speed,    setSpeed]    = useState(kvConfig.speed    || 60);
+  const [bold,     setBold]     = useState(kvConfig.bold     ?? true);
+  const [italic,   setItalic]   = useState(kvConfig.italic   || false);
+
+  // When cloud config arrives, sync local state
+  useEffect(() => {
+    if (!kvSynced || !kvConfig || Object.keys(kvConfig).length === 0) return;
+    if (kvConfig.text     !== undefined) setText(kvConfig.text);
+    if (kvConfig.color    !== undefined) setColor(kvConfig.color);
+    if (kvConfig.bgColor  !== undefined) setBgColor(kvConfig.bgColor);
+    if (kvConfig.fontSize !== undefined) setFontSize(kvConfig.fontSize);
+    if (kvConfig.speed    !== undefined) setSpeed(kvConfig.speed);
+    if (kvConfig.bold     !== undefined) setBold(kvConfig.bold);
+    if (kvConfig.italic   !== undefined) setItalic(kvConfig.italic);
+  }, [kvSynced]);
   const [running,  setRunning]  = useState(false);
   const [draft,    setDraft]    = useState(saved.text     || 'Bem-vindo ao Painel!');
 
@@ -2298,7 +2384,7 @@ function LetreirPage() {
 
   const save = (patch) => {
     const next = { text, color, bgColor, fontSize, speed, bold, italic, ...patch };
-    localStorage.setItem('letreiro_v1', JSON.stringify(next));
+    setKvConfig(next);  // syncs to cloud + localStorage via useKV
   };
 
   const startMarquee = () => {
@@ -2711,6 +2797,7 @@ function DJStudioPage() {
       const raw = localStorage.getItem('dj_banks_v2');
       if (raw) return JSON.parse(raw);
     } catch {}
+    // (cloud sync happens via useEffect below)
     // migrate from old dj_pads
     const oldPads = (() => { try { const r=localStorage.getItem('dj_pads'); return r?JSON.parse(r):null; } catch{return null;} })();
     const bank1 = defaultBank('Pad 1');
@@ -2784,7 +2871,18 @@ function DJStudioPage() {
   const saveBankState = (next) => {
     setBankState(next);
     try { localStorage.setItem('dj_banks_v2', JSON.stringify(next)); } catch {}
+    KV.set('dj_banks_v2', next);  // push to cloud
   };
+
+  // On mount: pull DJ banks from cloud
+  useEffect(() => {
+    KV.get('dj_banks_v2').then(cloud => {
+      if (cloud && cloud.banks && cloud.banks.length > 0) {
+        setBankState(cloud);
+        try { localStorage.setItem('dj_banks_v2', JSON.stringify(cloud)); } catch {}
+      }
+    });
+  }, []);
 
   const savePads = (newPads) => {
     const next = { ...bankState, banks: bankState.banks.map((b,i) => i===bankState.activeBank ? {...b, pads:newPads} : b) };
@@ -3480,6 +3578,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
