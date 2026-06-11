@@ -342,7 +342,7 @@ function DayBoardCanvas({ dayKey, readOnly }) {
     return { x:(cx - pan.x)/scale, y:(cy - pan.y)/scale };
   }, []);
 
-  // ── Global pointer events — one handler, zero stale closure issues ──
+  // ── Global pointer events (drag nodes + pan canvas) ──
   useEffect(() => {
     const onMove = (e) => {
       const d = dragRef.current;
@@ -368,17 +368,96 @@ function DayBoardCanvas({ dayKey, readOnly }) {
     };
   }, []);
 
-  // ── Zoom (wheel) ──
+  // ── Zoom: mouse wheel + pinch touch ──
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+
+    // Mouse wheel
     const onWheel = (e) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 0.91;
-      setScale(s => Math.min(3, Math.max(0.2, s * factor)));
+      // Zoom toward cursor position
+      const rect = el.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      setScale(s => {
+        const next = Math.min(3, Math.max(0.2, s * factor));
+        const ratio = next / s;
+        setPan(p => ({ x: cx - (cx - p.x)*ratio, y: cy - (cy - p.y)*ratio }));
+        return next;
+      });
     };
-    el.addEventListener('wheel', onWheel, { passive:false });
-    return () => el.removeEventListener('wheel', onWheel);
+
+    // Pinch touch
+    let lastDist = null;
+    let lastMid  = null;
+
+    const getTouches = (e) => Array.from(e.touches);
+
+    const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const mid  = (a, b, rect) => ({
+      x: (a.clientX + b.clientX)/2 - rect.left,
+      y: (a.clientY + b.clientY)/2 - rect.top,
+    });
+
+    const onTouchStart = (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const [t0,t1] = getTouches(e);
+        lastDist = dist(t0,t1);
+        lastMid  = mid(t0,t1, el.getBoundingClientRect());
+        // cancel any pointer drag so pan doesn't fight pinch
+        dragRef.current = null;
+      }
+    };
+
+    const onTouchMove = (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const [t0,t1] = getTouches(e);
+        const rect = el.getBoundingClientRect();
+        const newDist = dist(t0,t1);
+        const newMid  = mid(t0,t1, rect);
+
+        if (lastDist && lastMid) {
+          const factor = newDist / lastDist;
+          setScale(s => {
+            const next = Math.min(3, Math.max(0.2, s * factor));
+            const ratio = next / s;
+            // zoom toward pinch midpoint + allow panning with two fingers
+            const panDx = newMid.x - lastMid.x;
+            const panDy = newMid.y - lastMid.y;
+            setPan(p => ({
+              x: newMid.x - (lastMid.x - p.x)*ratio + panDx*(1-ratio),
+              y: newMid.y - (lastMid.y - p.y)*ratio + panDy*(1-ratio),
+            }));
+            return next;
+          });
+        }
+        lastDist = newDist;
+        lastMid  = newMid;
+      }
+    };
+
+    const onTouchEnd = (e) => {
+      if (e.touches.length < 2) {
+        lastDist = null;
+        lastMid  = null;
+      }
+    };
+
+    el.addEventListener('wheel',      onWheel,      { passive:false });
+    el.addEventListener('touchstart', onTouchStart, { passive:false });
+    el.addEventListener('touchmove',  onTouchMove,  { passive:false });
+    el.addEventListener('touchend',   onTouchEnd,   { passive:true  });
+
+    return () => {
+      el.removeEventListener('wheel',      onWheel);
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove',  onTouchMove);
+      el.removeEventListener('touchend',   onTouchEnd);
+    };
   }, []);
 
   // ── Canvas background pointer down → pan ──
@@ -3085,6 +3164,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
