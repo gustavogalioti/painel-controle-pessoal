@@ -2247,6 +2247,320 @@ function HomePage({ onNavigate }) {
       <MenuTile color="var(--tile-white)"  emoji="🖊️" label="Whiteboard"   sub="Lousa digital"               onClick={()=>onNavigate("whiteboard")}/>
       <MenuTile color="#1a3a2a"             emoji="💻" label=".BAT / Scripts" sub="Automações e comandos"       onClick={()=>onNavigate("bat")}/>
       <MenuTile color="#0d1a2e"             emoji="🎛️" label="DJ Studio"     sub="Pads · Mixer · Studio · Gravação" wide onClick={()=>onNavigate("dj")}/>
+      <MenuTile color="#1a0a2a"             emoji="📺" label="Letreiro"     sub="Mensagem em tela cheia" onClick={()=>onNavigate("letreiro")}/>
+    </div>
+  );
+}
+
+
+// ─── LETREIRO PAGE ────────────────────────────────────────────────────────────
+function LetreirPage() {
+  const PRESETS = [
+    { label:'Branco',   value:'#ffffff' },
+    { label:'Amarelo',  value:'#ffe030' },
+    { label:'Ciano',    value:'#00e5ff' },
+    { label:'Verde',    value:'#00ff88' },
+    { label:'Rosa',     value:'#ff2d78' },
+    { label:'Laranja',  value:'#ff8c00' },
+    { label:'Roxo',     value:'#c084fc' },
+    { label:'Vermelho', value:'#ff4444' },
+  ];
+  const BG_PRESETS = [
+    { label:'Preto',    value:'#000000' },
+    { label:'Azul esc', value:'#0d1b2e' },
+    { label:'Roxo esc', value:'#1a0a2e' },
+    { label:'Verde esc',value:'#0a1e0f' },
+    { label:'Vermelho', value:'#1e0505' },
+    { label:'Cinza',    value:'#1a1a1a' },
+  ];
+
+  const saved = (() => {
+    try { return JSON.parse(localStorage.getItem('letreiro_v1')||'{}'); } catch { return {}; }
+  })();
+
+  const [text,     setText]     = useState(saved.text     || 'Bem-vindo ao Painel!');
+  const [color,    setColor]    = useState(saved.color    || '#ffe030');
+  const [bgColor,  setBgColor]  = useState(saved.bgColor  || '#000000');
+  const [fontSize, setFontSize] = useState(saved.fontSize || 96);
+  const [speed,    setSpeed]    = useState(saved.speed    || 60);   // px/s
+  const [bold,     setBold]     = useState(saved.bold     ?? true);
+  const [italic,   setItalic]   = useState(saved.italic   || false);
+  const [running,  setRunning]  = useState(false);
+  const [draft,    setDraft]    = useState(saved.text     || 'Bem-vindo ao Painel!');
+
+  // fullscreen marquee state
+  const [fullscreen, setFullscreen] = useState(false);
+  const posRef      = useRef(null);   // pixel position (starts offscreen right)
+  const animRef     = useRef(null);
+  const spanRef     = useRef(null);
+  const lastTimeRef = useRef(null);
+  const [pos, setPos] = useState(0);  // left px
+
+  const save = (patch) => {
+    const next = { text, color, bgColor, fontSize, speed, bold, italic, ...patch };
+    localStorage.setItem('letreiro_v1', JSON.stringify(next));
+  };
+
+  const startMarquee = () => {
+    save({ text: draft });
+    setText(draft);
+    setRunning(true);
+    setFullscreen(true);
+  };
+
+  const stopMarquee = () => {
+    setRunning(false);
+    setFullscreen(false);
+    cancelAnimationFrame(animRef.current);
+    lastTimeRef.current = null;
+  };
+
+  // Animation loop — runs whenever fullscreen + running
+  useEffect(() => {
+    if (!fullscreen || !running) return;
+
+    // Init position: start from the right edge of screen
+    const screenW = window.innerWidth;
+    posRef.current = screenW;
+    setPos(screenW);
+    lastTimeRef.current = null;
+
+    const tick = (ts) => {
+      if (lastTimeRef.current === null) lastTimeRef.current = ts;
+      const dt = (ts - lastTimeRef.current) / 1000; // seconds
+      lastTimeRef.current = ts;
+
+      const spanW = spanRef.current ? spanRef.current.offsetWidth : 800;
+      posRef.current -= speed * dt;
+
+      // Reset when fully off left edge
+      if (posRef.current < -spanW - 40) {
+        posRef.current = window.innerWidth + 40;
+      }
+
+      setPos(posRef.current);
+      animRef.current = requestAnimationFrame(tick);
+    };
+
+    animRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [fullscreen, running, speed]);
+
+  // ESC to exit fullscreen
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') stopMarquee(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  // ── FULLSCREEN OVERLAY ──
+  if (fullscreen) {
+    return (
+      <div
+        onClick={stopMarquee}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: bgColor,
+          display: 'flex', alignItems: 'center',
+          overflow: 'hidden', cursor: 'pointer',
+          userSelect: 'none',
+        }}
+        title="Clique ou ESC para fechar"
+      >
+        <span
+          ref={spanRef}
+          style={{
+            position: 'absolute',
+            left: pos,
+            whiteSpace: 'nowrap',
+            fontSize: fontSize,
+            fontWeight: bold ? 800 : 400,
+            fontStyle: italic ? 'italic' : 'normal',
+            color: color,
+            fontFamily: "'DM Sans', sans-serif",
+            textShadow: `0 0 40px ${color}88, 0 0 80px ${color}44`,
+            lineHeight: 1.1,
+            letterSpacing: '0.02em',
+          }}
+        >
+          {text}
+        </span>
+        {/* Close hint */}
+        <div style={{
+          position: 'absolute', top: 16, right: 20,
+          color: 'rgba(255,255,255,0.25)', fontSize: 11,
+          fontFamily: 'monospace', letterSpacing: 2,
+          pointerEvents: 'none',
+        }}>
+          ESC ou clique para sair
+        </div>
+      </div>
+    );
+  }
+
+  // ── CONFIGURAÇÃO ──
+  return (
+    <div style={{ maxWidth: 680, margin: '0 auto' }}>
+      {/* Preview mini */}
+      <div style={{
+        background: bgColor,
+        borderRadius: 14, marginBottom: 24, overflow: 'hidden',
+        height: 120, display: 'flex', alignItems: 'center',
+        border: '1px solid var(--border)',
+        position: 'relative',
+      }}>
+        <div style={{
+          animation: 'marqueePreview 8s linear infinite',
+          whiteSpace: 'nowrap',
+          fontSize: Math.min(fontSize, 52),
+          fontWeight: bold ? 800 : 400,
+          fontStyle: italic ? 'italic' : 'normal',
+          color: color,
+          fontFamily: "'DM Sans', sans-serif",
+          textShadow: `0 0 20px ${color}66`,
+          paddingLeft: '100%',
+        }}>
+          {draft || 'Digite seu texto…'}
+        </div>
+        <style>{`
+          @keyframes marqueePreview {
+            0%   { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+          }
+        `}</style>
+      </div>
+
+      {/* Text input */}
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: 20, marginBottom: 16 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', letterSpacing: 2, display: 'block', marginBottom: 8 }}>TEXTO DO LETREIRO</label>
+        <textarea
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          rows={2}
+          placeholder="Digite a mensagem aqui..."
+          style={{ ...inp, resize: 'vertical', fontSize: 16, fontWeight: 700 }}
+        />
+      </div>
+
+      {/* Controls grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
+
+        {/* Cor do texto */}
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', letterSpacing: 2, display: 'block', marginBottom: 10 }}>COR DO TEXTO</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            {PRESETS.map(p => (
+              <div key={p.value}
+                onClick={() => { setColor(p.value); save({ color: p.value }); }}
+                style={{
+                  width: 28, height: 28, borderRadius: '50%', background: p.value,
+                  border: color === p.value ? '3px solid var(--accent)' : '2px solid var(--border)',
+                  cursor: 'pointer', transition: 'transform .12s',
+                  transform: color === p.value ? 'scale(1.2)' : 'scale(1)',
+                }}
+                title={p.label}
+              />
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="color" value={color} onChange={e => { setColor(e.target.value); save({ color: e.target.value }); }}
+              style={{ width: 36, height: 36, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}/>
+            <span style={{ fontSize: 12, color: 'var(--text-2)', fontFamily: 'monospace' }}>{color}</span>
+          </div>
+        </div>
+
+        {/* Cor de fundo */}
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', letterSpacing: 2, display: 'block', marginBottom: 10 }}>COR DE FUNDO</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            {BG_PRESETS.map(p => (
+              <div key={p.value}
+                onClick={() => { setBgColor(p.value); save({ bgColor: p.value }); }}
+                style={{
+                  width: 28, height: 28, borderRadius: '50%', background: p.value,
+                  border: bgColor === p.value ? '3px solid var(--accent)' : '2px solid var(--border)',
+                  cursor: 'pointer', transition: 'transform .12s',
+                  transform: bgColor === p.value ? 'scale(1.2)' : 'scale(1)',
+                }}
+                title={p.label}
+              />
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="color" value={bgColor} onChange={e => { setBgColor(e.target.value); save({ bgColor: e.target.value }); }}
+              style={{ width: 36, height: 36, border: 'none', background: 'none', cursor: 'pointer', padding: 0 }}/>
+            <span style={{ fontSize: 12, color: 'var(--text-2)', fontFamily: 'monospace' }}>{bgColor}</span>
+          </div>
+        </div>
+
+        {/* Tamanho da fonte */}
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', letterSpacing: 2, display: 'block', marginBottom: 10 }}>TAMANHO — {fontSize}px</label>
+          <input type="range" min={32} max={240} value={fontSize}
+            onChange={e => { setFontSize(Number(e.target.value)); save({ fontSize: Number(e.target.value) }); }}
+            style={{ width: '100%', accentColor: 'var(--accent)' }}/>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+            {[32, 72, 120, 180, 240].map(s => (
+              <button key={s} onClick={() => { setFontSize(s); save({ fontSize: s }); }}
+                style={{ ...btn(fontSize===s?'var(--accent)':'var(--bg-input)'), padding: '4px 8px', fontSize: 11, borderRadius: 8, color: fontSize===s?'#fff':'var(--text-2)', border: `1px solid ${fontSize===s?'var(--accent)':'var(--border)'}` }}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Velocidade */}
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', letterSpacing: 2, display: 'block', marginBottom: 10 }}>VELOCIDADE — {speed}px/s</label>
+          <input type="range" min={10} max={400} value={speed}
+            onChange={e => { setSpeed(Number(e.target.value)); save({ speed: Number(e.target.value) }); }}
+            style={{ width: '100%', accentColor: 'var(--accent)' }}/>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+            {[{ l:'Lenta', v:30 },{ l:'Normal', v:80 },{ l:'Rápida', v:160 },{ l:'Turbo', v:320 }].map(o => (
+              <button key={o.v} onClick={() => { setSpeed(o.v); save({ speed: o.v }); }}
+                style={{ ...btn(speed===o.v?'var(--accent)':'var(--bg-input)'), padding: '4px 8px', fontSize: 11, borderRadius: 8, color: speed===o.v?'#fff':'var(--text-2)', border: `1px solid ${speed===o.v?'var(--accent)':'var(--border)'}` }}>
+                {o.l}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Style toggles */}
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: 16, marginBottom: 20, display: 'flex', gap: 12 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', letterSpacing: 2, alignSelf: 'center', marginRight: 4 }}>ESTILO</label>
+        {[
+          { lbl: 'Negrito', val: bold, set: v => { setBold(v); save({ bold: v }); }, icon: 'B' },
+          { lbl: 'Itálico', val: italic, set: v => { setItalic(v); save({ italic: v }); }, icon: 'I' },
+        ].map(o => (
+          <button key={o.lbl} onClick={() => o.set(!o.val)}
+            style={{
+              background: o.val ? 'var(--accent)' : 'var(--bg-input)',
+              border: `1px solid ${o.val ? 'var(--accent)' : 'var(--border)'}`,
+              color: o.val ? '#fff' : 'var(--text-2)',
+              borderRadius: 10, padding: '8px 18px', fontSize: 14,
+              fontWeight: o.lbl==='Negrito' ? 800 : 400,
+              fontStyle: o.lbl==='Itálico' ? 'italic' : 'normal',
+              cursor: 'pointer', transition: 'all .15s',
+            }}>
+            {o.icon} {o.lbl}
+          </button>
+        ))}
+      </div>
+
+      {/* Launch button */}
+      <button onClick={startMarquee} style={{
+        ...btn('var(--accent)'),
+        width: '100%', fontSize: 16, fontWeight: 800,
+        padding: '16px', borderRadius: 14, letterSpacing: 2,
+        boxShadow: '0 4px 24px rgba(40,120,200,0.35)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+      }}>
+        <span style={{ fontSize: 22 }}>📺</span> EXIBIR LETREIRO EM TELA CHEIA
+      </button>
+      <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-3)', marginTop: 10 }}>
+        Clique na tela ou pressione ESC para fechar
+      </div>
     </div>
   );
 }
@@ -2266,6 +2580,7 @@ const PAGE_META = {
   bat:          {label:".BAT / Scripts",     emoji:"💻"},
   professional: {label:"Profissional",        emoji:"💼"},
   dj:           {label:"DJ Studio",            emoji:"🎛️"},
+  letreiro:     {label:"Letreiro",             emoji:"📺"},
 };
 
 // ─── BAT PAGE ─────────────────────────────────────────────────────────────────
@@ -3116,6 +3431,7 @@ export default function App() {
       case "bat":          return <BatPage/>;
       case "professional": return <ProfessionalPage/>;
       case "dj":            return <DJStudioPage/>;
+      case "letreiro":      return <LetreirPage/>;
       default:           return <HomePage onNavigate={setPage}/>;
     }
   };
@@ -3164,6 +3480,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
