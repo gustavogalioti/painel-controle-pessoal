@@ -273,6 +273,427 @@ function NoteColumn({ storageKey, title, placeholder, accent, emoji, hasCheck })
   );
 }
 
+
+// ─── DAY BOARD (whiteboard de post-its por dia) ───────────────────────────────
+const DB_BOARD_KEY = 'dayboard_v1';
+
+// Cores dos post-its
+const POST_COLORS = [
+  '#FFE066','#FFB347','#FF6B6B','#C3E88D','#89DDFF','#C792EA','#F78C6C','#80CBC4',
+];
+
+// Salva/carrega boards do localStorage (estrutura: {YYYY-MM-DD: {nodes:[...], edges:[...]}})
+function loadBoards() {
+  try { const r = localStorage.getItem(DB_BOARD_KEY); return r ? JSON.parse(r) : {}; } catch { return {}; }
+}
+function saveBoards(boards) {
+  try { localStorage.setItem(DB_BOARD_KEY, JSON.stringify(boards)); } catch {}
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function fmtBoardDate(key) {
+  const [y,m,d] = key.split('-');
+  const dt = new Date(Number(y), Number(m)-1, Number(d));
+  return dt.toLocaleDateString('pt-BR', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+}
+
+function DayBoardCanvas({ dayKey, readOnly }) {
+  const canvasRef    = useRef(null);
+  const svgRef       = useRef(null);
+  const containerRef = useRef(null);
+
+  // Pan state
+  const panRef = useRef({ x: 0, y: 0, dragging: false, sx: 0, sy: 0 });
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(1);
+
+  // Board state
+  const [nodes, setNodes]    = useState([]);
+  const [edges, setEdges]    = useState([]);
+  const [selected, setSelected] = useState(null);      // node id
+  const [connecting, setConnecting] = useState(null);   // source node id
+  const [editing, setEditing] = useState(null);         // node id being edited
+
+  // Node drag
+  const nodeDragRef = useRef(null); // {id, ox, oy, startX, startY}
+
+  // Load from storage when dayKey changes
+  useEffect(() => {
+    const boards = loadBoards();
+    const board  = boards[dayKey] || { nodes: [], edges: [] };
+    setNodes(board.nodes || []);
+    setEdges(board.edges || []);
+    setSelected(null);
+    setConnecting(null);
+    setEditing(null);
+    setPan({ x: 0, y: 0 });
+    setScale(1);
+  }, [dayKey]);
+
+  // Persist on every change
+  useEffect(() => {
+    const boards = loadBoards();
+    boards[dayKey] = { nodes, edges };
+    saveBoards(boards);
+  }, [nodes, edges, dayKey]);
+
+  /* ── helpers ── */
+  const makeNode = (x, y, color, text = '') => ({
+    id: Date.now() + Math.random(),
+    x, y, w: 160, h: 90,
+    color: color || POST_COLORS[Math.floor(Math.random() * POST_COLORS.length)],
+    text,
+  });
+
+  const toWorld = (cx, cy) => ({
+    x: (cx - pan.x) / scale,
+    y: (cy - pan.y) / scale,
+  });
+
+  /* ── Add post-it (double-click on canvas) ── */
+  const handleCanvasDblClick = (e) => {
+    if (readOnly) return;
+    if (e.target !== canvasRef.current && e.target !== svgRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const { x, y } = toWorld(e.clientX - rect.left, e.clientY - rect.top);
+    const node = makeNode(x - 80, y - 45, POST_COLORS[nodes.length % POST_COLORS.length]);
+    setNodes(n => [...n, node]);
+    setSelected(node.id);
+    setEditing(node.id);
+  };
+
+  /* ── Canvas pan ── */
+  const handleCanvasMouseDown = (e) => {
+    if (e.target !== canvasRef.current && e.target !== svgRef.current) return;
+    if (connecting) { setConnecting(null); return; }
+    setSelected(null);
+    panRef.current = { ...panRef.current, dragging: true, sx: e.clientX - pan.x, sy: e.clientY - pan.y };
+  };
+
+  const handleMouseMove = useCallback((e) => {
+    if (panRef.current.dragging) {
+      setPan({ x: e.clientX - panRef.current.sx, y: e.clientY - panRef.current.sy });
+      return;
+    }
+    if (nodeDragRef.current) {
+      const { id, sx, sy, ox, oy } = nodeDragRef.current;
+      const dx = (e.clientX - sx) / scale;
+      const dy = (e.clientY - sy) / scale;
+      setNodes(ns => ns.map(n => n.id === id ? { ...n, x: ox + dx, y: oy + dy } : n));
+    }
+  }, [scale]);
+
+  const handleMouseUp = useCallback(() => {
+    panRef.current.dragging = false;
+    nodeDragRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
+  }, [handleMouseMove, handleMouseUp]);
+
+  /* ── Zoom ── */
+  const handleWheel = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setScale(s => Math.min(2.5, Math.max(0.2, s * delta)));
+  };
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  /* ── Node actions ── */
+  const startNodeDrag = (e, node) => {
+    if (readOnly || editing === node.id || connecting) return;
+    e.stopPropagation();
+    nodeDragRef.current = { id: node.id, sx: e.clientX, sy: e.clientY, ox: node.x, oy: node.y };
+  };
+
+  const deleteNode = (id) => {
+    setNodes(n => n.filter(x => x.id !== id));
+    setEdges(eds => eds.filter(e => e.from !== id && e.to !== id));
+    if (selected === id) setSelected(null);
+    if (editing === id) setEditing(null);
+  };
+
+  const addConnectedNode = (sourceNode) => {
+    if (readOnly) return;
+    const nx = sourceNode.x + sourceNode.w + 60;
+    const ny = sourceNode.y;
+    const child = makeNode(nx, ny, sourceNode.color);
+    setNodes(n => [...n, child]);
+    setEdges(e => [...e, { id: Date.now(), from: sourceNode.id, to: child.id }]);
+    setSelected(child.id);
+    setEditing(child.id);
+  };
+
+  const connectNodes = (targetId) => {
+    if (!connecting || connecting === targetId) { setConnecting(null); return; }
+    const exists = edges.find(e => (e.from === connecting && e.to === targetId) || (e.from === targetId && e.to === connecting));
+    if (!exists) setEdges(e => [...e, { id: Date.now(), from: connecting, to: targetId }]);
+    setConnecting(null);
+  };
+
+  const changeColor = (id, color) => {
+    setNodes(n => n.map(x => x.id === id ? { ...x, color } : x));
+  };
+
+  const updateText = (id, text) => {
+    setNodes(n => n.map(x => x.id === id ? { ...x, text } : x));
+  };
+
+  /* ── Edge midpoints for SVG ── */
+  const getCenter = (node) => ({ cx: node.x + node.w / 2, cy: node.y + node.h / 2 });
+
+  /* ── RENDER ── */
+  const selNode = nodes.find(n => n.id === selected);
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden', background: 'repeating-linear-gradient(0deg,transparent,transparent 39px,var(--border-2) 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,var(--border-2) 40px)', backgroundColor: 'var(--bg)', cursor: panRef.current.dragging ? 'grabbing' : 'default' }}
+      onMouseDown={handleCanvasMouseDown}
+      onDoubleClick={handleCanvasDblClick}
+    >
+      {/* Toolbar overlay */}
+      {!readOnly && (
+        <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 30, display: 'flex', gap: 6, background: 'var(--bg-bar)', border: '1px solid var(--border)', borderRadius: 24, padding: '6px 14px', boxShadow: '0 4px 20px #0003', backdropFilter: 'blur(8px)' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>
+            {connecting ? '🔗 Clique num post-it para conectar · ESC cancela' : '⬡ Duplo clique no fundo = novo post-it · Arraste = mover'}
+          </span>
+          <button onClick={() => { const c = getCenter({x:80-pan.x/scale,y:80-pan.y/scale,w:0,h:0}); const node=makeNode((-pan.x/scale)+120,(-pan.y/scale)+120,POST_COLORS[nodes.length%POST_COLORS.length]); setNodes(n=>[...n,node]); setSelected(node.id); setEditing(node.id); }}
+            style={{ ...btn(), padding: '4px 12px', fontSize: 12, borderRadius: 12 }}>+ Post-it</button>
+          <button onClick={() => { setPan({x:0,y:0}); setScale(1); }}
+            style={{ ...btn('var(--text-3)'), padding: '4px 10px', fontSize: 11, borderRadius: 12 }}>↺ Reset</button>
+          {selected && <button onClick={() => deleteNode(selected)} style={{ ...btn('var(--red,#e74c3c)'), padding: '4px 10px', fontSize: 11, borderRadius: 12 }}>🗑 Apagar</button>}
+        </div>
+      )}
+
+      {/* Scale info */}
+      <div style={{ position: 'absolute', bottom: 10, right: 14, zIndex: 20, fontSize: 10, color: 'var(--text-3)', background: 'var(--bg-card)', padding: '3px 8px', borderRadius: 8, border: '1px solid var(--border)' }}>
+        {Math.round(scale * 100)}% · {nodes.length} post-its
+      </div>
+
+      {/* ESC to cancel connect */}
+      {connecting && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 5, cursor: 'crosshair' }} onClick={() => setConnecting(null)} onKeyDown={e => e.key === 'Escape' && setConnecting(null)} tabIndex={0}/>
+      )}
+
+      {/* Canvas world */}
+      <div ref={canvasRef} style={{ position: 'absolute', inset: 0 }}>
+        {/* SVG edges */}
+        <svg ref={svgRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1 }}>
+          <g transform={`translate(${pan.x},${pan.y}) scale(${scale})`}>
+            <defs>
+              <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L8,3 z" fill="var(--text-3)"/>
+              </marker>
+            </defs>
+            {edges.map(e => {
+              const from = nodes.find(n => n.id === e.from);
+              const to   = nodes.find(n => n.id === e.to);
+              if (!from || !to) return null;
+              const fc = getCenter(from);
+              const tc = getCenter(to);
+              // Bezier
+              const mx = (fc.cx + tc.cx) / 2;
+              return (
+                <g key={e.id}>
+                  <path d={`M ${fc.cx} ${fc.cy} C ${mx} ${fc.cy}, ${mx} ${tc.cy}, ${tc.cx} ${tc.cy}`}
+                    stroke="var(--text-3)" strokeWidth={2/scale} fill="none" strokeDasharray="6 3" markerEnd="url(#arrow)" opacity={0.7}/>
+                  {!readOnly && (
+                    <path d={`M ${fc.cx} ${fc.cy} C ${mx} ${fc.cy}, ${mx} ${tc.cy}, ${tc.cx} ${tc.cy}`}
+                      stroke="transparent" strokeWidth={12/scale} fill="none" style={{pointerEvents:'stroke',cursor:'pointer'}}
+                      onClick={() => { if(window.confirm('Remover esta ligação?')) setEdges(eds=>eds.filter(x=>x.id!==e.id)); }}/>
+                  )}
+                </g>
+              );
+            })}
+          </g>
+        </svg>
+
+        {/* Nodes */}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 2 }}>
+          {nodes.map(node => {
+            const isSel  = selected === node.id;
+            const isConn = connecting === node.id;
+            const isEdit = editing  === node.id;
+            const tx = pan.x + node.x * scale;
+            const ty = pan.y + node.y * scale;
+            return (
+              <div key={node.id}
+                style={{ position: 'absolute', left: tx, top: ty, width: node.w * scale, height: node.h * scale, background: node.color, borderRadius: 10 * scale, boxShadow: isSel ? `0 0 0 ${3*scale}px var(--accent), 0 8px 24px #0004` : isConn ? `0 0 0 ${3*scale}px var(--purple), 0 8px 24px #0004` : '0 4px 14px #0003', cursor: nodeDragRef.current?.id===node.id ? 'grabbing' : 'grab', userSelect: 'none', overflow: 'hidden', zIndex: isSel ? 10 : 2, transition: 'box-shadow .15s', display: 'flex', flexDirection: 'column' }}
+                onMouseDown={e => startNodeDrag(e, node)}
+                onClick={e => { e.stopPropagation(); if (connecting) { connectNodes(node.id); } else { setSelected(node.id); } }}
+                onDoubleClick={e => { e.stopPropagation(); if (!readOnly) setEditing(node.id); }}
+              >
+                {/* Header bar */}
+                <div style={{ height: 20 * scale, background: '#0002', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: `0 ${6*scale}px`, gap: 4*scale, flexShrink: 0 }}>
+                  {/* Color dots */}
+                  {isSel && !readOnly && POST_COLORS.map(c => (
+                    <div key={c} onClick={e=>{e.stopPropagation();changeColor(node.id,c);}} style={{ width: 10*scale, height: 10*scale, borderRadius: '50%', background: c, border: node.color===c?`${1.5*scale}px solid #000`:'none', cursor: 'pointer', flexShrink:0 }}/>
+                  ))}
+                </div>
+
+                {/* Text area */}
+                <div style={{ flex: 1, padding: `${4*scale}px ${8*scale}px`, overflow: 'hidden' }}>
+                  {isEdit && !readOnly ? (
+                    <textarea
+                      autoFocus
+                      value={node.text}
+                      onChange={e => updateText(node.id, e.target.value)}
+                      onBlur={() => setEditing(null)}
+                      onKeyDown={e => { if (e.key==='Escape') setEditing(null); e.stopPropagation(); }}
+                      onClick={e => e.stopPropagation()}
+                      style={{ width: '100%', height: '100%', background: 'transparent', border: 'none', outline: 'none', resize: 'none', fontSize: 12*scale, fontFamily: 'inherit', color: '#1a1a1a', lineHeight: 1.5, padding: 0 }}
+                    />
+                  ) : (
+                    <div style={{ fontSize: 12*scale, color: '#1a1a1a', lineHeight: 1.5, wordBreak: 'break-word', whiteSpace: 'pre-wrap', height: '100%', overflow: 'hidden' }}>
+                      {node.text || <span style={{opacity:.4,fontStyle:'italic'}}>Duplo clique para editar</span>}
+                    </div>
+                  )}
+                </div>
+
+                {/* Action buttons — only when selected */}
+                {isSel && !readOnly && (
+                  <div style={{ position: 'absolute', bottom: -32*scale, left: 0, display: 'flex', gap: 4*scale, zIndex: 20 }}>
+                    <button onClick={e=>{e.stopPropagation();addConnectedNode(node);}}
+                      style={{ background:'var(--accent)',border:'none',borderRadius:6*scale,color:'#fff',fontSize:11*scale,padding:`${3*scale}px ${8*scale}px`,cursor:'pointer',fontWeight:700,boxShadow:'0 2px 8px #0003',whiteSpace:'nowrap' }}>
+                      + Continuar
+                    </button>
+                    <button onClick={e=>{e.stopPropagation();setConnecting(node.id);}}
+                      style={{ background:'var(--purple)',border:'none',borderRadius:6*scale,color:'#fff',fontSize:11*scale,padding:`${3*scale}px ${8*scale}px`,cursor:'pointer',boxShadow:'0 2px 8px #0003',whiteSpace:'nowrap' }}>
+                      🔗 Ligar
+                    </button>
+                    <button onClick={e=>{e.stopPropagation();deleteNode(node.id);}}
+                      style={{ background:'#e74c3c',border:'none',borderRadius:6*scale,color:'#fff',fontSize:11*scale,padding:`${3*scale}px ${6*scale}px`,cursor:'pointer',boxShadow:'0 2px 8px #0003' }}>
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Empty state */}
+      {nodes.length === 0 && !readOnly && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', gap: 10 }}>
+          <div style={{ fontSize: 48, opacity: .15 }}>📌</div>
+          <div style={{ fontSize: 13, color: 'var(--text-3)', opacity: .7, textAlign: 'center', lineHeight: 1.8 }}>
+            Duplo clique em qualquer lugar para criar um post-it<br/>
+            Ou clique em <b>+ Post-it</b> na barra acima
+          </div>
+        </div>
+      )}
+      {nodes.length === 0 && readOnly && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-3)', opacity: .5 }}>Board vazio neste dia</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DayBoardPage() {
+  const [allBoards, setAllBoards] = useState(loadBoards);
+  const today  = todayKey();
+  const [viewKey, setViewKey] = useState(today);  // which day is shown
+  const [showHistory, setShowHistory] = useState(false);
+
+  // Refresh board list when coming back from history
+  const refreshBoards = () => setAllBoards(loadBoards());
+
+  // All days that have data, sorted desc
+  const historyKeys = Object.keys(allBoards)
+    .filter(k => (allBoards[k]?.nodes||[]).length > 0)
+    .sort((a,b) => b.localeCompare(a));
+
+  const isToday = viewKey === today;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 196px)', minHeight: 500 }}>
+      {/* Header bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+        {/* Today / History toggle */}
+        <button onClick={() => { setViewKey(today); setShowHistory(false); }} style={{ ...btn(isToday && !showHistory ? 'var(--accent)' : 'var(--bg-card)'), border: `1px solid ${isToday && !showHistory ? 'var(--accent)' : 'var(--border)'}`, color: isToday && !showHistory ? '#fff' : 'var(--text-2)', padding: '8px 20px', fontSize: 13, borderRadius: 20 }}>
+          📌 Hoje
+        </button>
+        <button onClick={() => setShowHistory(h => !h)} style={{ ...btn(showHistory ? 'var(--purple)' : 'var(--bg-card)'), border: `1px solid ${showHistory ? 'var(--purple)' : 'var(--border)'}`, color: showHistory ? '#fff' : 'var(--text-2)', padding: '8px 20px', fontSize: 13, borderRadius: 20 }}>
+          🗂 Histórico {historyKeys.length > 0 && `(${historyKeys.length})`}
+        </button>
+
+        {/* Date label */}
+        <span style={{ fontSize: 13, color: 'var(--text-3)', marginLeft: 4 }}>
+          {isToday && !showHistory ? '— ' + new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' }) : showHistory ? '— selecione um dia abaixo' : '— ' + fmtBoardDate(viewKey)}
+        </span>
+
+        {/* Nav arrows when viewing history */}
+        {!showHistory && viewKey !== today && (
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            {(() => {
+              const idx = historyKeys.indexOf(viewKey);
+              return (<>
+                {idx > 0 && <button onClick={()=>setViewKey(historyKeys[idx-1])} style={{ ...btn('var(--bg-card)'), border:'1px solid var(--border)', color:'var(--text-2)', padding:'6px 14px', borderRadius:12, fontSize:12 }}>← Mais recente</button>}
+                {idx < historyKeys.length-1 && <button onClick={()=>setViewKey(historyKeys[idx+1])} style={{ ...btn('var(--bg-card)'), border:'1px solid var(--border)', color:'var(--text-2)', padding:'6px 14px', borderRadius:12, fontSize:12 }}>Mais antigo →</button>}
+                <button onClick={()=>{setViewKey(today);setShowHistory(false);}} style={{ ...btn('var(--accent)'), padding:'6px 14px', borderRadius:12, fontSize:12 }}>Ir para Hoje</button>
+              </>);
+            })()}
+          </div>
+        )}
+      </div>
+
+      {/* History grid */}
+      {showHistory && (
+        <div style={{ marginBottom: 14 }}>
+          {historyKeys.length === 0 && <Empty text="Nenhum dia registrado ainda"/>}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {historyKeys.map(k => {
+              const board = allBoards[k] || {};
+              const count = (board.nodes||[]).length;
+              const isActive = k === viewKey && !showHistory;
+              return (
+                <button key={k} onClick={() => { setViewKey(k); setShowHistory(false); }}
+                  style={{ background: 'var(--bg-card)', border: `1px solid ${isActive?'var(--accent)':'var(--border)'}`, borderRadius: 12, padding: '10px 16px', cursor: 'pointer', textAlign: 'left', minWidth: 160 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-1)', marginBottom: 3 }}>{fmtBoardDate(k)}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>📌 {count} post-it{count!==1?'s':''}</div>
+                  {/* Mini preview: colored dots */}
+                  <div style={{ display:'flex', gap:3, marginTop:6, flexWrap:'wrap' }}>
+                    {(board.nodes||[]).slice(0,8).map(n=>(
+                      <div key={n.id} style={{ width:10,height:10,borderRadius:3,background:n.color,flexShrink:0 }} title={n.text?.slice(0,30)}/>
+                    ))}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Canvas */}
+      {!showHistory && (
+        <div style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden', position: 'relative' }}
+          onMouseUp={refreshBoards}>
+          <DayBoardCanvas key={viewKey} dayKey={viewKey} readOnly={!isToday}/>
+          {!isToday && (
+            <div style={{ position:'absolute', top:10, right:14, background:'var(--purple)', color:'#fff', fontSize:11, fontWeight:700, padding:'4px 12px', borderRadius:20, letterSpacing:1, pointerEvents:'none', zIndex:30 }}>
+              📖 LEITURA — {fmtBoardDate(viewKey)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── IDEIAS — CARDS ──────────────────────────────────────────────────────────
 function IdeasCards() {
   const [entries, setEntries, synced] = useDB("ideas","ideas",[]);
@@ -404,15 +825,16 @@ function RemindersCards() {
 
 // ─── DIARY PAGE ───────────────────────────────────────────────────────────────
 function DiaryPage() {
-  const [active, setActive] = useState("diary");
+  const [active, setActive] = useState("dia");
   const tabs = [
+    {id:"dia",       label:"📌 Dia",       color:"#e67e22"},
     {id:"diary",     label:"📓 Diário",    color:"var(--accent)"},
     {id:"ideas",     label:"💡 Ideias",    color:"var(--purple)"},
     {id:"reminders", label:"🔔 Lembretes", color:"var(--yellow)"},
   ];
   return (
-    <div>
-      <div style={{display:"flex",gap:8,marginBottom:24}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
         {tabs.map(t=>(
           <button key={t.id} onClick={()=>setActive(t.id)}
             style={{background:active===t.id?t.color:"var(--bg-card)",border:`1px solid ${active===t.id?t.color:"var(--border)"}`,borderRadius:24,padding:"10px 24px",color:active===t.id?t.id==="reminders"?"#000":"#fff":"var(--text-2)",fontSize:14,fontWeight:700,cursor:"pointer",transition:"all .2s"}}>
@@ -420,7 +842,8 @@ function DiaryPage() {
           </button>
         ))}
       </div>
-      <div style={{animation:"fadeIn .2s ease"}}>
+      <div style={{flex:1,animation:"fadeIn .2s ease",overflow:"hidden"}}>
+        {active==="dia"       && <DayBoardPage/>}
         {active==="diary"     && <NoteColumn storageKey="diary" title="Diário" placeholder="O que está em sua mente hoje?" accent="var(--accent)" emoji="📓"/>}
         {active==="ideas"     && <IdeasCards/>}
         {active==="reminders" && <RemindersCards/>}
@@ -2600,5 +3023,6 @@ export default function App() {
     </div>
   );
 }
+
 
 
