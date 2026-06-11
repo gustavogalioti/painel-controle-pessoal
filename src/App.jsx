@@ -355,30 +355,26 @@ function fmtBoardDate(key) {
   return dt.toLocaleDateString('pt-BR', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
 }
 
-function DayBoardCanvas({ dayKey, readOnly }) {
-  // ── State ──
-  const [nodes,    setNodes]    = useState([]);
-  const [edges,    setEdges]    = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [editing,  setEditing]  = useState(null);
-  const [connecting, setConnecting] = useState(null);
-  const [pan,   setPan]   = useState({ x: 60, y: 60 });
-  const [scale, setScale] = useState(1);
+function DayBoardCanvas({ dayKey, readOnly, onAddNode }) {
+  const [nodes,      setNodes]     = useState([]);
+  const [edges,      setEdges]     = useState([]);
+  const [selected,   setSelected]  = useState(null);
+  const [editing,    setEditing]   = useState(null);
+  const [connecting, setConnecting]= useState(null);
+  const [pan,        setPan]       = useState({ x:40, y:40 });
+  const [scale,      setScale]     = useState(1);
 
-  // ── Refs (never stale in events) ──
-  const stateRef = useRef({});
-  stateRef.current = { nodes, edges, pan, scale, selected, editing, connecting, readOnly };
-
-  const dragRef    = useRef(null); // { kind:'node'|'pan', id, ox,oy,px,py }
+  const stateRef     = useRef({});
+  stateRef.current   = { nodes, edges, pan, scale, selected, editing, connecting, readOnly };
+  const dragRef      = useRef(null);
   const containerRef = useRef(null);
 
   // ── Load / save ──
   useEffect(() => {
     const b = loadBoards()[dayKey] || { nodes:[], edges:[] };
-    setNodes(b.nodes || []);
-    setEdges(b.edges || []);
+    setNodes(b.nodes||[]); setEdges(b.edges||[]);
     setSelected(null); setEditing(null); setConnecting(null);
-    setPan({ x:60, y:60 }); setScale(1);
+    setPan({x:40,y:40}); setScale(1);
   }, [dayKey]);
 
   useEffect(() => {
@@ -390,124 +386,138 @@ function DayBoardCanvas({ dayKey, readOnly }) {
   // ── Helpers ──
   const nextColor = (count) => POST_COLORS[count % POST_COLORS.length];
   const makeNode  = (x, y, color, text='') => ({
-    id: Date.now() + Math.random(), x, y, w:170, h:100, color: color||nextColor(0), text,
+    id: Date.now()+Math.random(), x, y, w:160, h:100, color:color||nextColor(0), text,
   });
-  const toWorld = useCallback((cx, cy) => {
-    const { pan, scale } = stateRef.current;
-    return { x:(cx - pan.x)/scale, y:(cy - pan.y)/scale };
-  }, []);
+  const toWorld = (cx, cy) => {
+    const {pan,scale} = stateRef.current;
+    return { x:(cx-pan.x)/scale, y:(cy-pan.y)/scale };
+  };
 
-  // ── Global pointer events (drag nodes + pan canvas) ──
+  // ── Expose addNode to parent (for the external button) ──
+  useEffect(() => {
+    if (onAddNode) onAddNode(() => {
+      const {pan,scale,nodes} = stateRef.current;
+      const node = makeNode(
+        (-pan.x/scale) + 60 + (nodes.length%4)*40,
+        (-pan.y/scale) + 60 + Math.floor(nodes.length/4)*120,
+        nextColor(nodes.length)
+      );
+      setNodes(n=>[...n,node]);
+      setSelected(node.id); setEditing(node.id);
+    });
+  }, [onAddNode]);
+
+  // ── Global pointermove / pointerup ──
   useEffect(() => {
     const onMove = (e) => {
-      const d = dragRef.current;
-      if (!d) return;
+      const d = dragRef.current; if(!d) return;
       const dx = e.clientX - d.px;
       const dy = e.clientY - d.py;
-      if (d.kind === 'pan') {
-        setPan({ x: d.ox + dx, y: d.oy + dy });
-      } else if (d.kind === 'node') {
-        const { scale } = stateRef.current;
-        setNodes(ns => ns.map(n => n.id === d.id
-          ? { ...n, x: d.ox + dx/scale, y: d.oy + dy/scale }
-          : n
-        ));
+      if (d.kind==='pan') {
+        setPan({ x:d.ox+dx, y:d.oy+dy });
+      } else if (d.kind==='node') {
+        const {scale} = stateRef.current;
+        setNodes(ns=>ns.map(n=>n.id===d.id?{...n,x:d.ox+dx/scale,y:d.oy+dy/scale}:n));
       }
     };
-    const onUp = () => { dragRef.current = null; };
+    const onUp = () => { dragRef.current=null; };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup',   onUp);
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup',   onUp);
-    };
+    return ()=>{ window.removeEventListener('pointermove',onMove); window.removeEventListener('pointerup',onUp); };
   }, []);
 
-  // ── Zoom: mouse wheel + pinch touch ──
+  // ── Touch: 1-finger pan + 2-finger pinch/zoom ──
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+    const el = containerRef.current; if(!el) return;
 
-    // Mouse wheel
+    // Mouse wheel zoom (desktop)
     const onWheel = (e) => {
       e.preventDefault();
-      const factor = e.deltaY < 0 ? 1.1 : 0.91;
-      // Zoom toward cursor position
+      const f = e.deltaY<0?1.1:0.91;
       const rect = el.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      setScale(s => {
-        const next = Math.min(3, Math.max(0.2, s * factor));
-        const ratio = next / s;
-        setPan(p => ({ x: cx - (cx - p.x)*ratio, y: cy - (cy - p.y)*ratio }));
+      const cx=e.clientX-rect.left, cy=e.clientY-rect.top;
+      setScale(s=>{
+        const next=Math.min(4,Math.max(0.15,s*f));
+        setPan(p=>({x:cx-(cx-p.x)*(next/s),y:cy-(cy-p.y)*(next/s)}));
         return next;
       });
     };
 
-    // Pinch touch
-    let lastDist = null;
-    let lastMid  = null;
-
-    const getTouches = (e) => Array.from(e.touches);
-
-    const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-    const mid  = (a, b, rect) => ({
-      x: (a.clientX + b.clientX)/2 - rect.left,
-      y: (a.clientY + b.clientY)/2 - rect.top,
+    const dist = (a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+    const midPt = (a,b,rect)=>({
+      x:(a.clientX+b.clientX)/2-rect.left,
+      y:(a.clientY+b.clientY)/2-rect.top,
     });
 
+    // Track all active touches for reliable 1-vs-2 detection
+    const touchState = { touches:[], lastDist:null, lastMid:null, panStart:null };
+
     const onTouchStart = (e) => {
-      if (e.touches.length === 2) {
+      touchState.touches = Array.from(e.touches);
+      if (e.touches.length===2) {
         e.preventDefault();
-        const [t0,t1] = getTouches(e);
-        lastDist = dist(t0,t1);
-        lastMid  = mid(t0,t1, el.getBoundingClientRect());
-        // cancel any pointer drag so pan doesn't fight pinch
-        dragRef.current = null;
+        const [t0,t1] = touchState.touches;
+        touchState.lastDist = dist(t0,t1);
+        touchState.lastMid  = midPt(t0,t1,el.getBoundingClientRect());
+        touchState.panStart = null; // disable 1-finger while pinching
+        dragRef.current = null;     // cancel any pointer drag
+      } else if (e.touches.length===1) {
+        const t = e.touches[0];
+        touchState.panStart = { px:t.clientX, py:t.clientY, ox:stateRef.current.pan.x, oy:stateRef.current.pan.y };
+        touchState.lastDist = null;
+        touchState.lastMid  = null;
       }
     };
 
     const onTouchMove = (e) => {
-      if (e.touches.length === 2) {
-        e.preventDefault();
-        const [t0,t1] = getTouches(e);
+      e.preventDefault();
+      touchState.touches = Array.from(e.touches);
+      if (e.touches.length===2) {
+        // Pinch + 2-finger pan
+        const [t0,t1] = touchState.touches;
         const rect = el.getBoundingClientRect();
         const newDist = dist(t0,t1);
-        const newMid  = mid(t0,t1, rect);
-
-        if (lastDist && lastMid) {
-          const factor = newDist / lastDist;
-          setScale(s => {
-            const next = Math.min(3, Math.max(0.2, s * factor));
-            const ratio = next / s;
-            // zoom toward pinch midpoint + allow panning with two fingers
-            const panDx = newMid.x - lastMid.x;
-            const panDy = newMid.y - lastMid.y;
-            setPan(p => ({
-              x: newMid.x - (lastMid.x - p.x)*ratio + panDx*(1-ratio),
-              y: newMid.y - (lastMid.y - p.y)*ratio + panDy*(1-ratio),
+        const newMid  = midPt(t0,t1,rect);
+        if (touchState.lastDist && touchState.lastMid) {
+          const f = newDist/touchState.lastDist;
+          const pdx = newMid.x-touchState.lastMid.x;
+          const pdy = newMid.y-touchState.lastMid.y;
+          setScale(s=>{
+            const next=Math.min(4,Math.max(0.15,s*f));
+            const ratio=next/s;
+            setPan(p=>({
+              x: newMid.x-(touchState.lastMid.x-p.x)*ratio+pdx*(1),
+              y: newMid.y-(touchState.lastMid.y-p.y)*ratio+pdy*(1),
             }));
             return next;
           });
         }
-        lastDist = newDist;
-        lastMid  = newMid;
+        touchState.lastDist=newDist; touchState.lastMid=newMid;
+      } else if (e.touches.length===1 && touchState.panStart) {
+        // 1-finger pan (only when not editing a node)
+        if (stateRef.current.editing) return;
+        const t=e.touches[0];
+        const dx=t.clientX-touchState.panStart.px;
+        const dy=t.clientY-touchState.panStart.py;
+        setPan({x:touchState.panStart.ox+dx, y:touchState.panStart.oy+dy});
       }
     };
 
     const onTouchEnd = (e) => {
-      if (e.touches.length < 2) {
-        lastDist = null;
-        lastMid  = null;
+      touchState.touches = Array.from(e.touches);
+      if (e.touches.length<2) { touchState.lastDist=null; touchState.lastMid=null; }
+      if (e.touches.length===0) { touchState.panStart=null; }
+      if (e.touches.length===1) {
+        const t=e.touches[0];
+        touchState.panStart={px:t.clientX,py:t.clientY,ox:stateRef.current.pan.x,oy:stateRef.current.pan.y};
       }
     };
 
-    el.addEventListener('wheel',      onWheel,      { passive:false });
-    el.addEventListener('touchstart', onTouchStart, { passive:false });
-    el.addEventListener('touchmove',  onTouchMove,  { passive:false });
-    el.addEventListener('touchend',   onTouchEnd,   { passive:true  });
-
-    return () => {
+    el.addEventListener('wheel',      onWheel,      {passive:false});
+    el.addEventListener('touchstart', onTouchStart, {passive:false});
+    el.addEventListener('touchmove',  onTouchMove,  {passive:false});
+    el.addEventListener('touchend',   onTouchEnd,   {passive:true});
+    return ()=>{
       el.removeEventListener('wheel',      onWheel);
       el.removeEventListener('touchstart', onTouchStart);
       el.removeEventListener('touchmove',  onTouchMove);
@@ -515,135 +525,93 @@ function DayBoardCanvas({ dayKey, readOnly }) {
     };
   }, []);
 
-  // ── Canvas background pointer down → pan ──
+  // ── Background pointer down → pan (mouse/stylus only, touch handled above) ──
   const onBgPointerDown = (e) => {
-    if (e.target !== e.currentTarget) return; // only raw background
-    const { connecting } = stateRef.current;
+    if (e.pointerType==='touch') return; // touch handled by touch events
+    if (e.target!==e.currentTarget) return;
+    const {connecting} = stateRef.current;
     if (connecting) { setConnecting(null); return; }
     setSelected(null);
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { kind:'pan', ox:stateRef.current.pan.x, oy:stateRef.current.pan.y, px:e.clientX, py:e.clientY };
+    dragRef.current={kind:'pan',ox:stateRef.current.pan.x,oy:stateRef.current.pan.y,px:e.clientX,py:e.clientY};
   };
 
-  // ── Double-click background → new node ──
+  // ── Double-click background → new node (desktop) ──
   const onBgDblClick = (e) => {
-    if (e.target !== e.currentTarget) return;
+    if (e.target!==e.currentTarget) return;
     if (readOnly) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const { x,y } = toWorld(e.clientX - rect.left, e.clientY - rect.top);
-    const node = makeNode(x-85, y-50, nextColor(stateRef.current.nodes.length));
-    setNodes(n => [...n, node]);
-    setSelected(node.id);
-    setEditing(node.id);
+    const rect=containerRef.current.getBoundingClientRect();
+    const {x,y}=toWorld(e.clientX-rect.left,e.clientY-rect.top);
+    const node=makeNode(x-80,y-50,nextColor(stateRef.current.nodes.length));
+    setNodes(n=>[...n,node]); setSelected(node.id); setEditing(node.id);
   };
 
   // ── Node pointer down → drag ──
-  const onNodePointerDown = (e, node) => {
-    const { editing, connecting, readOnly } = stateRef.current;
+  const onNodePointerDown = (e,node) => {
+    const {editing,connecting,readOnly}=stateRef.current;
     if (readOnly) return;
-    if (editing === node.id) return; // inside textarea, don't drag
+    if (editing===node.id) return;
     if (connecting) { connectNodes(node.id); return; }
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { kind:'node', id:node.id, ox:node.x, oy:node.y, px:e.clientX, py:e.clientY };
+    dragRef.current={kind:'node',id:node.id,ox:node.x,oy:node.y,px:e.clientX,py:e.clientY};
   };
 
-  // ── Node click ──
-  const onNodeClick = (e, node) => {
-    e.stopPropagation();
-    const { connecting } = stateRef.current;
-    if (connecting) { connectNodes(node.id); return; }
-    setSelected(node.id);
-  };
+  const onNodeClick      = (e,node)=>{ e.stopPropagation(); if(stateRef.current.connecting){connectNodes(node.id);}else{setSelected(node.id);} };
+  const onNodeDblClick   = (e,node)=>{ e.stopPropagation(); if(!readOnly)setEditing(node.id); };
 
-  // ── Node double-click → edit ──
-  const onNodeDblClick = (e, node) => {
-    e.stopPropagation();
-    if (!readOnly) setEditing(node.id);
-  };
-
-  // ── Actions ──
   const deleteNode = (id) => {
-    setNodes(n => n.filter(x => x.id !== id));
-    setEdges(e => e.filter(x => x.from !== id && x.to !== id));
-    if (stateRef.current.selected  === id) setSelected(null);
-    if (stateRef.current.editing   === id) setEditing(null);
+    setNodes(n=>n.filter(x=>x.id!==id));
+    setEdges(e=>e.filter(x=>x.from!==id&&x.to!==id));
+    if(stateRef.current.selected===id)setSelected(null);
+    if(stateRef.current.editing===id)setEditing(null);
   };
 
-  const addConnectedNode = (srcNode) => {
-    if (readOnly) return;
-    const child = makeNode(srcNode.x + srcNode.w + 60, srcNode.y, srcNode.color);
-    setNodes(n => [...n, child]);
-    setEdges(e => [...e, { id:Date.now()+Math.random(), from:srcNode.id, to:child.id }]);
-    setSelected(child.id);
-    setEditing(child.id);
+  const addConnectedNode = (src) => {
+    if(readOnly)return;
+    const child=makeNode(src.x+src.w+50,src.y,src.color);
+    setNodes(n=>[...n,child]);
+    setEdges(e=>[...e,{id:Date.now()+Math.random(),from:src.id,to:child.id}]);
+    setSelected(child.id); setEditing(child.id);
   };
 
   const connectNodes = (toId) => {
-    const { connecting } = stateRef.current;
-    if (!connecting || connecting === toId) { setConnecting(null); return; }
-    const dup = stateRef.current.edges.find(e =>
-      (e.from===connecting&&e.to===toId)||(e.from===toId&&e.to===connecting)
-    );
-    if (!dup) setEdges(e => [...e, { id:Date.now()+Math.random(), from:connecting, to:toId }]);
+    const {connecting}=stateRef.current;
+    if(!connecting||connecting===toId){setConnecting(null);return;}
+    const dup=stateRef.current.edges.find(e=>(e.from===connecting&&e.to===toId)||(e.from===toId&&e.to===connecting));
+    if(!dup)setEdges(e=>[...e,{id:Date.now()+Math.random(),from:connecting,to:toId}]);
     setConnecting(null);
   };
 
-  const changeColor = (id, c) => setNodes(n => n.map(x => x.id===id ? {...x,color:c} : x));
-  const updateText  = (id, t) => setNodes(n => n.map(x => x.id===id ? {...x,text:t}  : x));
-
-  const addNode = () => {
-    const { pan, scale, nodes } = stateRef.current;
-    const node = makeNode((-pan.x/scale)+80+nodes.length*20, (-pan.y/scale)+80+nodes.length*10, nextColor(nodes.length));
-    setNodes(n => [...n, node]);
-    setSelected(node.id); setEditing(node.id);
-  };
-
-  const getCenter = n => ({ cx: n.x + n.w/2, cy: n.y + n.h/2 });
+  const changeColor = (id,c)=>setNodes(n=>n.map(x=>x.id===id?{...x,color:c}:x));
+  const updateText  = (id,t)=>setNodes(n=>n.map(x=>x.id===id?{...x,text:t}:x));
+  const getCenter   = n=>({cx:n.x+n.w/2,cy:n.y+n.h/2});
 
   // ── Render ──
   return (
-    <div ref={containerRef} style={{ position:'relative', width:'100%', height:'100%', overflow:'hidden',
-        background:'#f0f4f8',
-        backgroundImage:'radial-gradient(circle,#c8d8e8 1px,transparent 1px)',
-        backgroundSize:'28px 28px',
-        cursor: dragRef.current?.kind==='pan' ? 'grabbing' : 'default',
-        touchAction:'none',
+    <div ref={containerRef} style={{
+        position:'relative', width:'100%', height:'100%', overflow:'hidden',
+        background:'#eef3f8',
+        backgroundImage:'radial-gradient(circle,#c0d4e4 1px,transparent 1px)',
+        backgroundSize:'30px 30px',
+        touchAction:'none', userSelect:'none',
       }}
       onPointerDown={onBgPointerDown}
       onDoubleClick={onBgDblClick}
     >
-      {/* ── Toolbar ── */}
-      {!readOnly && (
-        <div style={{ position:'absolute', top:10, left:'50%', transform:'translateX(-50%)', zIndex:30,
-            display:'flex', gap:6, alignItems:'center',
-            background:'rgba(255,255,255,0.92)', backdropFilter:'blur(10px)',
-            border:'1px solid #d0dcea', borderRadius:28, padding:'6px 16px',
-            boxShadow:'0 4px 20px #0002',
-          }}>
-          {connecting
-            ? <span style={{fontSize:11,color:'#7c3aed',fontWeight:600}}>🔗 Clique num post-it para conectar · clique no fundo para cancelar</span>
-            : <span style={{fontSize:11,color:'#64748b'}}>Arraste para mover · duplo clique no fundo = novo post-it · scroll = zoom</span>
-          }
-          <button onClick={addNode}
-            style={{background:'#3a8fd4',border:'none',borderRadius:16,color:'#fff',fontSize:12,fontWeight:700,padding:'5px 14px',cursor:'pointer'}}>
-            + Post-it
-          </button>
-          <button onClick={() => { setPan({x:60,y:60}); setScale(1); }}
-            style={{background:'transparent',border:'1px solid #d0dcea',borderRadius:16,color:'#64748b',fontSize:11,padding:'4px 10px',cursor:'pointer'}}>
-            ↺ Reset
-          </button>
-          {selected && !editing && (
-            <button onClick={() => deleteNode(selected)}
-              style={{background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:16,color:'#dc2626',fontSize:11,padding:'4px 10px',cursor:'pointer'}}>
-              🗑 Apagar
-            </button>
-          )}
+      {/* Connecting mode hint */}
+      {connecting && (
+        <div style={{position:'absolute',top:10,left:'50%',transform:'translateX(-50%)',zIndex:30,
+            background:'#7c3aed',color:'#fff',borderRadius:20,padding:'6px 16px',
+            fontSize:12,fontWeight:600,pointerEvents:'none',boxShadow:'0 4px 16px #7c3aed44'}}>
+          🔗 Toque no post-it destino para conectar
         </div>
       )}
 
       {/* Scale badge */}
-      <div style={{position:'absolute',bottom:10,right:12,zIndex:20,fontSize:10,color:'#94a3b8',background:'rgba(255,255,255,0.8)',padding:'3px 8px',borderRadius:8,border:'1px solid #e2e8f0'}}>
+      <div style={{position:'absolute',bottom:8,right:8,zIndex:20,fontSize:10,color:'#94a3b8',
+          background:'rgba(255,255,255,0.85)',padding:'3px 8px',borderRadius:8,border:'1px solid #e2e8f0',
+          pointerEvents:'none'}}>
         {Math.round(scale*100)}% · {nodes.length} post-it{nodes.length!==1?'s':''}
       </div>
 
@@ -840,21 +808,42 @@ function DayBoardPage() {
 
   const isToday = viewKey === today;
 
+  const addNodeFnRef = useRef(null);
+  const handleAddNode = () => { if(addNodeFnRef.current) addNodeFnRef.current(); };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 196px)', minHeight: 500 }}>
+    <div style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 196px)', minHeight:400 }}>
       {/* Header bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8, flexWrap:'wrap' }}>
         {/* Today / History toggle */}
-        <button onClick={() => { setViewKey(today); setShowHistory(false); }} style={{ ...btn(isToday && !showHistory ? 'var(--accent)' : 'var(--bg-card)'), border: `1px solid ${isToday && !showHistory ? 'var(--accent)' : 'var(--border)'}`, color: isToday && !showHistory ? '#fff' : 'var(--text-2)', padding: '8px 20px', fontSize: 13, borderRadius: 20 }}>
+        <button onClick={()=>{setViewKey(today);setShowHistory(false);}} style={{...btn(isToday&&!showHistory?'var(--accent)':'var(--bg-card)'),border:`1px solid ${isToday&&!showHistory?'var(--accent)':'var(--border)'}`,color:isToday&&!showHistory?'#fff':'var(--text-2)',padding:'7px 16px',fontSize:13,borderRadius:20}}>
           📌 Hoje
         </button>
-        <button onClick={() => setShowHistory(h => !h)} style={{ ...btn(showHistory ? 'var(--purple)' : 'var(--bg-card)'), border: `1px solid ${showHistory ? 'var(--purple)' : 'var(--border)'}`, color: showHistory ? '#fff' : 'var(--text-2)', padding: '8px 20px', fontSize: 13, borderRadius: 20 }}>
-          🗂 Histórico {historyKeys.length > 0 && `(${historyKeys.length})`}
+        <button onClick={()=>setShowHistory(h=>!h)} style={{...btn(showHistory?'var(--purple)':'var(--bg-card)'),border:`1px solid ${showHistory?'var(--purple)':'var(--border)'}`,color:showHistory?'#fff':'var(--text-2)',padding:'7px 16px',fontSize:13,borderRadius:20}}>
+          🗂 {historyKeys.length>0?`(${historyKeys.length})`:''}
         </button>
-
+        {/* External Add button — only on today's board */}
+        {isToday && !showHistory && (
+          <button onClick={handleAddNode}
+            style={{background:'#3a8fd4',border:'none',borderRadius:20,color:'#fff',
+              fontSize:13,fontWeight:700,padding:'7px 18px',cursor:'pointer',
+              boxShadow:'0 2px 10px #3a8fd433',display:'flex',alignItems:'center',gap:6}}>
+            📌 + Post-it
+          </button>
+        )}
+        {/* Reset view */}
+        {isToday && !showHistory && (
+          <button onClick={()=>{ if(addNodeFnRef.current) { /* trigger reset via canvas */ } }}
+            style={{background:'transparent',border:'1px solid var(--border)',borderRadius:20,
+              color:'var(--text-3)',fontSize:12,padding:'6px 12px',cursor:'pointer'}}
+            title="Centralizar vista"
+            id="wb-reset-btn">
+            ↺
+          </button>
+        )}
         {/* Date label */}
-        <span style={{ fontSize: 13, color: 'var(--text-3)', marginLeft: 4 }}>
-          {isToday && !showHistory ? '— ' + new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' }) : showHistory ? '— selecione um dia abaixo' : '— ' + fmtBoardDate(viewKey)}
+        <span style={{fontSize:12,color:'var(--text-3)',marginLeft:2}}>
+          {isToday&&!showHistory?new Date().toLocaleDateString('pt-BR',{weekday:'short',day:'numeric',month:'short'}):showHistory?'Selecione um dia':fmtBoardDate(viewKey)}
         </span>
 
         {/* Nav arrows when viewing history */}
@@ -903,7 +892,8 @@ function DayBoardPage() {
       {!showHistory && (
         <div style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden', position: 'relative' }}
           onMouseUp={refreshBoards}>
-          <DayBoardCanvas key={viewKey} dayKey={viewKey} readOnly={!isToday}/>
+          <DayBoardCanvas key={viewKey} dayKey={viewKey} readOnly={!isToday}
+          onAddNode={fn=>{addNodeFnRef.current=fn;}}/>
           {!isToday && (
             <div style={{ position:'absolute', top:10, right:14, background:'var(--purple)', color:'#fff', fontSize:11, fontWeight:700, padding:'4px 12px', borderRadius:20, letterSpacing:1, pointerEvents:'none', zIndex:30 }}>
               📖 LEITURA — {fmtBoardDate(viewKey)}
@@ -3253,15 +3243,16 @@ function DJStudioPage() {
   /* ── Helpers ── */
   const recFmt = s=>`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
   const gridCols = layout==='4x4'?4:8;
-  const padH = layout==='2x8'?44:layout==='4x4'?80:60;
+  const isMobile = window.innerWidth < 600;
+  const padH = layout==='2x8'?(isMobile?36:44):layout==='4x4'?(isMobile?64:80):(isMobile?52:60);
 
   /* ── Styles ── */
   const dj = {
-    outer: { display:'flex',flexDirection:'column',height:'calc(100vh - 140px)',background:'#080810',borderRadius:14,overflow:'hidden',border:'1px solid #1a1a2e' },
-    topbar: { display:'flex',alignItems:'center',gap:8,padding:'6px 12px',background:'#0f0f18',borderBottom:'1px solid #1e1e2e',flexShrink:0,flexWrap:'wrap',gap:6 },
+    outer: { display:'flex',flexDirection:'column',height:'calc(100svh - 120px)',minHeight:480,background:'#080810',borderRadius:14,overflow:'hidden',border:'1px solid #1a1a2e' },
+    topbar: { display:'flex',alignItems:'center',gap:6,padding:'5px 8px',background:'#0f0f18',borderBottom:'1px solid #1e1e2e',flexShrink:0,flexWrap:'wrap',overflowX:'auto' },
     tab: a=>({ background:'transparent',border:`1px solid ${a?'#00e5ff':'#252535'}`,color:a?'#00e5ff':'#505060',fontFamily:"'Orbitron',sans-serif",fontSize:8,letterSpacing:2,padding:'4px 10px',borderRadius:4,cursor:'pointer' }),
     bankBtn: (a,color)=>({ background:a?color+'22':'transparent',border:`2px solid ${a?color:'#252535'}`,color:a?color:'#606070',fontFamily:"'Orbitron',sans-serif",fontSize:8,letterSpacing:1,padding:'4px 10px',borderRadius:5,cursor:'pointer',fontWeight:a?700:400,transition:'all .15s',position:'relative' }),
-    sidebar: { width:200,flexShrink:0,background:'#0f0f18',borderRight:'1px solid #1a1a2e',display:'flex',flexDirection:'column',overflow:'hidden' },
+    sidebar: { width:'min(200px,42vw)',flexShrink:0,background:'#0f0f18',borderRight:'1px solid #1a1a2e',display:'flex',flexDirection:'column',overflow:'hidden' },
     sndItem: { display:'flex',alignItems:'center',gap:5,padding:'5px 8px',marginBottom:2,background:'#12121c',border:'1px solid #1e1e2e',borderRadius:4,cursor:'pointer',fontSize:9 },
     djBtn: (c='#00e5ff')=>({ background:'transparent',border:`1px solid ${c}`,color:c,fontFamily:"'Orbitron',sans-serif",fontSize:8,letterSpacing:1,padding:'5px 10px',borderRadius:4,cursor:'pointer',whiteSpace:'nowrap' }),
     inp2: { background:'#08080f',border:'1px solid #252535',borderRadius:5,color:'#c8d0e0',fontFamily:"'Share Tech Mono',monospace",fontSize:11,padding:'6px 10px',outline:'none',width:'100%',boxSizing:'border-box' },
@@ -3676,6 +3667,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
