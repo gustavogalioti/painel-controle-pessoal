@@ -747,28 +747,39 @@ function DayBoardCanvas({ dayKey, readOnly }) {
                 )}
               </div>
 
-              {/* Action buttons — appear below when selected, NOT draggable */}
-              {isSel && !readOnly && !isEdit && (
+              {/* Action buttons — always visible at the bottom of the card */}
+              {!readOnly && !isEdit && (
                 <div style={{
-                  position:'absolute', top:'calc(100% + 6px)', left:0,
-                  display:'flex', gap:4, zIndex:40, pointerEvents:'all',
+                  display:'flex', gap:3, padding:`${3*scale}px ${5*scale}px ${4*scale}px`,
+                  flexShrink:0, justifyContent:'space-between', alignItems:'center',
+                  borderTop:`${scale}px solid rgba(0,0,0,0.08)`,
+                  background:'rgba(0,0,0,0.05)',
+                  borderRadius:`0 0 ${9*scale}px ${9*scale}px`,
                 }} onPointerDown={e=>e.stopPropagation()}>
                   <button onClick={e=>{e.stopPropagation();addConnectedNode(node);}}
-                    style={{background:'#3a8fd4',border:'none',borderRadius:10,color:'#fff',
-                      fontSize:Math.max(10*scale,9),fontWeight:700,padding:'3px 10px',cursor:'pointer',
-                      boxShadow:'0 2px 8px #0002',whiteSpace:'nowrap'}}>
+                    title="Criar novo post-it conectado"
+                    style={{flex:1,background:'rgba(58,143,212,0.85)',border:'none',
+                      borderRadius:6*scale,color:'#fff',
+                      fontSize:Math.max(9*scale,8),fontWeight:700,
+                      padding:`${2*scale}px ${4*scale}px`,cursor:'pointer',
+                      whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
                     + Continuar
                   </button>
                   <button onClick={e=>{e.stopPropagation();setConnecting(node.id);}}
-                    style={{background:'#a070e0',border:'none',borderRadius:10,color:'#fff',
-                      fontSize:Math.max(10*scale,9),padding:'3px 10px',cursor:'pointer',
-                      boxShadow:'0 2px 8px #0002',whiteSpace:'nowrap'}}>
-                    🔗 Ligar
+                    title="Ligar a outro post-it"
+                    style={{background:'rgba(160,112,224,0.85)',border:'none',
+                      borderRadius:6*scale,color:'#fff',
+                      fontSize:Math.max(9*scale,8),
+                      padding:`${2*scale}px ${5*scale}px`,cursor:'pointer',
+                      whiteSpace:'nowrap'}}>
+                    🔗
                   </button>
                   <button onClick={e=>{e.stopPropagation();deleteNode(node.id);}}
-                    style={{background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:10,color:'#dc2626',
-                      fontSize:Math.max(10*scale,9),padding:'3px 8px',cursor:'pointer',
-                      boxShadow:'0 2px 8px #0002'}}>
+                    title="Apagar post-it"
+                    style={{background:'rgba(220,38,38,0.75)',border:'none',
+                      borderRadius:6*scale,color:'#fff',
+                      fontSize:Math.max(9*scale,8),
+                      padding:`${2*scale}px ${5*scale}px`,cursor:'pointer'}}>
                     ✕
                   </button>
                 </div>
@@ -1186,13 +1197,13 @@ function TasksPage() {
 
 // ─── LISTS PAGE ───────────────────────────────────────────────────────────────
 function ListsPage() {
-  const [lists, setLists] = useState(()=>S.get("lists",[]));
+  const [lists, setLists, listsSynced] = useKV("lists_v1", []);
   const [modal, setModal] = useState(false);
   const [detail, setDetail] = useState(null);
   const [form, setForm]   = useState({title:"",text:""});
   const [addText, setAddText] = useState("");
 
-  const save = n=>{ setLists(n); S.set("lists",n); };
+  const save = n=>{ setLists(n); };
   const add  = ()=>{
     if(!form.title.trim()) return;
     const l={id:Date.now(),...form,items:[],created:now()};
@@ -2824,6 +2835,8 @@ function DJStudioPage() {
   const [uploadedSounds, setUploadedSounds] = useState({});
   /* mySounds: [{n,i,t:'sample',nm}] — React state so sidebar re-renders */
   const [mySounds, setMySounds] = useState([]);
+  /* mySoundsIndex: persisted list of uploaded sound names for cloud recovery */
+  const [mySoundsIndex, setMySoundsIndex] = useState([]);
 
   const [view, setView] = useState('pads');
   const [layout, setLayout] = useState('4x8');
@@ -3021,25 +3034,36 @@ function DJStudioPage() {
     showToast(`PAD ${i+1} limpo`);
   };
 
-  /* ── Upload sounds — FIXED: pure React state, no mutation ── */
+  /* ── Upload sounds: decode + persist base64 to cloud ── */
   const uploadSounds = (e) => {
     const c = getCtx();
     Array.from(e.target.files).forEach(file => {
       const reader = new FileReader();
       reader.onload = async (ev) => {
         try {
-          const buf = await c.decodeAudioData(ev.target.result.slice(0));
+          const arrayBuf = ev.target.result.slice(0);
+          const buf = await c.decodeAudioData(arrayBuf);
           const nm = file.name;
-          /* store buffer in state — triggers re-render */
           setUploadedSounds(prev => ({...prev, [nm]: buf}));
-          /* add to mySounds list — triggers sidebar re-render */
           setMySounds(prev => {
             if (prev.find(x=>x.nm===nm)) return prev;
             return [...prev, {n:nm, i:'🎵', t:'sample', nm}];
           });
-          /* auto-switch to Meus Sons so user sees it */
           setCurrentCat('📂 Meus Sons');
-          showToast(`✓ "${nm}" carregado em Meus Sons`);
+          // Persist base64 to cloud so other devices can load it
+          const b64reader = new FileReader();
+          b64reader.onload = (ev2) => {
+            const b64 = ev2.target.result; // data:audio/...;base64,...
+            KV.set(`dj_sound_${nm}`, b64);
+            // Save index of uploaded sounds
+            setMySoundsIndex(prev => {
+              const next = prev.find(x=>x.nm===nm) ? prev : [...prev, {n:nm, i:'🎵', t:'sample', nm}];
+              KV.set('dj_my_sounds_index', next);
+              return next;
+            });
+          };
+          b64reader.readAsDataURL(new Blob([arrayBuf]));
+          showToast(`✓ "${nm}" carregado e sincronizado`);
         } catch(err) {
           showToast(`❌ Erro ao decodificar: ${file.name}`);
           console.error(err);
@@ -3050,6 +3074,35 @@ function DJStudioPage() {
     });
     e.target.value = '';
   };
+
+  /* ── Load sounds from cloud on mount ── */
+  useEffect(() => {
+    KV.get('dj_my_sounds_index').then(async index => {
+      if (!index || !index.length) return;
+      const c = getCtx();
+      const loaded = [];
+      for (const s of index) {
+        try {
+          const b64 = await KV.get(`dj_sound_${s.nm}`);
+          if (!b64) continue;
+          const res = await fetch(b64);
+          const arrayBuf = await res.arrayBuffer();
+          const buf = await c.decodeAudioData(arrayBuf);
+          setUploadedSounds(prev => ({...prev, [s.nm]: buf}));
+          loaded.push(s);
+        } catch(err) { console.warn('Could not load sound:', s.nm, err); }
+      }
+      if (loaded.length) {
+        setMySounds(prev => {
+          const names = new Set(prev.map(x=>x.nm));
+          const news = loaded.filter(x=>!names.has(x.nm));
+          return news.length ? [...prev, ...news] : prev;
+        });
+        setMySoundsIndex(loaded);
+        showToast(`✓ ${loaded.length} som(ns) carregado(s) da nuvem`);
+      }
+    });
+  }, []);
 
   /* ── Mic recording ── */
   const getMic = async () => {
@@ -3089,9 +3142,18 @@ function DJStudioPage() {
         const buf=await getCtx().decodeAudioData(ab);
         const nm=`🎙 Mic ${new Date().toLocaleTimeString('pt-BR')}`;
         setUploadedSounds(prev=>({...prev,[nm]:buf}));
-        setMySounds(prev=>[...prev,{n:nm,i:'🎙️',t:'sample',nm}]);
+        const newEntry = {n:nm,i:'🎙️',t:'sample',nm};
+        setMySounds(prev=>[...prev, newEntry]);
+        setMySoundsIndex(prev=>{
+          const next=[...prev, newEntry];
+          KV.set('dj_my_sounds_index', next);
+          return next;
+        });
+        // persist mic recording as base64
+        const b64 = `data:audio/webm;base64,${btoa(String.fromCharCode(...new Uint8Array(await blob.arrayBuffer())))}`;
+        KV.set(`dj_sound_${nm}`, b64);
         setCurrentCat('📂 Meus Sons');
-        showToast(`✓ "${nm}" salvo em Meus Sons`);
+        showToast(`✓ "${nm}" salvo e sincronizado`);
       };
       mr.start(); mediaRecorderRef.current=mr;
       setIsRecording(true); setRecTime(0);
@@ -3578,6 +3640,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
