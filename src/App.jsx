@@ -927,13 +927,13 @@ function IdeasCards() {
   const add = () => {
     if(!text.trim()) return;
     const e={id:Date.now(),text,tag,mood:"💡",date:nowISO()};
-    const n=[e,...entries]; setEntries(n); S.set("ideas",n); DB.insert("ideas",e); setText(""); setTag("");
+    const n=[e,...entries]; setEntries(n); DB.insert("ideas",e); setText(""); setTag("");
   };
-  const del = id=>{ const n=entries.filter(e=>e.id!==id); setEntries(n); S.set("ideas",n); DB.delete("ideas",id); };
+  const del = id=>{ const n=entries.filter(e=>e.id!==id); setEntries(n); DB.delete("ideas",id); };
   const openEdit = e=>{ setEditing(e); setEditText(e.text); setEditTag(e.tag||""); };
   const saveEdit = ()=>{
     const n=entries.map(e=>e.id===editing.id?{...e,text:editText,tag:editTag}:e);
-    setEntries(n); S.set("ideas",n); DB.update("ideas",{id:editing.id,text:editText,mood:editing.mood}); setEditing(null);
+    setEntries(n); DB.update("ideas",{id:editing.id,text:editText,mood:editing.mood}); setEditing(null);
   };
 
   return (
@@ -984,18 +984,18 @@ function RemindersCards() {
   const add = () => {
     if(!text.trim()) return;
     const e={id:Date.now(),text,mood:"🔔",done:false,date:nowISO()};
-    const n=[e,...entries]; setEntries(n); S.set("reminders",n); DB.insert("reminders",e); setText("");
+    const n=[e,...entries]; setEntries(n); DB.insert("reminders",e); setText("");
   };
   const tick = id=>{
     const cur=entries.find(e=>e.id===id);
     const n=entries.map(e=>e.id===id?{...e,done:!e.done}:e);
-    setEntries(n); S.set("reminders",n); DB.update("reminders",{id,done:!cur.done});
+    setEntries(n); DB.update("reminders",{id,done:!cur.done});
   };
-  const del = id=>{ const n=entries.filter(e=>e.id!==id); setEntries(n); S.set("reminders",n); DB.delete("reminders",id); };
+  const del = id=>{ const n=entries.filter(e=>e.id!==id); setEntries(n); DB.delete("reminders",id); };
   const openEdit = e=>{ setEditing(e); setEditText(e.text); };
   const saveEdit = ()=>{
     const n=entries.map(e=>e.id===editing.id?{...e,text:editText}:e);
-    setEntries(n); S.set("reminders",n); DB.update("reminders",{id:editing.id,text:editText,mood:editing.mood}); setEditing(null);
+    setEntries(n); DB.update("reminders",{id:editing.id,text:editText,mood:editing.mood}); setEditing(null);
   };
   const filtered = filter==="all"?entries: filter==="done"?entries.filter(e=>e.done): entries.filter(e=>!e.done);
 
@@ -1086,7 +1086,7 @@ function TasksPage() {
   const prioColor = {alta:"var(--red)",normal:"var(--accent)",baixa:"var(--text-3)"};
   const prioLabel = {alta:"🔴 Alta",normal:"🔵 Normal",baixa:"⚪ Baixa"};
 
-  const save = n=>{ setTasks(n); S.set("tasks",n); };
+  const save = n=>{ setTasks(n); };
 
   const add = ()=>{
     if(!text.trim()) return;
@@ -1331,14 +1331,14 @@ function DocsPage() {
       DB.update("documents",{id:editingId,name:form.name,cat:form.cat,notes:form.notes});
     } else {
       const doc={id:Date.now(),...form,date:now(),tags,file:fileData};
-      const n=[doc,...docs]; setDocs(n); S.set("docs",n);
+      const n=[doc,...docs]; setDocs(n);
       const dbRow={id:doc.id,name:doc.name,cat:doc.cat,tags:doc.tags,notes:doc.notes,date:doc.date,
         file_data:fileData?.data||"",file_name:fileData?.name||"",file_size:fileData?.size||0,file_type:fileData?.type||""};
       DB.insert("documents",dbRow);
     }
     setModal(false); setEditingId(null); setForm({name:"",cat:"Pessoal",tags:"",notes:""}); setFileData(null); setFileName("");
   };
-  const del  = id=>{ const n=docs.filter(d=>d.id!==id); setDocs(n); S.set("docs",n); DB.delete("documents",id); };
+  const del  = id=>{ const n=docs.filter(d=>d.id!==id); setDocs(n); DB.delete("documents",id); };
   const edit = id=>{ const d=docs.find(d=>d.id===id); if(d){ setForm({name:d.name,cat:d.cat,tags:Array.isArray(d.tags)?d.tags.join(", "):"",notes:d.notes||""}); setFileData(d.file||null); setFileName(d.file?.name||""); setEditingId(id); setModal(true); } };
   const download = doc=>{ if(!doc.file?.data) return; const a=document.createElement("a"); a.href=doc.file.data; a.download=doc.file.name; a.click(); };
 
@@ -1407,14 +1407,14 @@ function BillsPage() {
   const add = ()=>{
     if(!form.name.trim()||!form.dueDay) return;
     const b={id:Date.now(),...form,value:parseFloat(form.value)||0,paid:false};
-    const n=[...bills,b]; setBills(n); S.set("bills",n); DB.insert("bills",{...b,due_day:b.dueDay});
+    const n=[...bills,b]; setBills(n); DB.insert("bills",{...b,due_day:b.dueDay});
     setModal(false); setForm({name:"",value:"",dueDay:"",cat:"Fixo",recurrent:true});
   };
   const toggle = id=>{
     const b=bills.find(b=>b.id===id);
-    const n=bills.map(b=>b.id===id?{...b,paid:!b.paid}:b); setBills(n); S.set("bills",n); DB.update("bills",{id,paid:!b.paid});
+    const n=bills.map(b=>b.id===id?{...b,paid:!b.paid}:b); setBills(n); DB.update("bills",{id,paid:!b.paid});
   };
-  const del = id=>{ const n=bills.filter(b=>b.id!==id); setBills(n); S.set("bills",n); DB.delete("bills",id); };
+  const del = id=>{ const n=bills.filter(b=>b.id!==id); setBills(n); DB.delete("bills",id); };
   const day = new Date().getDate();
   const upcoming = bills.filter(b=>!b.paid&&+b.dueDay>=day&&+b.dueDay<=day+5);
   const total    = bills.filter(b=>!b.paid).reduce((s,b)=>s+b.value,0);
@@ -1480,10 +1480,10 @@ function EventsPage() {
     if(!form.title.trim()||!form.date) return;
     const e={id:Date.now(),...form};
     const n=[...events,e].sort((a,b)=>new Date(a.date+"T"+(a.time||"00:00"))-new Date(b.date+"T"+(b.time||"00:00")));
-    setEvents(n); S.set("events",n); DB.insert("events",e);
+    setEvents(n); DB.insert("events",e);
     setModal(false); setForm({title:"",date:"",time:"",local:"",cat:"Pessoal",notes:""});
   };
-  const del = id=>{ const n=events.filter(e=>e.id!==id); setEvents(n); S.set("events",n); DB.delete("events",id); };
+  const del = id=>{ const n=events.filter(e=>e.id!==id); setEvents(n); DB.delete("events",id); };
   const todayStr = new Date().toISOString().split("T")[0];
 
   const Card = ({e})=>(
@@ -1618,19 +1618,19 @@ function WhiteboardCanvas({ boardId }) {
 }
 
 function WhiteboardPage() {
-  const [boards, setBoards] = useState(()=>S.get("wb_boards",[{id:"wb_default",name:"Lousa 1"}]));
+  const [boards, setBoards, _wbSync] = useKV("wb_boards_v1", [{id:"wb_default",name:"Lousa 1"}]);
   const [active, setActive] = useState("wb_default");
 
   const newBoard=()=>{
     const id=`wb_${Date.now()}`;
     const name=`Lousa ${boards.length+1}`;
-    const n=[...boards,{id,name}]; setBoards(n); S.set("wb_boards",n); setActive(id);
+    const n=[...boards,{id,name}]; setBoards(n); setActive(id);
   };
   const delBoard=id=>{
     if(boards.length===1) return;
     localStorage.removeItem(`whiteboard_${id}`);
     KV.del(`whiteboard_${id}`);
-    const n=boards.filter(b=>b.id!==id); setBoards(n); S.set("wb_boards",n);
+    const n=boards.filter(b=>b.id!==id); setBoards(n);
     setActive(n[n.length-1].id);
   };
 
@@ -1782,15 +1782,15 @@ function MarketPage() {
 
 // ─── CURIOSITIES PAGE ─────────────────────────────────────────────────────────
 function CuriositiesPage() {
-  const [cards,setCards]=useState(()=>S.get("curiosities",[]));
+  const [cards,setCards,_curSync]=useKV("curiosities_v1",[]);
   const [modal,setModal]=useState(false);
   const [detail,setDetail]=useState(null);
   const [form,setForm]=useState({title:"",content:"",link:"",imageUrl:"",tag:""});
   const [updTxt,setUpdTxt]=useState("");
 
-  const add=()=>{ if(!form.title.trim()) return; const n=[...cards,{id:Date.now(),...form,updates:[],created:now()}]; setCards(n); S.set("curiosities",n); setModal(false); setForm({title:"",content:"",link:"",imageUrl:"",tag:""}); };
-  const addUpdate=id=>{ if(!updTxt.trim()) return; const n=cards.map(c=>c.id===id?{...c,updates:[...c.updates,{text:updTxt,date:now()}]}:c); setCards(n); S.set("curiosities",n); setDetail(n.find(c=>c.id===id)); setUpdTxt(""); };
-  const del=id=>{ setCards(cards.filter(c=>c.id!==id)); S.set("curiosities",cards.filter(c=>c.id!==id)); setDetail(null); };
+  const add=()=>{ if(!form.title.trim()) return; const n=[...cards,{id:Date.now(),...form,updates:[],created:now()}]; setCards(n); setModal(false); setForm({title:"",content:"",link:"",imageUrl:"",tag:""}); };
+  const addUpdate=id=>{ if(!updTxt.trim()) return; const n=cards.map(c=>c.id===id?{...c,updates:[...c.updates,{text:updTxt,date:now()}]}:c); setCards(n); setDetail(n.find(c=>c.id===id)); setUpdTxt(""); };
+  const del=id=>{ setCards(cards.filter(c=>c.id!==id)); setDetail(null); };
 
   return(
     <div>
@@ -1843,14 +1843,14 @@ function CuriositiesPage() {
 
 // ─── MACRO CARDS PAGE ─────────────────────────────────────────────────────────
 function MacroPage() {
-  const [cards, setCards] = useState(() => S.get("macro_cards", []));
+  const [cards, setCards, _macSync] = useKV("macro_cards_v1", []);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ title:"", content:"", link:"", tag:"", color:"#1a3d5c" });
 
   const COLORS = ["#1a3d5c","#2d1a5c","#1a4a2e","#5c2d1a","#1a4a4a","#3d1a1a"];
 
-  const save = n => { setCards(n); S.set("macro_cards", n); };
+  const save = n => { setCards(n); };
   const add = () => {
     if(!form.title.trim()) return;
     const c = { id:Date.now(), ...form, created:now(), updates:[] };
@@ -1956,11 +1956,11 @@ function UpdateInput({ onSave }) {
 
 // ─── FERRAMENTAS / SIMULADORES ────────────────────────────────────────────────
 function PortfolioSimulator() {
-  const [assets, setAssets] = useState(() => S.get("sim_assets", []));
+  const [assets, setAssets, _s1] = useKV("sim_assets_v1", []);
   const [form, setForm] = useState({ name:"", ticker:"", qty:"", price:"", type:"Ação" });
   const types = ["Ação","FII","Cripto","Renda Fixa","ETF","Outro"];
 
-  const save = n => { setAssets(n); S.set("sim_assets", n); };
+  const save = n => { setAssets(n); };
   const add = () => {
     if(!form.name||!form.qty||!form.price) return;
     save([...assets, { id:Date.now(), ...form, qty:+form.qty, price:+form.price }]);
@@ -2030,10 +2030,10 @@ function PortfolioSimulator() {
 }
 
 function CashFlowSimulator() {
-  const [items, setItems] = useState(() => S.get("sim_cashflow", []));
+  const [items, setItems, _s2] = useKV("sim_cashflow_v1", []);
   const [form, setForm] = useState({ desc:"", value:"", type:"entrada", month:"", recurrent:false });
 
-  const save = n => { setItems(n); S.set("sim_cashflow", n); };
+  const save = n => { setItems(n); };
   const add = () => {
     if(!form.desc||!form.value) return;
     save([...items, { id:Date.now(), ...form, value:+form.value }]);
@@ -2092,13 +2092,13 @@ function CashFlowSimulator() {
 }
 
 function ProfessionalPortfolioSim() {
-  const [projects, setProjects] = useState(() => S.get("sim_portfolio", []));
+  const [projects, setProjects, _s3] = useKV("sim_portfolio_v1", []);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ name:"", desc:"", status:"Em andamento", client:"", value:"", tags:"" });
   const statuses = ["Em andamento","Concluído","Pausado","Proposta"];
   const statusColor = {"Em andamento":"var(--accent)","Concluído":"var(--green)","Pausado":"var(--yellow)","Proposta":"var(--purple)"};
 
-  const save = n => { setProjects(n); S.set("sim_portfolio", n); };
+  const save = n => { setProjects(n); };
   const add = () => {
     if(!form.name) return;
     save([{ id:Date.now(), ...form, value:+form.value||0, tags:form.tags.split(",").map(t=>t.trim()).filter(Boolean), date:now() }, ...projects]);
@@ -2174,7 +2174,7 @@ function ToolsPage() {
 
 // ─── BEDROCK PAGE ─────────────────────────────────────────────────────────────
 function BedrockPage() {
-  const [info, setInfo]   = useState(() => S.get("bedrock_info", { name:"BEDROCK", desc:"", mission:"", vision:"", site:"", status:"Ativo" }));
+  const [info, setInfo, _brSync] = useKV("bedrock_info_v1", { name:"BEDROCK", desc:"", mission:"", vision:"", site:"", status:"Ativo" });
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
   const [notes, setNotes] = useState(() => S.get("bedrock_notes", []));
@@ -2383,7 +2383,7 @@ function LetreirPage() {
     if (kvConfig.italic   !== undefined) setItalic(kvConfig.italic);
   }, [kvSynced]);
   const [running,  setRunning]  = useState(false);
-  const [draft,    setDraft]    = useState(saved.text     || 'Bem-vindo ao Painel!');
+  const [draft,    setDraft]    = useState(kvConfig.text  || 'Bem-vindo ao Painel!');
 
   // fullscreen marquee state
   const [fullscreen, setFullscreen] = useState(false);
@@ -3574,8 +3574,43 @@ function DJStudioPage() {
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [page, setPage] = useState("home");
+  const [viewMode, setViewMode] = useState(()=>localStorage.getItem("view_mode")||"auto");
   const market = useMarketData();
+
+  // Apply viewport meta based on mode
+  useEffect(()=>{
+    let meta = document.querySelector("meta[name=viewport]");
+    if(!meta){ meta=document.createElement("meta"); meta.name="viewport"; document.head.appendChild(meta); }
+    if(viewMode==="desktop"){
+      meta.content="width=1280";
+    } else if(viewMode==="mobile"){
+      meta.content="width=device-width, initial-scale=1.0, maximum-scale=1.0";
+    } else {
+      meta.content="width=device-width, initial-scale=1.0";
+    }
+    localStorage.setItem("view_mode", viewMode);
+  },[viewMode]);
   const meta = PAGE_META[page]||PAGE_META.home;
+
+  const ViewToggle = () => (
+    <div style={{display:"flex",gap:3,alignItems:"center",flexShrink:0}}>
+      {[
+        {k:"auto",   icon:"⚡", title:"Automático"},
+        {k:"mobile", icon:"📱", title:"Mobile"},
+        {k:"desktop",icon:"🖥", title:"Desktop"},
+      ].map(o=>(
+        <button key={o.k} onClick={()=>setViewMode(o.k)}
+          title={o.title}
+          style={{background:viewMode===o.k?"var(--accent)":"transparent",
+            border:`1px solid ${viewMode===o.k?"var(--accent)":"var(--border)"}`,
+            color:viewMode===o.k?"#fff":"var(--text-3)",
+            borderRadius:8, padding:"4px 9px", cursor:"pointer",
+            fontSize:13, lineHeight:1, transition:"all .15s"}}>
+          {o.icon}
+        </button>
+      ))}
+    </div>
+  );
 
   const renderPage = () => {
     switch(page) {
@@ -3622,7 +3657,8 @@ export default function App() {
         )}
         {page!=="home"&&<span style={{color:"var(--border)",fontSize:12}}>/</span>}
         <span style={{fontSize:13,fontWeight:700,color:"var(--text-1)"}}>{meta.emoji} {meta.label}</span>
-        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
+          <ViewToggle/>
           <LiveBadge label=""/>
           <span style={{fontSize:10,color:"var(--text-3)"}}>v3.0</span>
         </div>
@@ -3640,6 +3676,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
