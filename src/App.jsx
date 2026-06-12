@@ -356,20 +356,21 @@ function fmtBoardDate(key) {
 }
 
 function DayBoardCanvas({ dayKey, readOnly, onAddNode }) {
-  const [nodes,      setNodes]     = useState([]);
-  const [edges,      setEdges]     = useState([]);
-  const [selected,   setSelected]  = useState(null);
-  const [editing,    setEditing]   = useState(null);
-  const [connecting, setConnecting]= useState(null);
-  const [pan,        setPan]       = useState({ x:40, y:40 });
-  const [scale,      setScale]     = useState(1);
+  const [nodes,      setNodes]      = useState([]);
+  const [edges,      setEdges]      = useState([]);
+  const [selected,   setSelected]   = useState(null);
+  const [editing,    setEditing]    = useState(null);
+  const [connecting, setConnecting] = useState(null);
+  const [pan,        setPan]        = useState({ x:40, y:40 });
+  const [scale,      setScale]      = useState(1);
 
-  const stateRef     = useRef({});
-  stateRef.current   = { nodes, edges, pan, scale, selected, editing, connecting, readOnly };
-  const dragRef      = useRef(null);
+  const ref = useRef({});
+  ref.current = { nodes, edges, pan, scale, selected, editing, connecting, readOnly };
+
   const containerRef = useRef(null);
+  const mouseDrag    = useRef(null);
 
-  // ── Load / save ──
+  // Load/save
   useEffect(() => {
     const b = loadBoards()[dayKey] || { nodes:[], edges:[] };
     setNodes(b.nodes||[]); setEdges(b.edges||[]);
@@ -383,192 +384,209 @@ function DayBoardCanvas({ dayKey, readOnly, onAddNode }) {
     saveBoards(boards);
   }, [nodes, edges, dayKey]);
 
-  // ── Helpers ──
-  const nextColor = (count) => POST_COLORS[count % POST_COLORS.length];
-  const makeNode  = (x, y, color, text='') => ({
-    id: Date.now()+Math.random(), x, y, w:160, h:100, color:color||nextColor(0), text,
+  const nextColor = n => POST_COLORS[n % POST_COLORS.length];
+  const makeNode  = (x, y, color, text) => ({
+    id: Date.now()+Math.random(), x, y, w:160, h:110,
+    color: color||nextColor(0), text:text||'',
   });
-  const toWorld = (cx, cy) => {
-    const {pan,scale} = stateRef.current;
-    return { x:(cx-pan.x)/scale, y:(cy-pan.y)/scale };
-  };
+  const toWorld = (cx, cy) => ({
+    x:(cx-ref.current.pan.x)/ref.current.scale,
+    y:(cy-ref.current.pan.y)/ref.current.scale,
+  });
 
-  // ── Expose addNode to parent (for the external button) ──
+  // Expose addNode to parent button
   useEffect(() => {
-    if (onAddNode) onAddNode(() => {
-      const {pan,scale,nodes} = stateRef.current;
+    if (!onAddNode) return;
+    onAddNode(() => {
+      const { pan, scale, nodes } = ref.current;
+      const col = nodes.length % 4;
+      const row = Math.floor(nodes.length / 4);
       const node = makeNode(
-        (-pan.x/scale) + 60 + (nodes.length%4)*40,
-        (-pan.y/scale) + 60 + Math.floor(nodes.length/4)*120,
+        (-pan.x/scale)+40+col*200,
+        (-pan.y/scale)+40+row*140,
         nextColor(nodes.length)
       );
-      setNodes(n=>[...n,node]);
+      setNodes(n => [...n, node]);
       setSelected(node.id); setEditing(node.id);
     });
   }, [onAddNode]);
 
-  // ── Global pointermove / pointerup ──
-  useEffect(() => {
-    const onMove = (e) => {
-      const d = dragRef.current; if(!d) return;
-      const dx = e.clientX - d.px;
-      const dy = e.clientY - d.py;
-      if (d.kind==='pan') {
-        setPan({ x:d.ox+dx, y:d.oy+dy });
-      } else if (d.kind==='node') {
-        const {scale} = stateRef.current;
-        setNodes(ns=>ns.map(n=>n.id===d.id?{...n,x:d.ox+dx/scale,y:d.oy+dy/scale}:n));
-      }
-    };
-    const onUp = () => { dragRef.current=null; };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup',   onUp);
-    return ()=>{ window.removeEventListener('pointermove',onMove); window.removeEventListener('pointerup',onUp); };
-  }, []);
-
-  // ── Touch: 1-finger pan + 2-finger pinch/zoom ──
+  // Mouse wheel zoom
   useEffect(() => {
     const el = containerRef.current; if(!el) return;
-
-    // Mouse wheel zoom (desktop)
     const onWheel = (e) => {
       e.preventDefault();
-      const f = e.deltaY<0?1.1:0.91;
+      const factor = e.deltaY < 0 ? 1.12 : 0.9;
       const rect = el.getBoundingClientRect();
-      const cx=e.clientX-rect.left, cy=e.clientY-rect.top;
-      setScale(s=>{
-        const next=Math.min(4,Math.max(0.15,s*f));
-        setPan(p=>({x:cx-(cx-p.x)*(next/s),y:cy-(cy-p.y)*(next/s)}));
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      setScale(prev => {
+        const next = Math.min(3, Math.max(0.25, prev * factor));
+        const ratio = next / prev;
+        setPan(p => ({ x: cx-(cx-p.x)*ratio, y: cy-(cy-p.y)*ratio }));
         return next;
       });
     };
+    el.addEventListener('wheel', onWheel, { passive:false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
-    const dist = (a,b)=>Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
-    const midPt = (a,b,rect)=>({
-      x:(a.clientX+b.clientX)/2-rect.left,
-      y:(a.clientY+b.clientY)/2-rect.top,
-    });
+  // Global mouse move/up
+  useEffect(() => {
+    const onMove = (e) => {
+      const d = mouseDrag.current; if(!d) return;
+      const dx = e.clientX-d.sx, dy = e.clientY-d.sy;
+      if (d.kind==='pan') setPan({ x:d.ox+dx, y:d.oy+dy });
+      else if (d.kind==='node') {
+        const s = ref.current.scale;
+        setNodes(ns => ns.map(n => n.id===d.id ? {...n,x:d.ox+dx/s,y:d.oy+dy/s} : n));
+      }
+    };
+    const onUp = () => { mouseDrag.current = null; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup',   onUp);
+    return () => { window.removeEventListener('mousemove',onMove); window.removeEventListener('mouseup',onUp); };
+  }, []);
 
-    // Track all active touches for reliable 1-vs-2 detection
-    const touchState = { touches:[], lastDist:null, lastMid:null, panStart:null };
+  // Touch events — completely separate from mouse/pointer
+  useEffect(() => {
+    const el = containerRef.current; if(!el) return;
+    const dist  = (a,b) => Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+    const midXY = (a,b,r) => ({ x:(a.clientX+b.clientX)/2-r.left, y:(a.clientY+b.clientY)/2-r.top });
+
+    const ts = {
+      fingers:0, panOx:0, panOy:0, t0x:0, t0y:0,
+      lastDist:0, lastMidX:0, lastMidY:0,
+      nodeDrag:null, isPanning:false, moved:false,
+    };
 
     const onTouchStart = (e) => {
-      touchState.touches = Array.from(e.touches);
-      if (e.touches.length===2) {
+      ts.fingers = e.touches.length;
+      ts.moved   = false;
+      if (e.touches.length === 2) {
         e.preventDefault();
-        const [t0,t1] = touchState.touches;
-        touchState.lastDist = dist(t0,t1);
-        touchState.lastMid  = midPt(t0,t1,el.getBoundingClientRect());
-        touchState.panStart = null; // disable 1-finger while pinching
-        dragRef.current = null;     // cancel any pointer drag
-      } else if (e.touches.length===1) {
+        ts.nodeDrag = null; ts.isPanning = false;
+        const [a,b] = [e.touches[0],e.touches[1]];
+        const r = el.getBoundingClientRect();
+        ts.lastDist = dist(a,b);
+        const m = midXY(a,b,r); ts.lastMidX=m.x; ts.lastMidY=m.y;
+        ts.panOx = ref.current.pan.x; ts.panOy = ref.current.pan.y;
+      } else if (e.touches.length === 1) {
         const t = e.touches[0];
-        touchState.panStart = { px:t.clientX, py:t.clientY, ox:stateRef.current.pan.x, oy:stateRef.current.pan.y };
-        touchState.lastDist = null;
-        touchState.lastMid  = null;
+        ts.t0x=t.clientX; ts.t0y=t.clientY;
+        ts.panOx=ref.current.pan.x; ts.panOy=ref.current.pan.y;
+        const nodeEl = t.target.closest('[data-nid]');
+        if (nodeEl && !ref.current.readOnly && !ref.current.editing) {
+          const nid  = nodeEl.getAttribute('data-nid');
+          const node = ref.current.nodes.find(n => String(n.id)===nid);
+          if (node) { ts.nodeDrag={id:node.id,ox:node.x,oy:node.y}; ts.isPanning=false; return; }
+        }
+        ts.nodeDrag = null; ts.isPanning = !ref.current.editing;
       }
     };
 
     const onTouchMove = (e) => {
       e.preventDefault();
-      touchState.touches = Array.from(e.touches);
-      if (e.touches.length===2) {
-        // Pinch + 2-finger pan
-        const [t0,t1] = touchState.touches;
-        const rect = el.getBoundingClientRect();
-        const newDist = dist(t0,t1);
-        const newMid  = midPt(t0,t1,rect);
-        if (touchState.lastDist && touchState.lastMid) {
-          const f = newDist/touchState.lastDist;
-          const pdx = newMid.x-touchState.lastMid.x;
-          const pdy = newMid.y-touchState.lastMid.y;
-          setScale(s=>{
-            const next=Math.min(4,Math.max(0.15,s*f));
-            const ratio=next/s;
-            setPan(p=>({
-              x: newMid.x-(touchState.lastMid.x-p.x)*ratio+pdx*(1),
-              y: newMid.y-(touchState.lastMid.y-p.y)*ratio+pdy*(1),
+      ts.fingers = e.touches.length;
+      if (e.touches.length === 2) {
+        const [a,b] = [e.touches[0],e.touches[1]];
+        const r = el.getBoundingClientRect();
+        const newDist = dist(a,b);
+        const m = midXY(a,b,r);
+        if (ts.lastDist > 0) {
+          const f = newDist/ts.lastDist;
+          const pdx=m.x-ts.lastMidX, pdy=m.y-ts.lastMidY;
+          setScale(prev => {
+            const next = Math.min(3, Math.max(0.25, prev*f));
+            const ratio = next/prev;
+            setPan(p => ({
+              x: m.x-(ts.lastMidX-p.x)*ratio+pdx,
+              y: m.y-(ts.lastMidY-p.y)*ratio+pdy,
             }));
             return next;
           });
         }
-        touchState.lastDist=newDist; touchState.lastMid=newMid;
-      } else if (e.touches.length===1 && touchState.panStart) {
-        // 1-finger pan (only when not editing a node)
-        if (stateRef.current.editing) return;
-        const t=e.touches[0];
-        const dx=t.clientX-touchState.panStart.px;
-        const dy=t.clientY-touchState.panStart.py;
-        setPan({x:touchState.panStart.ox+dx, y:touchState.panStart.oy+dy});
+        ts.lastDist=newDist; ts.lastMidX=m.x; ts.lastMidY=m.y;
+      } else if (e.touches.length === 1) {
+        const t = e.touches[0];
+        const dx = t.clientX-ts.t0x, dy = t.clientY-ts.t0y;
+        if (!ts.moved && Math.hypot(dx,dy)>8) ts.moved=true;
+        if (!ts.moved) return;
+        if (ts.nodeDrag) {
+          const s=ref.current.scale;
+          setNodes(ns=>ns.map(n=>n.id===ts.nodeDrag.id?{...n,x:ts.nodeDrag.ox+dx/s,y:ts.nodeDrag.oy+dy/s}:n));
+        } else if (ts.isPanning && !ref.current.editing) {
+          setPan({ x:ts.panOx+dx, y:ts.panOy+dy });
+        }
       }
     };
 
     const onTouchEnd = (e) => {
-      touchState.touches = Array.from(e.touches);
-      if (e.touches.length<2) { touchState.lastDist=null; touchState.lastMid=null; }
-      if (e.touches.length===0) { touchState.panStart=null; }
-      if (e.touches.length===1) {
-        const t=e.touches[0];
-        touchState.panStart={px:t.clientX,py:t.clientY,ox:stateRef.current.pan.x,oy:stateRef.current.pan.y};
+      ts.fingers = e.touches.length;
+      if (e.touches.length < 2) ts.lastDist=0;
+      // Tap detection
+      if (!ts.moved && e.changedTouches.length===1) {
+        const t = e.changedTouches[0];
+        const nodeEl = t.target.closest('[data-nid]');
+        if (nodeEl) {
+          const nid = nodeEl.getAttribute('data-nid');
+          if (ref.current.connecting) connectNodes(nid);
+          else setSelected(prev => String(prev)===nid ? null : nid);
+        } else {
+          setSelected(null);
+          if (ref.current.connecting) setConnecting(null);
+        }
       }
+      if (e.touches.length===0) { ts.nodeDrag=null; ts.isPanning=false; ts.moved=false; }
+      if (e.touches.length===1) { const t=e.touches[0]; ts.t0x=t.clientX; ts.t0y=t.clientY; ts.panOx=ref.current.pan.x; ts.panOy=ref.current.pan.y; ts.nodeDrag=null; ts.isPanning=!ref.current.editing; }
     };
 
-    el.addEventListener('wheel',      onWheel,      {passive:false});
     el.addEventListener('touchstart', onTouchStart, {passive:false});
     el.addEventListener('touchmove',  onTouchMove,  {passive:false});
     el.addEventListener('touchend',   onTouchEnd,   {passive:true});
-    return ()=>{
-      el.removeEventListener('wheel',      onWheel);
+    el.addEventListener('touchcancel',onTouchEnd,   {passive:true});
+    return () => {
       el.removeEventListener('touchstart', onTouchStart);
       el.removeEventListener('touchmove',  onTouchMove);
       el.removeEventListener('touchend',   onTouchEnd);
+      el.removeEventListener('touchcancel',onTouchEnd);
     };
   }, []);
 
-  // ── Background pointer down → pan (mouse/stylus only, touch handled above) ──
-  const onBgPointerDown = (e) => {
-    if (e.pointerType==='touch') return; // touch handled by touch events
-    if (e.target!==e.currentTarget) return;
-    const {connecting} = stateRef.current;
-    if (connecting) { setConnecting(null); return; }
+  const onBgMouseDown = (e) => {
+    if (e.button!==0||e.target!==e.currentTarget) return;
+    if (ref.current.connecting) { setConnecting(null); return; }
     setSelected(null);
-    e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current={kind:'pan',ox:stateRef.current.pan.x,oy:stateRef.current.pan.y,px:e.clientX,py:e.clientY};
+    mouseDrag.current = { kind:'pan', ox:ref.current.pan.x, oy:ref.current.pan.y, sx:e.clientX, sy:e.clientY };
   };
 
-  // ── Double-click background → new node (desktop) ──
   const onBgDblClick = (e) => {
-    if (e.target!==e.currentTarget) return;
-    if (readOnly) return;
-    const rect=containerRef.current.getBoundingClientRect();
-    const {x,y}=toWorld(e.clientX-rect.left,e.clientY-rect.top);
-    const node=makeNode(x-80,y-50,nextColor(stateRef.current.nodes.length));
+    if (e.target!==e.currentTarget||readOnly) return;
+    const r=containerRef.current.getBoundingClientRect();
+    const {x,y}=toWorld(e.clientX-r.left, e.clientY-r.top);
+    const node=makeNode(x-80,y-55,nextColor(ref.current.nodes.length));
     setNodes(n=>[...n,node]); setSelected(node.id); setEditing(node.id);
   };
 
-  // ── Node pointer down → drag ──
-  const onNodePointerDown = (e,node) => {
-    const {editing,connecting,readOnly}=stateRef.current;
+  const onNodeMouseDown = (e, node) => {
+    if (e.button!==0) return;
+    const {editing,connecting,readOnly}=ref.current;
     if (readOnly) return;
     if (editing===node.id) return;
-    if (connecting) { connectNodes(node.id); return; }
+    if (connecting) { connectNodes(String(node.id)); return; }
     e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current={kind:'node',id:node.id,ox:node.x,oy:node.y,px:e.clientX,py:e.clientY};
+    mouseDrag.current = { kind:'node', id:node.id, ox:node.x, oy:node.y, sx:e.clientX, sy:e.clientY };
   };
-
-  const onNodeClick      = (e,node)=>{ e.stopPropagation(); if(stateRef.current.connecting){connectNodes(node.id);}else{setSelected(node.id);} };
-  const onNodeDblClick   = (e,node)=>{ e.stopPropagation(); if(!readOnly)setEditing(node.id); };
 
   const deleteNode = (id) => {
     setNodes(n=>n.filter(x=>x.id!==id));
     setEdges(e=>e.filter(x=>x.from!==id&&x.to!==id));
-    if(stateRef.current.selected===id)setSelected(null);
-    if(stateRef.current.editing===id)setEditing(null);
+    setSelected(s=>s===id?null:s);
+    setEditing(v=>v===id?null:v);
   };
 
   const addConnectedNode = (src) => {
-    if(readOnly)return;
+    if (readOnly) return;
     const child=makeNode(src.x+src.w+50,src.y,src.color);
     setNodes(n=>[...n,child]);
     setEdges(e=>[...e,{id:Date.now()+Math.random(),from:src.id,to:child.id}]);
@@ -576,201 +594,164 @@ function DayBoardCanvas({ dayKey, readOnly, onAddNode }) {
   };
 
   const connectNodes = (toId) => {
-    const {connecting}=stateRef.current;
-    if(!connecting||connecting===toId){setConnecting(null);return;}
-    const dup=stateRef.current.edges.find(e=>(e.from===connecting&&e.to===toId)||(e.from===toId&&e.to===connecting));
-    if(!dup)setEdges(e=>[...e,{id:Date.now()+Math.random(),from:connecting,to:toId}]);
+    const fromId = ref.current.connecting;
+    if (!fromId) return;
     setConnecting(null);
+    if (String(fromId)===String(toId)) return;
+    setEdges(prev => {
+      const dup=prev.find(e=>(String(e.from)===String(fromId)&&String(e.to)===String(toId))||(String(e.from)===String(toId)&&String(e.to)===String(fromId)));
+      return dup ? prev : [...prev,{id:Date.now()+Math.random(),from:fromId,to:toId}];
+    });
   };
 
-  const changeColor = (id,c)=>setNodes(n=>n.map(x=>x.id===id?{...x,color:c}:x));
-  const updateText  = (id,t)=>setNodes(n=>n.map(x=>x.id===id?{...x,text:t}:x));
-  const getCenter   = n=>({cx:n.x+n.w/2,cy:n.y+n.h/2});
+  const changeColor = (id,c) => setNodes(n=>n.map(x=>x.id===id?{...x,color:c}:x));
+  const updateText  = (id,t) => setNodes(n=>n.map(x=>x.id===id?{...x,text:t}:x));
+  const getCenter   = n => ({cx:n.x+n.w/2,cy:n.y+n.h/2});
 
-  // ── Render ──
   return (
     <div ref={containerRef} style={{
-        position:'relative', width:'100%', height:'100%', overflow:'hidden',
+        position:'relative',width:'100%',height:'100%',overflow:'hidden',
         background:'#eef3f8',
-        backgroundImage:'radial-gradient(circle,#c0d4e4 1px,transparent 1px)',
-        backgroundSize:'30px 30px',
-        touchAction:'none', userSelect:'none',
+        backgroundImage:'radial-gradient(circle,#b8cedd 1px,transparent 1px)',
+        backgroundSize:'28px 28px',
+        touchAction:'none', userSelect:'none', cursor:'default',
       }}
-      onPointerDown={onBgPointerDown}
+      onMouseDown={onBgMouseDown}
       onDoubleClick={onBgDblClick}
     >
-      {/* Connecting mode hint */}
       {connecting && (
-        <div style={{position:'absolute',top:10,left:'50%',transform:'translateX(-50%)',zIndex:30,
-            background:'#7c3aed',color:'#fff',borderRadius:20,padding:'6px 16px',
-            fontSize:12,fontWeight:600,pointerEvents:'none',boxShadow:'0 4px 16px #7c3aed44'}}>
-          🔗 Toque no post-it destino para conectar
+        <div style={{position:'absolute',top:10,left:'50%',transform:'translateX(-50%)',zIndex:40,
+            background:'#7c3aed',color:'#fff',borderRadius:20,padding:'7px 18px',
+            fontSize:13,fontWeight:600,pointerEvents:'none',boxShadow:'0 4px 20px #7c3aed55'}}>
+          Toque no post-it destino para conectar 🔗
         </div>
       )}
-
-      {/* Scale badge */}
-      <div style={{position:'absolute',bottom:8,right:8,zIndex:20,fontSize:10,color:'#94a3b8',
-          background:'rgba(255,255,255,0.85)',padding:'3px 8px',borderRadius:8,border:'1px solid #e2e8f0',
-          pointerEvents:'none'}}>
-        {Math.round(scale*100)}% · {nodes.length} post-it{nodes.length!==1?'s':''}
+      <div style={{position:'absolute',bottom:8,right:8,zIndex:20,display:'flex',gap:6,alignItems:'center'}}>
+        <button onClick={()=>{setPan({x:40,y:40});setScale(1);}}
+          style={{background:'rgba(255,255,255,0.9)',border:'1px solid #dde',borderRadius:8,
+            color:'#64748b',fontSize:11,padding:'3px 9px',cursor:'pointer'}}>↺</button>
+        <div style={{background:'rgba(255,255,255,0.85)',border:'1px solid #e2e8f0',borderRadius:8,
+            padding:'3px 8px',fontSize:10,color:'#94a3b8',pointerEvents:'none'}}>
+          {Math.round(scale*100)}% · {nodes.length} post-it{nodes.length!==1?'s':''}
+        </div>
       </div>
-
-      {/* ── SVG edges ── */}
-      <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',zIndex:1}}>
+      <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',zIndex:1,overflow:'visible'}}>
         <defs>
-          <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-            <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8"/>
+          <marker id="dbArr" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L7,3 z" fill="#94a3b8"/>
           </marker>
         </defs>
-        <g transform={`translate(${pan.x},${pan.y}) scale(${scale})`}>
-          {edges.map(e => {
-            const f = nodes.find(n=>n.id===e.from), t = nodes.find(n=>n.id===e.to);
-            if (!f||!t) return null;
-            const fc=getCenter(f), tc=getCenter(t);
-            const mx=(fc.cx+tc.cx)/2;
-            return (
-              <g key={e.id} style={{pointerEvents:'stroke'}}>
-                <path d={`M${fc.cx} ${fc.cy} C${mx} ${fc.cy},${mx} ${tc.cy},${tc.cx} ${tc.cy}`}
-                  stroke="#94a3b8" strokeWidth={1.5/scale} fill="none"
-                  strokeDasharray={`${6/scale} ${3/scale}`} markerEnd="url(#arr)" opacity={0.8}/>
-              </g>
-            );
+        <g transform={"translate("+pan.x+","+pan.y+") scale("+scale+")"}>
+          {edges.map(e=>{
+            const f=nodes.find(n=>n.id===e.from),t=nodes.find(n=>n.id===e.to);
+            if(!f||!t) return null;
+            const fc=getCenter(f),tc=getCenter(t),mx=(fc.cx+tc.cx)/2;
+            return <path key={e.id} d={"M"+fc.cx+" "+fc.cy+" C"+mx+" "+fc.cy+","+mx+" "+tc.cy+","+tc.cx+" "+tc.cy}
+              stroke="#94a3b8" strokeWidth={1.5/scale} fill="none"
+              strokeDasharray={(5/scale)+","+(3/scale)} markerEnd="url(#dbArr)" opacity={0.75}/>;
           })}
         </g>
       </svg>
-
-      {/* ── Nodes ── */}
-      <div style={{position:'absolute',inset:0,zIndex:2}}>
-        {nodes.map(node => {
-          const isSel  = selected   === node.id;
-          const isEdit = editing    === node.id;
-          const isConn = connecting === node.id;
-          const tx = pan.x + node.x * scale;
-          const ty = pan.y + node.y * scale;
-          const nw = node.w * scale;
-          const nh = node.h * scale;
-          return (
-            <div key={node.id}
-              style={{
-                position:'absolute', left:tx, top:ty, width:nw, height:nh,
-                background:node.color,
-                borderRadius: 10*scale,
-                boxShadow: isSel
-                  ? '0 0 0 3px #3a8fd4, 0 8px 28px #0003'
-                  : isConn
-                  ? '0 0 0 3px #a070e0, 0 8px 28px #0003'
-                  : '0 3px 12px #0002',
-                cursor: isEdit ? 'text' : 'grab',
-                userSelect:'none', overflow:'visible',
-                zIndex: isSel ? 20 : 3,
-                display:'flex', flexDirection:'column',
-                transition:'box-shadow .12s',
-                touchAction:'none',
-              }}
-              onPointerDown={e => onNodePointerDown(e, node)}
-              onClick={e => onNodeClick(e, node)}
-              onDoubleClick={e => onNodeDblClick(e, node)}
-            >
-              {/* Header / color strip */}
-              <div style={{
-                height: Math.max(18*scale, 18),
-                background:'rgba(0,0,0,0.10)',
-                borderRadius: `${10*scale}px ${10*scale}px 0 0`,
-                display:'flex', alignItems:'center', justifyContent:'space-between',
-                padding:`0 ${6*scale}px`, flexShrink:0, gap: 4*scale,
-              }}>
-                {/* Drag handle hint */}
-                <span style={{fontSize:9*scale,opacity:.4,letterSpacing:1}}>⠿</span>
-                {/* Color palette (only when selected) */}
-                {isSel && !readOnly && (
-                  <div style={{display:'flex',gap:3*scale}}>
-                    {POST_COLORS.map(c => (
-                      <div key={c} onPointerDown={e=>{e.stopPropagation();changeColor(node.id,c);}}
-                        style={{width:10*scale,height:10*scale,borderRadius:'50%',background:c,
-                          border:node.color===c?`${1.5*scale}px solid rgba(0,0,0,0.6)`:`${scale}px solid rgba(0,0,0,0.15)`,
-                          cursor:'pointer',flexShrink:0}}/>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Text body */}
-              <div style={{flex:1, padding:`${5*scale}px ${8*scale}px`, overflow:'hidden'}}>
-                {isEdit && !readOnly ? (
-                  <textarea autoFocus
-                    value={node.text}
-                    onChange={e => updateText(node.id, e.target.value)}
-                    onBlur={() => setEditing(null)}
-                    onKeyDown={e => { if(e.key==='Escape') setEditing(null); e.stopPropagation(); }}
-                    onPointerDown={e => e.stopPropagation()}
-                    style={{width:'100%',height:'100%',background:'transparent',border:'none',outline:'none',
-                      resize:'none',fontSize:Math.max(11*scale,10),fontFamily:'inherit',
-                      color:'rgba(0,0,0,0.75)',lineHeight:1.5,padding:0}}
-                  />
-                ) : (
-                  <div style={{fontSize:Math.max(11*scale,10),color:'rgba(0,0,0,0.75)',lineHeight:1.5,
-                      wordBreak:'break-word',whiteSpace:'pre-wrap',height:'100%',overflow:'hidden'}}>
-                    {node.text || <span style={{opacity:.35,fontStyle:'italic',fontSize:Math.max(10*scale,9)}}>duplo clique para editar</span>}
-                  </div>
-                )}
-              </div>
-
-              {/* Action buttons — always visible at the bottom of the card */}
-              {!readOnly && !isEdit && (
-                <div style={{
-                  display:'flex', gap:3, padding:`${3*scale}px ${5*scale}px ${4*scale}px`,
-                  flexShrink:0, justifyContent:'space-between', alignItems:'center',
-                  borderTop:`${scale}px solid rgba(0,0,0,0.08)`,
-                  background:'rgba(0,0,0,0.05)',
-                  borderRadius:`0 0 ${9*scale}px ${9*scale}px`,
-                }} onPointerDown={e=>e.stopPropagation()}>
-                  <button onClick={e=>{e.stopPropagation();addConnectedNode(node);}}
-                    title="Criar novo post-it conectado"
-                    style={{flex:1,background:'rgba(58,143,212,0.85)',border:'none',
-                      borderRadius:6*scale,color:'#fff',
-                      fontSize:Math.max(9*scale,8),fontWeight:700,
-                      padding:`${2*scale}px ${4*scale}px`,cursor:'pointer',
-                      whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
-                    + Continuar
-                  </button>
-                  <button onClick={e=>{e.stopPropagation();setConnecting(node.id);}}
-                    title="Ligar a outro post-it"
-                    style={{background:'rgba(160,112,224,0.85)',border:'none',
-                      borderRadius:6*scale,color:'#fff',
-                      fontSize:Math.max(9*scale,8),
-                      padding:`${2*scale}px ${5*scale}px`,cursor:'pointer',
-                      whiteSpace:'nowrap'}}>
-                    🔗
-                  </button>
-                  <button onClick={e=>{e.stopPropagation();deleteNode(node.id);}}
-                    title="Apagar post-it"
-                    style={{background:'rgba(220,38,38,0.75)',border:'none',
-                      borderRadius:6*scale,color:'#fff',
-                      fontSize:Math.max(9*scale,8),
-                      padding:`${2*scale}px ${5*scale}px`,cursor:'pointer'}}>
-                    ✕
-                  </button>
+      {nodes.map(node=>{
+        const isSel  = String(selected)===String(node.id);
+        const isEdit = String(editing)===String(node.id);
+        const isConn = String(connecting)===String(node.id);
+        const tx=pan.x+node.x*scale, ty=pan.y+node.y*scale;
+        const nw=node.w*scale, nh=node.h*scale;
+        const fz=Math.max(11*scale,10);
+        const br=Math.max(9*scale,8);
+        return (
+          <div key={node.id} data-nid={String(node.id)} style={{
+              position:'absolute',left:tx,top:ty,width:nw,height:nh,
+              background:node.color, borderRadius:br,
+              boxShadow:isSel?'0 0 0 3px #3a8fd4,0 6px 24px #0003':isConn?'0 0 0 3px #7c3aed,0 6px 24px #0003':'0 2px 10px #0002',
+              display:'flex',flexDirection:'column',zIndex:isSel?20:3,transition:'box-shadow .1s',
+            }}
+            onMouseDown={e=>onNodeMouseDown(e,node)}
+            onClick={e=>{e.stopPropagation();if(ref.current.connecting)connectNodes(String(node.id));else setSelected(s=>String(s)===String(node.id)?null:node.id);}}
+            onDoubleClick={e=>{e.stopPropagation();if(!readOnly)setEditing(node.id);}}
+          >
+            <div style={{height:Math.max(20*scale,20),flexShrink:0,background:'rgba(0,0,0,0.10)',
+                borderRadius:br+"px "+br+"px 0 0",display:'flex',alignItems:'center',
+                justifyContent:isSel&&!readOnly?'space-between':'flex-start',
+                padding:"0 "+Math.max(6*scale,6)+"px",gap:4}}>
+              <span style={{fontSize:Math.max(9*scale,9),opacity:.35}}>⠿</span>
+              {isSel&&!readOnly&&(
+                <div style={{display:'flex',gap:Math.max(3*scale,3),flexWrap:'wrap',justifyContent:'flex-end'}}>
+                  {POST_COLORS.map(c=>(
+                    <div key={c}
+                      onMouseDown={e=>{e.stopPropagation();changeColor(node.id,c);}}
+                      onTouchEnd={e=>{e.stopPropagation();e.preventDefault();changeColor(node.id,c);}}
+                      style={{width:Math.max(10*scale,10),height:Math.max(10*scale,10),borderRadius:'50%',background:c,cursor:'pointer',flexShrink:0,
+                        border:node.color===c?Math.max(1.5*scale,1.5)+"px solid rgba(0,0,0,0.55)":"1px solid rgba(0,0,0,0.15)"}}/>
+                  ))}
                 </div>
               )}
             </div>
-          );
-        })}
-      </div>
-
-      {/* Empty state */}
-      {nodes.length===0 && !readOnly && (
+            <div style={{flex:1,padding:Math.max(5*scale,5)+"px "+Math.max(8*scale,7)+"px",overflow:'hidden'}}>
+              {isEdit&&!readOnly?(
+                <textarea autoFocus value={node.text}
+                  onChange={e=>updateText(node.id,e.target.value)}
+                  onBlur={()=>setEditing(null)}
+                  onKeyDown={e=>{if(e.key==='Escape')setEditing(null);e.stopPropagation();}}
+                  onMouseDown={e=>e.stopPropagation()}
+                  onTouchStart={e=>e.stopPropagation()}
+                  style={{width:'100%',height:'100%',background:'transparent',border:'none',outline:'none',
+                    resize:'none',fontSize:fz,fontFamily:'inherit',color:'rgba(0,0,0,0.78)',lineHeight:1.45,padding:0}}/>
+              ):(
+                <div style={{fontSize:fz,color:'rgba(0,0,0,0.75)',lineHeight:1.45,wordBreak:'break-word',whiteSpace:'pre-wrap',height:'100%',overflow:'hidden'}}>
+                  {node.text||<span style={{opacity:.3,fontStyle:'italic'}}>toque 2× para editar</span>}
+                </div>
+              )}
+            </div>
+            {!readOnly&&!isEdit&&(
+              <div style={{display:'flex',gap:Math.max(3*scale,3),
+                  padding:Math.max(3*scale,4)+"px "+Math.max(5*scale,5)+"px "+Math.max(4*scale,5)+"px",
+                  flexShrink:0,borderTop:"1px solid rgba(0,0,0,0.08)",background:'rgba(0,0,0,0.05)',
+                  borderRadius:"0 0 "+br+"px "+br+"px"}}
+                onMouseDown={e=>e.stopPropagation()}
+                onTouchStart={e=>e.stopPropagation()}>
+                <button
+                  onTouchEnd={e=>{e.stopPropagation();e.preventDefault();addConnectedNode(node);}}
+                  onClick={e=>{e.stopPropagation();addConnectedNode(node);}}
+                  style={{flex:1,background:'rgba(58,143,212,0.85)',border:'none',borderRadius:Math.max(5*scale,5),
+                    color:'#fff',fontSize:Math.max(9*scale,10),fontWeight:700,
+                    padding:Math.max(2*scale,4)+"px "+Math.max(4*scale,4)+"px",cursor:'pointer',whiteSpace:'nowrap'}}>
+                  + Fio
+                </button>
+                <button
+                  onTouchEnd={e=>{e.stopPropagation();e.preventDefault();setConnecting(node.id);}}
+                  onClick={e=>{e.stopPropagation();setConnecting(node.id);}}
+                  style={{background:'rgba(124,58,237,0.8)',border:'none',borderRadius:Math.max(5*scale,5),
+                    color:'#fff',fontSize:Math.max(9*scale,10),
+                    padding:Math.max(2*scale,4)+"px "+Math.max(5*scale,6)+"px",cursor:'pointer'}}>
+                  🔗
+                </button>
+                <button
+                  onTouchEnd={e=>{e.stopPropagation();e.preventDefault();deleteNode(node.id);}}
+                  onClick={e=>{e.stopPropagation();deleteNode(node.id);}}
+                  style={{background:'rgba(220,38,38,0.7)',border:'none',borderRadius:Math.max(5*scale,5),
+                    color:'#fff',fontSize:Math.max(9*scale,10),
+                    padding:Math.max(2*scale,4)+"px "+Math.max(5*scale,6)+"px",cursor:'pointer'}}>
+                  ✕
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {nodes.length===0&&!readOnly&&(
         <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',
             alignItems:'center',justifyContent:'center',pointerEvents:'none',gap:8}}>
-          <div style={{fontSize:44,opacity:.12}}>📌</div>
+          <div style={{fontSize:44,opacity:.1}}>📌</div>
           <div style={{fontSize:13,color:'#94a3b8',textAlign:'center',lineHeight:1.8}}>
-            Duplo clique em qualquer lugar para criar um post-it<br/>
-            ou clique em <strong>+ Post-it</strong> na barra acima
+            Toque em <b>+ Post-it</b> para começar<br/>
+            <span style={{fontSize:11,opacity:.7}}>Desktop: duplo clique no fundo</span>
           </div>
         </div>
       )}
-      {nodes.length===0 && readOnly && (
-        <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',
-            justifyContent:'center',pointerEvents:'none'}}>
+      {nodes.length===0&&readOnly&&(
+        <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
           <span style={{fontSize:12,color:'#94a3b8'}}>Board vazio neste dia</span>
         </div>
       )}
@@ -1036,7 +1017,7 @@ function RemindersCards() {
 
 // ─── DIARY PAGE ───────────────────────────────────────────────────────────────
 function DiaryPage() {
-  const [active, setActive] = useState("dia");
+  const [active, setActive] = useState("diary");
   const tabs = [
     {id:"dia",       label:"📌 Dia",       color:"#e67e22"},
     {id:"diary",     label:"📓 Diário",    color:"var(--accent)"},
@@ -3667,6 +3648,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
