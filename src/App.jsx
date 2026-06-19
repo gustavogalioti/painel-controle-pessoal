@@ -1171,8 +1171,9 @@ function TasksPage() {
     { id:"done",  label:"✅ Concluído",    color:"var(--green)"  },
   ];
 
-  // Normalize: tasks may only have `done` (legacy) — derive `status` if missing
   const getStatus = (t) => t.status || (t.done ? "done" : "todo");
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
 
   const save = n => { setTasks(n); };
 
@@ -1185,10 +1186,8 @@ function TasksPage() {
   };
 
   const setStatus = (id, status) => {
-    const n = tasks.map(t => t.id===id ? { ...t, status, done: status==="done" } : t);
+    const n = tasksRef.current.map(t => t.id===id ? { ...t, status, done: status==="done" } : t);
     save(n);
-    DB.update("tasks", { id, done: status==="done" });
-    // Persist status too — extend update payload
     fetch(`/api/db?table=tasks`, {
       method:"PUT", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ id, done: status==="done", status }),
@@ -1200,7 +1199,7 @@ function TasksPage() {
   const addTaskNote = (id) => {
     if (!addNote.trim()) return;
     const note = { text:addNote, date:now() };
-    const n = tasks.map(t => t.id===id ? { ...t, updates:[...(t.updates||[]), note] } : t);
+    const n = tasksRef.current.map(t => t.id===id ? { ...t, updates:[...(t.updates||[]), note] } : t);
     save(n);
     const updated = n.find(t=>t.id===id);
     DB.update("tasks", { id, updates:updated.updates });
@@ -1208,65 +1207,79 @@ function TasksPage() {
     setAddNote("");
   };
 
-  // ── Drag and drop state (mouse + touch, same reliable pattern as DayBoard) ──
+  // ════════════════════════════════════════════════════════════════
+  // DRAG AND DROP — simplified, reliable: separate "tap" vs "drag"
+  // using a ref that is read synchronously (no stale-closure / event-
+  // ordering issues). Click handler is NOT used at all — open/drag
+  // decision happens entirely inside pointerup.
+  // ════════════════════════════════════════════════════════════════
   const [dragId, setDragId]   = useState(null);
   const [overCol, setOverCol] = useState(null);
-  const dragRef = useRef(null); // { id, startX, startY, ghostEl }
-  const boardRef = useRef(null);
+  const drag = useRef(null); // { id, startX, startY, moved, task }
   const colRefs = useRef({});
 
-  const startDrag = (e, taskId) => {
-    const isTouch = e.type === 'touchstart';
-    const point = isTouch ? e.touches[0] : e;
-    dragRef.current = { id: taskId, startX: point.clientX, startY: point.clientY, moved:false };
-    setDragId(taskId);
+  const findColAt = (x, y) => {
+    for (const col of COLS) {
+      const el = colRefs.current[col.id];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return col.id;
+    }
+    return null;
+  };
+
+  const onCardPointerDown = (e, task) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    const point = e.touches ? e.touches[0] : e;
+    drag.current = { id: task.id, task, startX: point.clientX, startY: point.clientY, moved: false };
   };
 
   useEffect(() => {
-    const findColAt = (x, y) => {
-      for (const col of COLS) {
-        const el = colRefs.current[col.id];
-        if (!el) continue;
-        const r = el.getBoundingClientRect();
-        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return col.id;
-      }
-      return null;
-    };
-
     const onMove = (e) => {
-      const d = dragRef.current; if (!d) return;
-      const isTouch = e.type === 'touchmove';
-      const point = isTouch ? e.touches[0] : e;
-      if (isTouch) e.preventDefault();
+      const d = drag.current; if (!d) return;
+      const point = e.touches ? e.touches[0] : e;
       const dx = point.clientX - d.startX, dy = point.clientY - d.startY;
-      if (!d.moved && Math.hypot(dx,dy) > 6) d.moved = true;
+      if (!d.moved && Math.hypot(dx, dy) > 8) {
+        d.moved = true;
+        setDragId(d.id); // only now show drag visuals — avoids flicker on simple taps
+      }
       if (!d.moved) return;
+      if (e.cancelable) e.preventDefault();
       const col = findColAt(point.clientX, point.clientY);
       setOverCol(col);
     };
 
     const onUp = (e) => {
-      const d = dragRef.current; if (!d) return;
-      if (d.moved && overCol) {
-        const t = tasks.find(x=>x.id===d.id);
-        if (t && getStatus(t) !== overCol) setStatus(d.id, overCol);
+      const d = drag.current;
+      if (!d) return;
+      if (d.moved) {
+        // It was a drag — drop into the column under the pointer
+        if (overCol && getStatus(d.task) !== overCol) {
+          setStatus(d.id, overCol);
+        }
+      } else {
+        // It was a tap/click — open the modal
+        const fresh = tasksRef.current.find(t => t.id === d.id) || d.task;
+        setEditModal(fresh);
       }
-      dragRef.current = null;
+      drag.current = null;
       setDragId(null);
       setOverCol(null);
     };
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-    window.addEventListener('touchmove', onMove, { passive:false });
+    window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('touchend', onUp);
+    window.addEventListener('touchcancel', onUp);
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('touchmove', onMove);
       window.removeEventListener('touchend', onUp);
+      window.removeEventListener('touchcancel', onUp);
     };
-  }, [overCol, tasks]);
+  }, [overCol]);
 
   const grouped = { todo:[], doing:[], done:[] };
   tasks.forEach(t => { const s = getStatus(t); (grouped[s] || grouped.todo).push(t); });
@@ -1275,33 +1288,32 @@ function TasksPage() {
     const isDragging = dragId === t.id;
     return (
       <div
-        onMouseDown={e => { if(e.button===0) startDrag(e, t.id); }}
-        onTouchStart={e => startDrag(e, t.id)}
-        onClick={e => { if(!dragRef.current?.moved) setEditModal(t); }}
+        onMouseDown={e => onCardPointerDown(e, t)}
+        onTouchStart={e => onCardPointerDown(e, t)}
         style={{
           background:"var(--bg-card)",
           border:`1px solid ${prioColor[t.prio]}33`,
           borderLeft:`3px solid ${prioColor[t.prio]}`,
           borderRadius:10, padding:"12px 14px", marginBottom:10,
-          cursor: isDragging ? "grabbing" : "grab",
+          cursor: isDragging ? "grabbing" : "pointer",
           opacity: isDragging ? 0.4 : 1,
           touchAction:"none", userSelect:"none",
-          transition: isDragging ? "none" : "opacity .15s, transform .1s",
+          transition: isDragging ? "none" : "opacity .15s",
           boxShadow: isDragging ? "0 8px 24px #0003" : "0 1px 4px #0001",
         }}
       >
-        <p style={{margin:0,fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:8}}>{t.text}</p>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"var(--text-3)"}}>
+        <p style={{margin:0,fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:8,pointerEvents:"none"}}>{t.text}</p>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"var(--text-3)",pointerEvents:"none"}}>
           <span style={{color:prioColor[t.prio],fontWeight:700}}>{prioLabel[t.prio]}</span>
           <span>{new Date(t.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</span>
         </div>
-        {t.updates?.length>0 && <div style={{fontSize:10,color:"var(--accent)",marginTop:6}}>💬 {t.updates.length}</div>}
+        {t.updates?.length>0 && <div style={{fontSize:10,color:"var(--accent)",marginTop:6,pointerEvents:"none"}}>💬 {t.updates.length}</div>}
       </div>
     );
   };
 
   return (
-    <div ref={boardRef}>
+    <div>
       {/* Add task bar */}
       <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, padding:16, marginBottom:18 }}>
         {!addOpen ? (
@@ -1328,8 +1340,7 @@ function TasksPage() {
       </div>
 
       {/* Kanban board */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:14 }}
-        className="kanban-grid">
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:14 }} className="kanban-grid">
         {COLS.map(col => (
           <div key={col.id} ref={el => colRefs.current[col.id]=el}
             style={{
@@ -3884,6 +3895,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
