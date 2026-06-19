@@ -99,13 +99,14 @@ export default async function handler(req) {
     }
 
     if (req.method === "PUT") {
-      const { id, done, paid, text, mood, updates } = body;
+      const { id, done, paid, text, mood, updates, title, date, time, local, cat, notes } = body;
       if (table === "tasks")       await sql`UPDATE tasks       SET done=${done}                                WHERE id=${id}`;
       if (table === "bills")       await sql`UPDATE bills       SET paid=${paid}                               WHERE id=${id}`;
       if (table === "diary")       await sql`UPDATE diary       SET text=${text}, mood=${mood}                 WHERE id=${id}`;
       if (table === "ideas")       await sql`UPDATE ideas       SET text=${text}, mood=${mood}                 WHERE id=${id}`;
       if (table === "reminders")   await sql`UPDATE reminders   SET text=${text}, mood=${mood}                 WHERE id=${id}`;
       if (table === "curiosities") await sql`UPDATE curiosities SET updates=${JSON.stringify(updates)}          WHERE id=${id}`;
+      if (table === "events")      await sql`UPDATE events       SET title=${title}, date=${date}, time=${time||''}, local=${local||''}, cat=${cat}, notes=${notes||''} WHERE id=${id}`;
       return new Response(JSON.stringify({ ok: true }), { headers: CORS });
     }
 
@@ -126,3 +127,4 @@ export default async function handler(req) {
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: CORS });
   }
 }
+

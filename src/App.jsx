@@ -68,29 +68,56 @@ const KV = {
   },
 };
 
-// useKV — like useState but synced to cloud + localStorage
+// useKV — like useState but synced to cloud + localStorage, with polling
 function useKV(key, def) {
   const [data, setData] = useState(() => {
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
   });
   const [synced, setSynced] = useState(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const savingRef = useRef(false); // true briefly after a local save, to avoid self-clobber
 
-  // On mount: pull from cloud, merge with local, push any local-only data
-  useEffect(() => {
+  const pull = () => {
     KV.get(key).then(cloud => {
-      if (cloud !== null) {
-        setData(cloud);
-        try { localStorage.setItem(key, JSON.stringify(cloud)); } catch {}
+      if (cloud !== null && !savingRef.current) {
+        // Only update if actually different (avoid needless re-renders)
+        const cloudStr = JSON.stringify(cloud);
+        const localStr = JSON.stringify(dataRef.current);
+        if (cloudStr !== localStr) {
+          setData(cloud);
+          try { localStorage.setItem(key, cloudStr); } catch {}
+        }
       }
       setSynced(true);
     });
+  };
+
+  // On mount: pull from cloud
+  useEffect(() => { pull(); }, [key]);
+
+  // Poll every 5s so other devices' changes appear without reload
+  useEffect(() => {
+    const id = setInterval(pull, 5000);
+    return () => clearInterval(id);
+  }, [key]);
+
+  // Also re-sync when tab/app regains focus (covers app switching on mobile)
+  useEffect(() => {
+    const onFocus = () => pull();
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', () => { if(!document.hidden) pull(); });
+    return () => window.removeEventListener('focus', onFocus);
   }, [key]);
 
   const save = (next) => {
-    const value = typeof next === 'function' ? next(data) : next;
+    const value = typeof next === 'function' ? next(dataRef.current) : next;
     setData(value);
     try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
-    KV.set(key, value);
+    savingRef.current = true;
+    KV.set(key, value).finally(() => {
+      setTimeout(() => { savingRef.current = false; }, 1000);
+    });
     return value;
   };
 
@@ -100,23 +127,49 @@ function useKV(key, def) {
 function useDB(table, localKey, def=[]) {
   const [data, setData] = useState(()=>S.get(localKey,def));
   const [synced, setSynced] = useState(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
-  useEffect(()=>{
-    DB.list(table).then(async rows=>{
-      const local = S.get(localKey, def);
-      if(rows && Array.isArray(rows) && rows.length>0){
+  const pull = async (isInitial) => {
+    const rows = await DB.list(table);
+    const local = S.get(localKey, def);
+    if (rows && Array.isArray(rows) && rows.length>0) {
+      if (isInitial) {
+        // First load: push any local-only items up, then merge
         const bankIds = new Set(rows.map(r=>String(r.id)));
         const onlyLocal = local.filter(l=>!bankIds.has(String(l.id)));
-        for(const item of onlyLocal) await DB.insert(table,item);
+        for (const item of onlyLocal) await DB.insert(table,item);
         const all = [...rows,...onlyLocal].sort((a,b)=>Number(b.id)-Number(a.id));
         setData(all); S.set(localKey,all);
-      } else if(local.length>0){
-        for(const item of local) await DB.insert(table,item);
-        setData(local);
+      } else {
+        // Subsequent polls: cloud is source of truth, just compare+update
+        const sorted = [...rows].sort((a,b)=>Number(b.id)-Number(a.id));
+        const rowsStr = JSON.stringify(sorted);
+        const curStr  = JSON.stringify(dataRef.current);
+        if (rowsStr !== curStr) { setData(sorted); S.set(localKey, sorted); }
       }
-      setSynced(true);
-    });
-  },[table]);
+    } else if (local.length>0 && isInitial) {
+      for (const item of local) await DB.insert(table,item);
+      setData(local);
+    }
+    setSynced(true);
+  };
+
+  useEffect(() => { pull(true); }, [table]);
+
+  // Poll every 5s for changes from other devices
+  useEffect(() => {
+    const id = setInterval(() => pull(false), 5000);
+    return () => clearInterval(id);
+  }, [table]);
+
+  // Re-sync on focus / visibility change
+  useEffect(() => {
+    const onFocus = () => pull(false);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', () => { if(!document.hidden) pull(false); });
+    return () => window.removeEventListener('focus', onFocus);
+  }, [table]);
 
   return [data,setData,synced];
 }
@@ -341,8 +394,6 @@ function loadBoards() {
 }
 function saveBoards(boards) {
   try { localStorage.setItem(DB_BOARD_KEY, JSON.stringify(boards)); } catch {}
-  // async cloud push (fire-and-forget)
-  KV.set(DB_BOARD_KEY, boards);
 }
 
 function todayKey() {
@@ -369,20 +420,78 @@ function DayBoardCanvas({ dayKey, readOnly, onAddNode }) {
 
   const containerRef = useRef(null);
   const mouseDrag    = useRef(null);
+  const savingRef    = useRef(false); // true briefly after local save — avoid self-clobber from poll
+  const loadedOnceRef = useRef(false);
 
-  // Load/save
+  // Initial load: localStorage first (instant), then cloud (authoritative)
   useEffect(() => {
+    loadedOnceRef.current = false;
     const b = loadBoards()[dayKey] || { nodes:[], edges:[] };
     setNodes(b.nodes||[]); setEdges(b.edges||[]);
     setSelected(null); setEditing(null); setConnecting(null);
     setPan({x:40,y:40}); setScale(1);
+
+    KV.get(DB_BOARD_KEY).then(cloud => {
+      if (cloud && cloud[dayKey]) {
+        const cb = cloud[dayKey];
+        setNodes(cb.nodes||[]);
+        setEdges(cb.edges||[]);
+        const all = loadBoards(); all[dayKey] = cb;
+        try { localStorage.setItem(DB_BOARD_KEY, JSON.stringify(all)); } catch {}
+      }
+      loadedOnceRef.current = true;
+    });
   }, [dayKey]);
 
+  // Save to localStorage + cloud whenever nodes/edges change (debounced via savingRef)
   useEffect(() => {
+    if (!loadedOnceRef.current) return; // don't save before initial cloud pull completes
     const boards = loadBoards();
     boards[dayKey] = { nodes, edges };
-    saveBoards(boards);
+    try { localStorage.setItem(DB_BOARD_KEY, JSON.stringify(boards)); } catch {}
+    savingRef.current = true;
+    KV.set(DB_BOARD_KEY, boards).finally(() => {
+      setTimeout(() => { savingRef.current = false; }, 1200);
+    });
   }, [nodes, edges, dayKey]);
+
+  // Poll cloud every 5s for this specific day — pick up changes from other devices
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (savingRef.current) return; // don't clobber an in-flight local save
+      // Don't interrupt active editing
+      if (ref.current.editing) return;
+      KV.get(DB_BOARD_KEY).then(cloud => {
+        if (!cloud || !cloud[dayKey]) return;
+        const cb = cloud[dayKey];
+        const newStr = JSON.stringify({nodes:cb.nodes||[], edges:cb.edges||[]});
+        const curStr = JSON.stringify({nodes:ref.current.nodes, edges:ref.current.edges});
+        if (newStr !== curStr) {
+          setNodes(cb.nodes||[]);
+          setEdges(cb.edges||[]);
+          const all = loadBoards(); all[dayKey] = cb;
+          try { localStorage.setItem(DB_BOARD_KEY, JSON.stringify(all)); } catch {}
+        }
+      });
+    }, 5000);
+    return () => clearInterval(id);
+  }, [dayKey]);
+
+  // Re-sync on focus/visibility change
+  useEffect(() => {
+    const onFocus = () => {
+      if (ref.current.editing) return;
+      KV.get(DB_BOARD_KEY).then(cloud => {
+        if (!cloud || !cloud[dayKey]) return;
+        const cb = cloud[dayKey];
+        setNodes(cb.nodes||[]);
+        setEdges(cb.edges||[]);
+      });
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', () => { if(!document.hidden) onFocus(); });
+    return () => window.removeEventListener('focus', onFocus);
+  }, [dayKey]);
 
   const nextColor = n => POST_COLORS[n % POST_COLORS.length];
   const makeNode  = (x, y, color, text) => ({
@@ -3648,6 +3757,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
