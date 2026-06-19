@@ -1158,100 +1158,227 @@ function TasksPage() {
   const [tasks, setTasks, synced] = useDB("tasks","tasks",[]);
   const [text, setText]   = useState("");
   const [prio, setPrio]   = useState("normal");
-  const [filter, setFilter] = useState("all");
-  const [editing, setEditing] = useState(null);
   const [editModal, setEditModal] = useState(null);
   const [addNote, setAddNote] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
 
   const prioColor = {alta:"var(--red)",normal:"var(--accent)",baixa:"var(--text-3)"};
   const prioLabel = {alta:"🔴 Alta",normal:"🔵 Normal",baixa:"⚪ Baixa"};
 
-  const save = n=>{ setTasks(n); };
+  const COLS = [
+    { id:"todo",  label:"📋 A Fazer",     color:"var(--text-3)" },
+    { id:"doing", label:"⚡ Em Andamento", color:"var(--yellow)" },
+    { id:"done",  label:"✅ Concluído",    color:"var(--green)"  },
+  ];
 
-  const add = ()=>{
-    if(!text.trim()) return;
-    const t={id:Date.now(),text,prio,done:false,date:nowISO(),notes:[],updates:[]};
-    const n=[t,...tasks]; save(n); DB.insert("tasks",t); setText("");
+  // Normalize: tasks may only have `done` (legacy) — derive `status` if missing
+  const getStatus = (t) => t.status || (t.done ? "done" : "todo");
+
+  const save = n => { setTasks(n); };
+
+  const add = () => {
+    if (!text.trim()) return;
+    const t = { id:Date.now(), text, prio, status:"todo", done:false, date:nowISO(), notes:[], updates:[] };
+    const n = [t, ...tasks];
+    save(n); DB.insert("tasks", t);
+    setText(""); setAddOpen(false);
   };
-  const toggle = id=>{
-    const t=tasks.find(t=>t.id===id);
-    if(!t) return;
-    const n=tasks.map(t=>t.id===id?{...t,done:!t.done}:t); save(n); DB.update("tasks",{id,done:!t.done});
-  };
-  const del = id=>{ save(tasks.filter(t=>t.id!==id)); DB.delete("tasks",id); };
-  const addTaskNote = (id)=>{
-    if(!addNote.trim()) return;
-    const note={text:addNote,date:now()};
-    const n=tasks.map(t=>t.id===id?{...t,updates:[...(t.updates||[]),note]}:t);
+
+  const setStatus = (id, status) => {
+    const n = tasks.map(t => t.id===id ? { ...t, status, done: status==="done" } : t);
     save(n);
-    const updated=n.find(t=>t.id===id);
-    DB.update("tasks",{id,updates:updated.updates});
+    DB.update("tasks", { id, done: status==="done" });
+    // Persist status too — extend update payload
+    fetch(`/api/db?table=tasks`, {
+      method:"PUT", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ id, done: status==="done", status }),
+    }).catch(()=>{});
+  };
+
+  const del = (id) => { save(tasks.filter(t=>t.id!==id)); DB.delete("tasks", id); };
+
+  const addTaskNote = (id) => {
+    if (!addNote.trim()) return;
+    const note = { text:addNote, date:now() };
+    const n = tasks.map(t => t.id===id ? { ...t, updates:[...(t.updates||[]), note] } : t);
+    save(n);
+    const updated = n.find(t=>t.id===id);
+    DB.update("tasks", { id, updates:updated.updates });
     setEditModal(updated);
     setAddNote("");
   };
 
-  const filtered = tasks.filter(t=>
-    filter==="all"?true: filter==="done"?t.done: filter==="todo"?!t.done: t.prio===filter
-  );
+  // ── Drag and drop state (mouse + touch, same reliable pattern as DayBoard) ──
+  const [dragId, setDragId]   = useState(null);
+  const [overCol, setOverCol] = useState(null);
+  const dragRef = useRef(null); // { id, startX, startY, ghostEl }
+  const boardRef = useRef(null);
+  const colRefs = useRef({});
+
+  const startDrag = (e, taskId) => {
+    const isTouch = e.type === 'touchstart';
+    const point = isTouch ? e.touches[0] : e;
+    dragRef.current = { id: taskId, startX: point.clientX, startY: point.clientY, moved:false };
+    setDragId(taskId);
+  };
+
+  useEffect(() => {
+    const findColAt = (x, y) => {
+      for (const col of COLS) {
+        const el = colRefs.current[col.id];
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return col.id;
+      }
+      return null;
+    };
+
+    const onMove = (e) => {
+      const d = dragRef.current; if (!d) return;
+      const isTouch = e.type === 'touchmove';
+      const point = isTouch ? e.touches[0] : e;
+      if (isTouch) e.preventDefault();
+      const dx = point.clientX - d.startX, dy = point.clientY - d.startY;
+      if (!d.moved && Math.hypot(dx,dy) > 6) d.moved = true;
+      if (!d.moved) return;
+      const col = findColAt(point.clientX, point.clientY);
+      setOverCol(col);
+    };
+
+    const onUp = (e) => {
+      const d = dragRef.current; if (!d) return;
+      if (d.moved && overCol) {
+        const t = tasks.find(x=>x.id===d.id);
+        if (t && getStatus(t) !== overCol) setStatus(d.id, overCol);
+      }
+      dragRef.current = null;
+      setDragId(null);
+      setOverCol(null);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive:false });
+    window.addEventListener('touchend', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+  }, [overCol, tasks]);
+
+  const grouped = { todo:[], doing:[], done:[] };
+  tasks.forEach(t => { const s = getStatus(t); (grouped[s] || grouped.todo).push(t); });
+
+  const TaskCard = ({ t }) => {
+    const isDragging = dragId === t.id;
+    return (
+      <div
+        onMouseDown={e => { if(e.button===0) startDrag(e, t.id); }}
+        onTouchStart={e => startDrag(e, t.id)}
+        onClick={e => { if(!dragRef.current?.moved) setEditModal(t); }}
+        style={{
+          background:"var(--bg-card)",
+          border:`1px solid ${prioColor[t.prio]}33`,
+          borderLeft:`3px solid ${prioColor[t.prio]}`,
+          borderRadius:10, padding:"12px 14px", marginBottom:10,
+          cursor: isDragging ? "grabbing" : "grab",
+          opacity: isDragging ? 0.4 : 1,
+          touchAction:"none", userSelect:"none",
+          transition: isDragging ? "none" : "opacity .15s, transform .1s",
+          boxShadow: isDragging ? "0 8px 24px #0003" : "0 1px 4px #0001",
+        }}
+      >
+        <p style={{margin:0,fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:8}}>{t.text}</p>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"var(--text-3)"}}>
+          <span style={{color:prioColor[t.prio],fontWeight:700}}>{prioLabel[t.prio]}</span>
+          <span>{new Date(t.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</span>
+        </div>
+        {t.updates?.length>0 && <div style={{fontSize:10,color:"var(--accent)",marginTop:6}}>💬 {t.updates.length}</div>}
+      </div>
+    );
+  };
 
   return (
-    <div>
-      {/* Input */}
-      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:20,marginBottom:20}}>
-        <div style={{fontSize:10,color:"var(--accent)",letterSpacing:2,fontWeight:800,marginBottom:12}}>✅ NOVA TAREFA</div>
-        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Descreva a tarefa..." rows={2}
-          style={{...inp,resize:"none",marginBottom:12}} onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div style={{display:"flex",gap:8}}>
-            {["alta","normal","baixa"].map(p=>(
-              <button key={p} onClick={()=>setPrio(p)} style={{background:prio===p?prioColor[p]+"22":"var(--bg-input)",border:`1px solid ${prio===p?prioColor[p]:"var(--border)"}`,borderRadius:20,padding:"5px 12px",color:prio===p?prioColor[p]:"var(--text-3)",fontSize:11,fontWeight:700,cursor:"pointer"}}>{prioLabel[p]}</button>
-            ))}
+    <div ref={boardRef}>
+      {/* Add task bar */}
+      <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, padding:16, marginBottom:18 }}>
+        {!addOpen ? (
+          <button onClick={()=>setAddOpen(true)} style={{...btn(),display:"flex",alignItems:"center",gap:8,width:"100%",justifyContent:"center"}}>
+            <Icon path={I.plus} size={14}/> Nova Tarefa
+          </button>
+        ) : (
+          <div>
+            <textarea autoFocus value={text} onChange={e=>setText(e.target.value)} placeholder="Descreva a tarefa..." rows={2}
+              style={{...inp,resize:"none",marginBottom:12}} onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+              <div style={{display:"flex",gap:8}}>
+                {["alta","normal","baixa"].map(p=>(
+                  <button key={p} onClick={()=>setPrio(p)} style={{background:prio===p?prioColor[p]+"22":"var(--bg-input)",border:`1px solid ${prio===p?prioColor[p]:"var(--border)"}`,borderRadius:20,padding:"5px 12px",color:prio===p?prioColor[p]:"var(--text-3)",fontSize:11,fontWeight:700,cursor:"pointer"}}>{prioLabel[p]}</button>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setAddOpen(false)} style={{...btn("var(--bg-input)"),color:"var(--text-2)",padding:"8px 16px"}}>Cancelar</button>
+                <button onClick={add} style={{...btn(),padding:"8px 20px"}}>+ Adicionar</button>
+              </div>
+            </div>
           </div>
-          <button onClick={add} style={{...btn(),padding:"8px 20px"}}>+ Adicionar</button>
-        </div>
+        )}
       </div>
 
-      {/* Filters */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {[["all","Todas"],["todo","Pendentes"],["done","Concluídas"],["alta","Alta"],["normal","Normal"]].map(([id,label])=>(
-            <button key={id} onClick={()=>setFilter(id)} style={{background:filter===id?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"5px 12px",color:filter===id?"#fff":"var(--text-2)",fontSize:11,fontWeight:600,cursor:"pointer"}}>{label}</button>
-          ))}
-        </div>
-        <span style={{fontSize:11,color:"var(--text-3)"}}>{tasks.filter(t=>!t.done).length} pendentes</span>
-      </div>
-
-      {/* Cards grid */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
-        {filtered.map(t=>(
-          <div key={t.id} onClick={()=>setEditModal(t)} style={{background:"var(--bg-card)",border:`1px solid ${t.done?"var(--border-2)":prioColor[t.prio]+"44"}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",opacity:t.done?0.6:1,transition:"opacity .2s"}}>
-            <div style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:8}}>
-              <button onClick={e=>{e.stopPropagation();toggle(t.id);}} style={{width:22,height:22,borderRadius:6,border:`2px solid ${t.done?"var(--green)":prioColor[t.prio]}`,background:t.done?"var(--green)":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
-                {t.done&&<Icon path={I.check} size={12} color="#fff"/>}
-              </button>
-              <p style={{margin:0,fontSize:14,color:"var(--text-1)",lineHeight:1.5,textDecoration:t.done?"line-through":"none",flex:1}}>{t.text}</p>
+      {/* Kanban board */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:14 }}
+        className="kanban-grid">
+        {COLS.map(col => (
+          <div key={col.id} ref={el => colRefs.current[col.id]=el}
+            style={{
+              background: overCol===col.id ? "var(--accent-dim)" : "var(--bg-sub)",
+              border: `2px ${overCol===col.id ? "dashed var(--accent)" : "solid var(--border)"}`,
+              borderRadius:14, padding:14, minHeight:300,
+              transition:"background .15s, border-color .15s",
+              display:"flex", flexDirection:"column",
+            }}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,paddingBottom:10,borderBottom:"1px solid var(--border)"}}>
+              <span style={{fontSize:13,fontWeight:800,color:col.color}}>{col.label}</span>
+              <span style={{fontSize:11,color:"var(--text-3)",background:"var(--bg-input)",borderRadius:10,padding:"2px 8px"}}>{grouped[col.id].length}</span>
             </div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"var(--text-3)"}}>
-              <span style={{color:prioColor[t.prio],fontWeight:700}}>{prioLabel[t.prio]}</span>
-              <span>{new Date(t.date).toLocaleDateString("pt-BR")} {new Date(t.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
+            <div style={{flex:1}}>
+              {grouped[col.id].map(t => <TaskCard key={t.id} t={t}/>)}
+              {grouped[col.id].length===0 && (
+                <div style={{textAlign:"center",color:"var(--text-3)",fontSize:12,padding:"30px 0",opacity:.6}}>
+                  {overCol===col.id ? "Solte aqui" : "Vazio"}
+                </div>
+              )}
             </div>
-            {t.updates?.length>0&&<div style={{fontSize:10,color:"var(--accent)",marginTop:6}}>{t.updates.length} atualização(ões)</div>}
-            <button onClick={e=>{e.stopPropagation();del(t.id);}} style={{position:"absolute",display:"none"}}>x</button>
           </div>
         ))}
-        {filtered.length===0&&<Empty text="Nenhuma tarefa aqui."/>}
       </div>
+      <style>{`
+        @media (max-width: 760px) {
+          .kanban-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
 
-      {editModal&&(
-        <Modal title={editModal.text.slice(0,40)+"..."} onClose={()=>{setEditModal(null);setAddNote("");}}>
+      {editModal && (
+        <Modal title={editModal.text.slice(0,40)+(editModal.text.length>40?"...":"")} onClose={()=>{setEditModal(null);setAddNote("");}}>
           <div style={{marginBottom:16}}>
-            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12}}>
-              <button onClick={()=>toggle(editModal.id)} style={{...btn(editModal.done?"var(--green)":"var(--bg-input)"),padding:"6px 14px",fontSize:12,border:`1px solid ${editModal.done?"var(--green)":"var(--border)"}`}}>
-                {editModal.done?"✅ Concluída":"⬜ Pendente"}
-              </button>
-              <span style={{fontSize:11,color:prioColor[editModal.prio],fontWeight:700}}>{prioLabel[editModal.prio]}</span>
+            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12,flexWrap:"wrap"}}>
+              {COLS.map(col=>(
+                <button key={col.id} onClick={()=>{setStatus(editModal.id,col.id);setEditModal({...editModal,status:col.id,done:col.id==="done"});}}
+                  style={{
+                    background: getStatus(editModal)===col.id ? col.color+"22" : "var(--bg-input)",
+                    border:`1px solid ${getStatus(editModal)===col.id?col.color:"var(--border)"}`,
+                    borderRadius:20, padding:"6px 14px", fontSize:12, fontWeight:700,
+                    color: getStatus(editModal)===col.id ? col.color : "var(--text-3)",
+                    cursor:"pointer",
+                  }}>
+                  {col.label}
+                </button>
+              ))}
             </div>
-            <p style={{color:"var(--text-2)",lineHeight:1.7,fontSize:14,marginBottom:16}}>{editModal.text}</p>
+            <span style={{fontSize:11,color:prioColor[editModal.prio],fontWeight:700}}>{prioLabel[editModal.prio]}</span>
+            <p style={{color:"var(--text-2)",lineHeight:1.7,fontSize:14,margin:"12px 0 16px"}}>{editModal.text}</p>
             <div style={{fontSize:10,color:"var(--text-3)",marginBottom:16}}>Criada em {new Date(editModal.date).toLocaleString("pt-BR")}</div>
 
             <div style={{borderTop:"1px solid var(--border)",paddingTop:16}}>
@@ -3757,6 +3884,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
