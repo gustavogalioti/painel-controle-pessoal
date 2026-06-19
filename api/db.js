@@ -14,7 +14,9 @@ async function initTables(sql) {
   await sql`CREATE TABLE IF NOT EXISTS diary      (id BIGINT PRIMARY KEY, text TEXT NOT NULL, mood VARCHAR(10) DEFAULT '🙂', date TEXT)`;
   await sql`CREATE TABLE IF NOT EXISTS ideas      (id BIGINT PRIMARY KEY, text TEXT NOT NULL, mood VARCHAR(10) DEFAULT '🙂', date TEXT)`;
   await sql`CREATE TABLE IF NOT EXISTS reminders  (id BIGINT PRIMARY KEY, text TEXT NOT NULL, mood VARCHAR(10) DEFAULT '🙂', date TEXT)`;
-  await sql`CREATE TABLE IF NOT EXISTS tasks      (id BIGINT PRIMARY KEY, text TEXT NOT NULL, prio VARCHAR(20) DEFAULT 'normal', done BOOLEAN DEFAULT FALSE, date TEXT)`;
+  await sql`CREATE TABLE IF NOT EXISTS tasks      (id BIGINT PRIMARY KEY, text TEXT NOT NULL, prio VARCHAR(20) DEFAULT 'normal', done BOOLEAN DEFAULT FALSE, status VARCHAR(20) DEFAULT 'todo', date TEXT)`;
+  // Migration: add status column if table already existed without it
+  await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'todo'`;
   await sql`CREATE TABLE IF NOT EXISTS bills      (id BIGINT PRIMARY KEY, name TEXT NOT NULL, value NUMERIC DEFAULT 0, due_day INT, cat VARCHAR(50), recurrent BOOLEAN DEFAULT TRUE, paid BOOLEAN DEFAULT FALSE)`;
   await sql`CREATE TABLE IF NOT EXISTS events     (id BIGINT PRIMARY KEY, title TEXT NOT NULL, date TEXT, time TEXT DEFAULT '', local TEXT DEFAULT '', cat VARCHAR(50), notes TEXT DEFAULT '')`;
   await sql`CREATE TABLE IF NOT EXISTS curiosities(id BIGINT PRIMARY KEY, title TEXT NOT NULL, content TEXT DEFAULT '', link TEXT DEFAULT '', image_url TEXT DEFAULT '', tag TEXT DEFAULT '', updates JSONB DEFAULT '[]', created TEXT)`;
@@ -90,7 +92,7 @@ export default async function handler(req) {
       if (table === "diary")       await sql`INSERT INTO diary (id,text,mood,date) VALUES (${id},${text},${mood||'🙂'},${date}) ON CONFLICT (id) DO NOTHING`;
       if (table === "ideas")       await sql`INSERT INTO ideas (id,text,mood,date) VALUES (${id},${text},${mood||'🙂'},${date}) ON CONFLICT (id) DO NOTHING`;
       if (table === "reminders")   await sql`INSERT INTO reminders (id,text,mood,date) VALUES (${id},${text},${mood||'🙂'},${date}) ON CONFLICT (id) DO NOTHING`;
-      if (table === "tasks")       await sql`INSERT INTO tasks (id,text,prio,done,date) VALUES (${id},${text},${prio||'normal'},${done||false},${date}) ON CONFLICT (id) DO NOTHING`;
+      if (table === "tasks")       await sql`INSERT INTO tasks (id,text,prio,done,status,date) VALUES (${id},${text},${prio||'normal'},${done||false},${body.status||'todo'},${date}) ON CONFLICT (id) DO NOTHING`;
       if (table === "bills")       await sql`INSERT INTO bills (id,name,value,due_day,cat,recurrent,paid) VALUES (${id},${name},${value||0},${due_day},${cat},${recurrent},${paid||false}) ON CONFLICT (id) DO NOTHING`;
       if (table === "events")      await sql`INSERT INTO events (id,title,date,time,local,cat,notes) VALUES (${id},${title},${date},${time||''},${local||''},${cat},${notes||''}) ON CONFLICT (id) DO NOTHING`;
       if (table === "curiosities") await sql`INSERT INTO curiosities (id,title,content,link,image_url,tag,updates,created) VALUES (${id},${title},${content||''},${link||''},${image_url||''},${tag||''},${JSON.stringify(updates||[])},${created}) ON CONFLICT (id) DO NOTHING`;
@@ -99,8 +101,16 @@ export default async function handler(req) {
     }
 
     if (req.method === "PUT") {
-      const { id, done, paid, text, mood, updates, title, date, time, local, cat, notes } = body;
-      if (table === "tasks")       await sql`UPDATE tasks       SET done=${done}                                WHERE id=${id}`;
+      const { id, done, paid, text, mood, updates, title, date, time, local, cat, notes, status } = body;
+      if (table === "tasks") {
+        if (status !== undefined && done !== undefined) {
+          await sql`UPDATE tasks SET done=${done}, status=${status} WHERE id=${id}`;
+        } else if (status !== undefined) {
+          await sql`UPDATE tasks SET status=${status} WHERE id=${id}`;
+        } else if (done !== undefined) {
+          await sql`UPDATE tasks SET done=${done} WHERE id=${id}`;
+        }
+      }
       if (table === "bills")       await sql`UPDATE bills       SET paid=${paid}                               WHERE id=${id}`;
       if (table === "diary")       await sql`UPDATE diary       SET text=${text}, mood=${mood}                 WHERE id=${id}`;
       if (table === "ideas")       await sql`UPDATE ideas       SET text=${text}, mood=${mood}                 WHERE id=${id}`;
@@ -127,4 +137,5 @@ export default async function handler(req) {
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: CORS });
   }
 }
+
 
