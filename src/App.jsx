@@ -1508,9 +1508,10 @@ function TasksPage() {
   const prioLabel = {alta:"🔴 Alta",normal:"🔵 Normal",baixa:"⚪ Baixa"};
 
   const COLS = [
-    { id:"todo",  label:"📋 A Fazer",     color:"var(--text-3)" },
-    { id:"doing", label:"⚡ Em Andamento", color:"var(--yellow)" },
-    { id:"done",  label:"✅ Concluído",    color:"var(--green)"  },
+    { id:"todo",    label:"📋 A Fazer",     color:"var(--text-3)" },
+    { id:"doing",   label:"⚡ Em Andamento", color:"var(--yellow)" },
+    { id:"standby", label:"⏸ Stand By",     color:"var(--purple)" },
+    { id:"done",    label:"✅ Concluído",    color:"var(--green)"  },
   ];
 
   const getStatus = (t) => t.status || (t.done ? "done" : "todo");
@@ -1623,7 +1624,7 @@ function TasksPage() {
     };
   }, [overCol]);
 
-  const grouped = { todo:[], doing:[], done:[] };
+  const grouped = { todo:[], doing:[], standby:[], done:[] };
   tasks.forEach(t => { const s = getStatus(t); (grouped[s] || grouped.todo).push(t); });
 
   const TaskCard = ({ t }) => {
@@ -1682,7 +1683,7 @@ function TasksPage() {
       </div>
 
       {/* Kanban board */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:14 }} className="kanban-grid">
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:14 }} className="kanban-grid">
         {COLS.map(col => (
           <div key={col.id} ref={el => colRefs.current[col.id]=el}
             style={{
@@ -1710,6 +1711,9 @@ function TasksPage() {
       <style>{`
         @media (max-width: 760px) {
           .kanban-grid { grid-template-columns: 1fr !important; }
+          @media (min-width:761px) and (max-width:1100px) {
+            .kanban-grid { grid-template-columns: repeat(2,1fr) !important; }
+          }
         }
       `}</style>
 
@@ -4237,6 +4241,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
