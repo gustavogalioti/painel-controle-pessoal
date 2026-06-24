@@ -1125,11 +1125,352 @@ function RemindersCards() {
 }
 
 // ─── DIARY PAGE ───────────────────────────────────────────────────────────────
+// ─── TEMAS PAGE ───────────────────────────────────────────────────────────────
+function TemasPage() {
+  const todayKey = () => new Date().toISOString().slice(0,10);
+  const fmtDt    = (iso) => new Date(iso).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"});
+  const fmtDay   = (key) => {
+    const [y,m,d] = key.split("-");
+    return new Date(Number(y),Number(m)-1,Number(d))
+      .toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  };
+
+  // ── Mode: "fixed" (pinned boards) | "daily" (today's boards + history) ──
+  const [mode, setMode] = useState("fixed");
+
+  // ── Persistent state via useKV ──
+  const [fixedBoards, setFixedBoards, fSynced] = useKV("temas_fixed_v1", []);
+  const [dailyData,   setDailyData,   dSynced] = useKV("temas_daily_v1", {}); // { "YYYY-MM-DD": [board,...] }
+
+  // ── UI state ──
+  const [addOpen,      setAddOpen]      = useState(false);
+  const [editCard,     setEditCard]     = useState(null); // { board, mode, day? }
+  const [historyDay,   setHistoryDay]   = useState(null); // viewing a past day
+  const [form,         setForm]         = useState({ title:"", text:"" });
+  const [updateText,   setUpdateText]   = useState("");
+  const [viewCard,     setViewCard]     = useState(null); // modal to view/edit
+
+  const today = todayKey();
+  const todayBoards = dailyData[today] || [];
+
+  // ── Helpers ──
+  const makeBoard = (title, text, mode) => ({
+    id:    Date.now() + Math.random(),
+    title: title.trim(),
+    text:  text.trim(),
+    mode,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    updates:   [],
+  });
+
+  // ── Fixed boards CRUD ──
+  const addFixed = () => {
+    if (!form.title.trim()) return;
+    const b = makeBoard(form.title, form.text, "fixed");
+    setFixedBoards([b, ...fixedBoards]);
+    setForm({ title:"", text:"" }); setAddOpen(false);
+  };
+
+  const updateFixed = (id, patch) => {
+    const entry = { text: patch.text, date: new Date().toISOString() };
+    const next = fixedBoards.map(b => b.id===id
+      ? { ...b, ...patch, updatedAt: new Date().toISOString(), updates: [...(b.updates||[]), entry] }
+      : b
+    );
+    setFixedBoards(next);
+  };
+
+  const deleteFixed = (id) => {
+    setFixedBoards(fixedBoards.filter(b => b.id !== id));
+    setViewCard(null);
+  };
+
+  // ── Daily boards CRUD ──
+  const addDaily = () => {
+    if (!form.title.trim()) return;
+    const b = makeBoard(form.title, form.text, "daily");
+    const next = { ...dailyData, [today]: [b, ...(dailyData[today]||[])] };
+    setDailyData(next);
+    setForm({ title:"", text:"" }); setAddOpen(false);
+  };
+
+  const updateDaily = (id, patch) => {
+    const entry = { text: patch.text, date: new Date().toISOString() };
+    const dayKey = historyDay || today;
+    const next = {
+      ...dailyData,
+      [dayKey]: (dailyData[dayKey]||[]).map(b => b.id===id
+        ? { ...b, ...patch, updatedAt: new Date().toISOString(), updates: [...(b.updates||[]), entry] }
+        : b
+      )
+    };
+    setDailyData(next);
+  };
+
+  const deleteDaily = (id) => {
+    const dayKey = historyDay || today;
+    const next = { ...dailyData, [dayKey]: (dailyData[dayKey]||[]).filter(b=>b.id!==id) };
+    setDailyData(next);
+    setViewCard(null);
+  };
+
+  const handleAdd  = () => mode==="fixed" ? addFixed()  : addDaily();
+  const handleEdit = (board) => { mode==="fixed" ? updateFixed(board.id,  {text:updateText}) : updateDaily(board.id, {text:updateText}); setUpdateText(""); setViewCard(null); };
+  const handleDel  = (id)    => mode==="fixed" ? deleteFixed(id)  : deleteDaily(id);
+
+  // ── History keys (daily mode only) ──
+  const histKeys = Object.keys(dailyData)
+    .filter(k => k!==today && (dailyData[k]||[]).length>0)
+    .sort((a,b)=>b.localeCompare(a));
+
+  const displayBoards = mode==="fixed"
+    ? fixedBoards
+    : historyDay ? (dailyData[historyDay]||[]) : todayBoards;
+
+  const isReadOnly = mode==="daily" && historyDay !== null;
+
+  // ── Board card colors (cycle) ──
+  const CARD_COLORS = [
+    "#2563eb","#7c3aed","#059669","#d97706",
+    "#dc2626","#0891b2","#be185d","#065f46",
+  ];
+
+  // ── RENDER ──
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+      {/* Mode selector + Add button */}
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:6,background:"var(--bg-sub)",borderRadius:30,padding:4,border:"1px solid var(--border)"}}>
+          {[
+            {k:"fixed", icon:"📌", label:"Fixos"},
+            {k:"daily", icon:"🗓", label:"Por dia"},
+          ].map(o=>(
+            <button key={o.k} onClick={()=>{setMode(o.k);setHistoryDay(null);}}
+              style={{background:mode===o.k?"var(--accent)":"transparent",
+                border:"none",borderRadius:26,padding:"7px 18px",
+                color:mode===o.k?"#fff":"var(--text-2)",
+                fontSize:13,fontWeight:700,cursor:"pointer",transition:"all .15s",
+                display:"flex",alignItems:"center",gap:6}}>
+              {o.icon} {o.label}
+            </button>
+          ))}
+        </div>
+
+        {!isReadOnly && (
+          <button onClick={()=>{setAddOpen(true);setForm({title:"",text:""}); }}
+            style={{...btn(),display:"flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:30}}>
+            <Icon path={I.plus} size={14}/> Novo quadro
+          </button>
+        )}
+
+        {/* Daily: today/history toggle */}
+        {mode==="daily" && (
+          <div style={{display:"flex",gap:6,marginLeft:"auto",flexWrap:"wrap"}}>
+            <button onClick={()=>setHistoryDay(null)}
+              style={{...btn(historyDay===null?"var(--accent)":"var(--bg-card)"),
+                border:`1px solid ${historyDay===null?"var(--accent)":"var(--border)"}`,
+                color:historyDay===null?"#fff":"var(--text-2)",
+                padding:"7px 16px",borderRadius:20,fontSize:12}}>
+              📌 Hoje
+            </button>
+            {histKeys.length>0 && (
+              <select value={historyDay||""} onChange={e=>setHistoryDay(e.target.value||null)}
+                style={{...inp,padding:"7px 12px",borderRadius:20,fontSize:12,width:"auto",cursor:"pointer"}}>
+                <option value="">🗂 Histórico ({histKeys.length} dias)</option>
+                {histKeys.map(k=>(
+                  <option key={k} value={k}>{fmtDay(k)}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Day label */}
+      {mode==="daily" && (
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{fontSize:13,color:"var(--text-3)",fontWeight:600}}>
+            {historyDay
+              ? <>📖 {fmtDay(historyDay)} <span style={{background:"var(--purple)",color:"#fff",borderRadius:10,padding:"2px 10px",fontSize:10,marginLeft:6}}>Leitura</span></>
+              : <>📅 {new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}</>
+            }
+          </div>
+          {historyDay && (
+            <button onClick={()=>setHistoryDay(null)}
+              style={{...btn("transparent"),border:"1px solid var(--border)",color:"var(--accent)",padding:"4px 12px",borderRadius:12,fontSize:11}}>
+              ← Voltar para hoje
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Boards grid */}
+      {displayBoards.length===0 ? (
+        <div style={{textAlign:"center",padding:"60px 0",color:"var(--text-3)"}}>
+          <div style={{fontSize:48,opacity:.15,marginBottom:12}}>📋</div>
+          <div style={{fontSize:14}}>
+            {isReadOnly ? "Nenhum quadro criado neste dia." : "Nenhum quadro ainda. Clique em + Novo quadro."}
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          display:"grid",
+          gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",
+          gap:14,
+        }}>
+          {displayBoards.map((board, idx) => (
+            <div key={board.id}
+              onClick={()=>{ setViewCard({board, mode, dayKey: historyDay||today}); setUpdateText(""); }}
+              style={{
+                background:"var(--bg-card)",
+                border:"1px solid var(--border)",
+                borderTop:`4px solid ${CARD_COLORS[idx%CARD_COLORS.length]}`,
+                borderRadius:14, padding:20, cursor:"pointer",
+                transition:"transform .15s, box-shadow .15s",
+                display:"flex", flexDirection:"column", gap:10,
+                boxShadow:"0 2px 8px #0001",
+              }}
+              onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 8px 24px #0002";}}
+              onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="0 2px 8px #0001";}}>
+
+              {/* Header */}
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                <h3 style={{margin:0,fontSize:15,fontWeight:800,color:"var(--text-1)",lineHeight:1.3}}>
+                  {board.title}
+                </h3>
+                <div style={{width:10,height:10,borderRadius:"50%",background:CARD_COLORS[idx%CARD_COLORS.length],flexShrink:0,marginTop:4}}/>
+              </div>
+
+              {/* Text preview */}
+              <p style={{margin:0,fontSize:13,color:"var(--text-2)",lineHeight:1.6,
+                display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
+                {board.text || <span style={{opacity:.4,fontStyle:"italic"}}>Sem conteúdo</span>}
+              </p>
+
+              {/* Footer */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:"auto",paddingTop:10,borderTop:"1px solid var(--border)"}}>
+                <span style={{fontSize:10,color:"var(--text-3)"}}>
+                  {board.updates?.length>0
+                    ? `Atualizado ${fmtDt(board.updatedAt)}`
+                    : `Criado ${fmtDt(board.createdAt)}`}
+                </span>
+                {board.updates?.length>0 && (
+                  <span style={{fontSize:10,color:"var(--accent)",background:"var(--accent-dim)",borderRadius:8,padding:"2px 8px"}}>
+                    {board.updates.length} atualiz.
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── ADD MODAL ── */}
+      {addOpen && (
+        <Modal title={`Novo quadro — ${mode==="fixed"?"Fixo":"Dia de hoje"}`} onClose={()=>setAddOpen(false)}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div>
+              <label style={{fontSize:11,color:"var(--text-3)",letterSpacing:2,fontWeight:700,display:"block",marginBottom:6}}>TÍTULO</label>
+              <input autoFocus style={inp} placeholder="Ex: Projeto X, Reflexão, Ideia..." value={form.title}
+                onChange={e=>setForm({...form,title:e.target.value})}
+                onKeyDown={e=>{if(e.key==="Enter")document.getElementById("temas-text-area")?.focus();}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"var(--text-3)",letterSpacing:2,fontWeight:700,display:"block",marginBottom:6}}>CONTEÚDO</label>
+              <textarea id="temas-text-area" style={{...inp,resize:"vertical",minHeight:120}} placeholder="Descreva, anote, reflita..."
+                value={form.text} onChange={e=>setForm({...form,text:e.target.value})}/>
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setAddOpen(false)} style={{...btn("var(--bg-input)"),color:"var(--text-2)"}}>Cancelar</button>
+              <button onClick={handleAdd} style={{...btn(),padding:"10px 24px",fontWeight:700}}
+                disabled={!form.title.trim()}>
+                Criar quadro
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── VIEW / EDIT MODAL ── */}
+      {viewCard && (
+        <Modal title={viewCard.board.title} onClose={()=>{setViewCard(null);setUpdateText("");}}>
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+            {/* Meta */}
+            <div style={{display:"flex",gap:12,fontSize:10,color:"var(--text-3)",flexWrap:"wrap"}}>
+              <span>📅 Criado: {fmtDt(viewCard.board.createdAt)}</span>
+              {viewCard.board.updates?.length>0 && <span>✏️ Atualizado: {fmtDt(viewCard.board.updatedAt)}</span>}
+              <span style={{background:"var(--bg-sub)",borderRadius:8,padding:"2px 8px",color:"var(--text-2)"}}>
+                {viewCard.mode==="fixed"?"📌 Fixo":"🗓 Dia"}
+              </span>
+            </div>
+
+            {/* Main text */}
+            <div style={{background:"var(--bg-sub)",borderRadius:12,padding:16,fontSize:14,color:"var(--text-1)",lineHeight:1.8,whiteSpace:"pre-wrap",minHeight:80}}>
+              {viewCard.board.text || <span style={{opacity:.4,fontStyle:"italic"}}>Sem conteúdo</span>}
+            </div>
+
+            {/* Update history */}
+            {viewCard.board.updates?.length>0 && (
+              <div>
+                <div style={{fontSize:10,color:"var(--accent)",letterSpacing:2,fontWeight:700,marginBottom:10}}>
+                  HISTÓRICO DE ATUALIZAÇÕES
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:200,overflowY:"auto"}}>
+                  {[...viewCard.board.updates].reverse().map((u,i)=>(
+                    <div key={i} style={{background:"var(--bg-input)",borderRadius:10,padding:"10px 14px"}}>
+                      <div style={{fontSize:13,color:"var(--text-2)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{u.text}</div>
+                      <div style={{fontSize:10,color:"var(--text-3)",marginTop:4}}>🕐 {fmtDt(u.date)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Add update (only if not read-only history) */}
+            {!isReadOnly && (
+              <div style={{borderTop:"1px solid var(--border)",paddingTop:16}}>
+                <div style={{fontSize:11,color:"var(--text-3)",letterSpacing:2,fontWeight:700,marginBottom:10}}>
+                  ADICIONAR ATUALIZAÇÃO
+                </div>
+                <textarea
+                  style={{...inp,resize:"vertical",minHeight:80,marginBottom:10}}
+                  placeholder="O que mudou? Adicione uma nota com data e hora automáticas..."
+                  value={updateText}
+                  onChange={e=>setUpdateText(e.target.value)}
+                />
+                <button onClick={()=>handleEdit(viewCard.board)}
+                  disabled={!updateText.trim()}
+                  style={{...btn("var(--green)"),width:"100%",padding:"10px",fontWeight:700}}>
+                  Salvar atualização
+                </button>
+              </div>
+            )}
+
+            {/* Delete */}
+            {!isReadOnly && (
+              <button onClick={()=>handleDel(viewCard.board.id)}
+                style={{background:"rgba(220,38,38,0.08)",border:"1px solid rgba(220,38,38,0.25)",
+                  borderRadius:10,padding:"8px 16px",color:"var(--red)",fontSize:13,cursor:"pointer"}}>
+                🗑 Excluir quadro
+              </button>
+            )}
+          </div>
+        </Modal>
+      )}
+
+    </div>
+  );
+}
+
 function DiaryPage() {
   const [active, setActive] = useState("diary");
   const tabs = [
     {id:"dia",       label:"📌 Dia",       color:"#e67e22"},
     {id:"diary",     label:"📓 Diário",    color:"var(--accent)"},
+    {id:"temas",     label:"📋 Temas",     color:"#0891b2"},
     {id:"ideas",     label:"💡 Ideias",    color:"var(--purple)"},
     {id:"reminders", label:"🔔 Lembretes", color:"var(--yellow)"},
   ];
@@ -1146,6 +1487,7 @@ function DiaryPage() {
       <div style={{flex:1,animation:"fadeIn .2s ease",overflow:"hidden"}}>
         {active==="dia"       && <DayBoardPage/>}
         {active==="diary"     && <NoteColumn storageKey="diary" title="Diário" placeholder="O que está em sua mente hoje?" accent="var(--accent)" emoji="📓"/>}
+        {active==="temas"     && <TemasPage/>}
         {active==="ideas"     && <IdeasCards/>}
         {active==="reminders" && <RemindersCards/>}
       </div>
@@ -3895,6 +4237,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
