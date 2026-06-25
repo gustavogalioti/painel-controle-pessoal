@@ -42,7 +42,10 @@ const DB = {
   list:  async (t)=>{ try{ const r=await fetch(`/api/db?table=${t}`); return await r.json(); }catch{return null;} },
   insert:async (t,row)=>{ try{ await fetch(`/api/db?table=${t}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(row)}); }catch{} },
   update:async (t,row)=>{ try{ await fetch(`/api/db?table=${t}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(row)}); }catch{} },
-  delete:async (t,id)=>{ try{ await fetch(`/api/db?table=${t}&id=${id}`,{method:"DELETE"}); }catch{} },
+  delete:async (t,id)=>{
+    const r=await fetch(`/api/db?table=${t}&id=${id}`,{method:"DELETE"});
+    if(!r.ok) throw new Error(`Delete failed ${r.status}`);
+  },
 };
 
 // ── Generic key/value cloud sync (whiteboard, dayboard, letreiro, dj banks) ──
@@ -313,7 +316,7 @@ function NoteColumn({ storageKey, title, placeholder, accent, emoji, hasCheck })
     const n = [e, ...entries];
     setEntries(n); DB.insert(storageKey, e); setText("");
   };
-  const del  = id => { const n=entries.filter(e=>Number(e.id)!==Number(id)); setEntries(n); DB.delete(storageKey,id); };
+  const del  = id => { DB.delete(storageKey,id).then(()=>setEntries(p=>p.filter(e=>Number(e.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
   const tick = id => {
     const cur = entries.find(e=>e.id===id);
     const n = entries.map(e=>e.id===id?{...e,done:!e.done}:e);
@@ -1029,7 +1032,7 @@ function IdeasCards() {
     const e={id:Date.now(),text,tag,mood:"💡",date:nowISO()};
     const n=[e,...entries]; setEntries(n); DB.insert("ideas",e); setText(""); setTag("");
   };
-  const del = id=>{ const n=entries.filter(e=>Number(e.id)!==Number(id)); setEntries(n); DB.delete("ideas",id); };
+  const del = id=>{ DB.delete("ideas",id).then(()=>setEntries(p=>p.filter(e=>Number(e.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
   const openEdit = e=>{ setEditing(e); setEditText(e.text); setEditTag(e.tag||""); };
   const saveEdit = ()=>{
     const n=entries.map(e=>e.id===editing.id?{...e,text:editText,tag:editTag}:e);
@@ -1091,7 +1094,7 @@ function RemindersCards() {
     const n=entries.map(e=>e.id===id?{...e,done:!e.done}:e);
     setEntries(n); DB.update("reminders",{id,done:!cur.done});
   };
-  const del = id=>{ const n=entries.filter(e=>Number(e.id)!==Number(id)); setEntries(n); DB.delete("reminders",id); };
+  const del = id=>{ DB.delete("reminders",id).then(()=>setEntries(p=>p.filter(e=>Number(e.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
   const openEdit = e=>{ setEditing(e); setEditText(e.text); };
   const saveEdit = ()=>{
     const n=entries.map(e=>e.id===editing.id?{...e,text:editText}:e);
@@ -1557,7 +1560,7 @@ function TasksPage() {
     }).catch(()=>{});
   };
 
-  const del = (id) => { save(tasks.filter(t=>Number(t.id)!==Number(id))); DB.delete("tasks", id); };
+  const del = (id) => { DB.delete("tasks",id).then(()=>setTasks(p=>p.filter(t=>Number(t.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
 
   const addTaskNote = (id) => {
     if (!addNote.trim()) return;
@@ -1922,7 +1925,7 @@ function DocsPage() {
     }
     setModal(false); setEditingId(null); setForm({name:"",cat:"Pessoal",tags:"",notes:""}); setFileData(null); setFileName("");
   };
-  const del  = id=>{ const n=docs.filter(d=>Number(d.id)!==Number(id)); setDocs(n); DB.delete("documents",id); };
+  const del  = id=>{ DB.delete("documents",id).then(()=>setDocs(p=>p.filter(d=>Number(d.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
   const edit = id=>{ const d=docs.find(d=>d.id===id); if(d){ setForm({name:d.name,cat:d.cat,tags:Array.isArray(d.tags)?d.tags.join(", "):"",notes:d.notes||""}); setFileData(d.file||null); setFileName(d.file?.name||""); setEditingId(id); setModal(true); } };
   const download = doc=>{ if(!doc.file?.data) return; const a=document.createElement("a"); a.href=doc.file.data; a.download=doc.file.name; a.click(); };
 
@@ -1998,7 +2001,7 @@ function BillsPage() {
     const b=bills.find(b=>b.id===id);
     const n=bills.map(b=>b.id===id?{...b,paid:!b.paid}:b); setBills(n); DB.update("bills",{id,paid:!b.paid});
   };
-  const del = id=>{ const n=bills.filter(b=>Number(b.id)!==Number(id)); setBills(n); DB.delete("bills",id); };
+  const del = id=>{ DB.delete("bills",id).then(()=>setBills(p=>p.filter(b=>Number(b.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
   const day = new Date().getDate();
   const upcoming = bills.filter(b=>!b.paid&&+b.dueDay>=day&&+b.dueDay<=day+5);
   const total    = bills.filter(b=>!b.paid).reduce((s,b)=>s+b.value,0);
@@ -2067,7 +2070,7 @@ function EventsPage() {
     setEvents(n); DB.insert("events",e);
     setModal(false); setForm({title:"",date:"",time:"",local:"",cat:"Pessoal",notes:""});
   };
-  const del = id=>{ const n=events.filter(e=>Number(e.id)!==Number(id)); setEvents(n); DB.delete("events",id); };
+  const del = id=>{ DB.delete("events",id).then(()=>setEvents(p=>p.filter(e=>Number(e.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
   const todayStr = new Date().toISOString().split("T")[0];
 
   const Card = ({e})=>(
@@ -4261,6 +4264,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
