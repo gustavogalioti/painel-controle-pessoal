@@ -125,67 +125,67 @@ function useKV(key, def) {
 }
 
 function useDB(table, localKey, def=[]) {
-  const [data, setData] = useState(()=>S.get(localKey,def));
+  // localStorage é apenas cache de exibição rápida — banco é a única fonte da verdade
+  const [data, setData] = useState(()=>{ try{ const v=localStorage.getItem(localKey); return v?JSON.parse(v):def; }catch{return def;} });
   const [synced, setSynced] = useState(false);
   const dataRef    = useRef(data);
   dataRef.current  = data;
-  // Guard: true for 4s after any local write/delete — prevents poll from
-  // overwriting changes that haven't propagated to the DB yet
-  const writingRef = useRef(false);
-  const writeTimer = useRef(null);
+  const writingRef = useRef(false); // bloqueia poll enquanto operação local está em andamento
+  const timerRef   = useRef(null);
 
-  const lockWrite = () => {
+  const lock = () => {
     writingRef.current = true;
-    clearTimeout(writeTimer.current);
-    writeTimer.current = setTimeout(() => { writingRef.current = false; }, 4000);
+    clearTimeout(timerRef.current);
+    // desbloqueia após tempo suficiente para o banco confirmar (6s é seguro)
+    timerRef.current = setTimeout(() => { writingRef.current = false; }, 6000);
   };
 
-  const pull = async (isInitial) => {
-    if (writingRef.current && !isInitial) return; // skip poll while a local op is in-flight
-    const rows = await DB.list(table);
-    if (writingRef.current && !isInitial) return; // check again after await
-    const local = S.get(localKey, def);
-    if (rows && Array.isArray(rows) && rows.length>0) {
-      if (isInitial) {
-        const bankIds = new Set(rows.map(r=>String(r.id)));
-        const onlyLocal = local.filter(l=>!bankIds.has(String(l.id)));
-        for (const item of onlyLocal) await DB.insert(table,item);
-        const all = [...rows,...onlyLocal].sort((a,b)=>Number(b.id)-Number(a.id));
-        setData(all); S.set(localKey,all);
-      } else {
-        const sorted = [...rows].sort((a,b)=>Number(b.id)-Number(a.id));
-        const rowsStr = JSON.stringify(sorted);
-        const curStr  = JSON.stringify(dataRef.current);
-        if (rowsStr !== curStr) { setData(sorted); S.set(localKey,sorted); }
-      }
-    } else if (local.length>0 && isInitial) {
-      for (const item of local) await DB.insert(table,item);
-      setData(local);
-    }
+  const applyRows = (rows) => {
+    const sorted = [...rows].sort((a,b)=>Number(b.id)-Number(a.id));
+    setData(sorted);
+    try { localStorage.setItem(localKey, JSON.stringify(sorted)); } catch {}
     setSynced(true);
   };
 
-  useEffect(() => { pull(true); }, [table]);
+  const pull = async () => {
+    if (writingRef.current) return; // operação local em andamento — não sobrescrever
+    const rows = await DB.list(table);
+    if (writingRef.current) return; // re-checagem pós-await
+    if (!rows || !Array.isArray(rows)) return;
+    applyRows(rows);
+  };
 
+  // Mount: carrega do banco (sem re-inserir nada do localStorage)
   useEffect(() => {
-    const id = setInterval(() => pull(false), 5000);
+    DB.list(table).then(rows => {
+      if (rows && Array.isArray(rows)) applyRows(rows);
+      else setSynced(true);
+    });
+  }, [table]);
+
+  // Poll a cada 5s
+  useEffect(() => {
+    const id = setInterval(pull, 5000);
     return () => clearInterval(id);
   }, [table]);
 
+  // Re-sync ao focar/retornar ao app
   useEffect(() => {
-    const onFocus = () => { if (!writingRef.current) pull(false); };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', () => { if(!document.hidden && !writingRef.current) pull(false); });
-    return () => window.removeEventListener('focus', onFocus);
+    const onVisible = () => { if (!document.hidden && !writingRef.current) pull(); };
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { window.removeEventListener('focus', onVisible); document.removeEventListener('visibilitychange', onVisible); };
   }, [table]);
 
-  // Wrap setData to also lock writes — pages call setData directly after DB ops
-  const setDataGuarded = (next) => {
-    lockWrite();
-    setData(next);
+  // setData que bloqueia o poll temporariamente — usado por toda operação de escrita/delete
+  const setDataSafe = (next) => {
+    lock();
+    const value = typeof next === 'function' ? next(dataRef.current) : next;
+    setData(value);
+    try { localStorage.setItem(localKey, JSON.stringify(value)); } catch {}
   };
 
-  return [data, setDataGuarded, synced];
+  return [data, setDataSafe, synced];
 }
 
 // ─── SHARED UI ───────────────────────────────────────────────────────────────
@@ -305,13 +305,13 @@ function NoteColumn({ storageKey, title, placeholder, accent, emoji, hasCheck })
     if(!text.trim()) return;
     const e = {id:Date.now(), text, mood, done:false, date:nowISO()};
     const n = [e, ...entries];
-    setEntries(n); S.set(storageKey, n); DB.insert(storageKey, e); setText("");
+    setEntries(n); DB.insert(storageKey, e); setText("");
   };
-  const del  = id => { const n=entries.filter(e=>e.id!==id); setEntries(n); S.set(storageKey,n); DB.delete(storageKey,id); };
+  const del  = id => { const n=entries.filter(e=>e.id!==id); setEntries(n); DB.delete(storageKey,id); };
   const tick = id => {
     const cur = entries.find(e=>e.id===id);
     const n = entries.map(e=>e.id===id?{...e,done:!e.done}:e);
-    setEntries(n); S.set(storageKey,n); DB.update(storageKey,{id,done:!cur.done});
+    setEntries(n); DB.update(storageKey,{id,done:!cur.done});
   };
 
   // Group by day
@@ -1905,7 +1905,7 @@ function DocsPage() {
     const tags = form.tags.split(",").map(t=>t.trim()).filter(Boolean);
     if(editingId) {
       const n=docs.map(d=>d.id===editingId?{...d,...form,tags,file:fileData||d.file}:d);
-      setDocs(n); S.set("docs",n);
+      setDocs(n);
       DB.update("documents",{id:editingId,name:form.name,cat:form.cat,notes:form.notes});
     } else {
       const doc={id:Date.now(),...form,date:now(),tags,file:fileData};
@@ -4255,6 +4255,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
