@@ -15,8 +15,6 @@ async function initTables(sql) {
   await sql`CREATE TABLE IF NOT EXISTS ideas      (id BIGINT PRIMARY KEY, text TEXT NOT NULL, mood VARCHAR(10) DEFAULT '🙂', date TEXT)`;
   await sql`CREATE TABLE IF NOT EXISTS reminders  (id BIGINT PRIMARY KEY, text TEXT NOT NULL, mood VARCHAR(10) DEFAULT '🙂', date TEXT)`;
   await sql`CREATE TABLE IF NOT EXISTS tasks      (id BIGINT PRIMARY KEY, text TEXT NOT NULL, prio VARCHAR(20) DEFAULT 'normal', done BOOLEAN DEFAULT FALSE, status VARCHAR(20) DEFAULT 'todo', date TEXT)`;
-  // Migration: add status column if table already existed without it
-  await sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'todo'`;
   await sql`CREATE TABLE IF NOT EXISTS bills      (id BIGINT PRIMARY KEY, name TEXT NOT NULL, value NUMERIC DEFAULT 0, due_day INT, cat VARCHAR(50), recurrent BOOLEAN DEFAULT TRUE, paid BOOLEAN DEFAULT FALSE)`;
   await sql`CREATE TABLE IF NOT EXISTS events     (id BIGINT PRIMARY KEY, title TEXT NOT NULL, date TEXT, time TEXT DEFAULT '', local TEXT DEFAULT '', cat VARCHAR(50), notes TEXT DEFAULT '')`;
   await sql`CREATE TABLE IF NOT EXISTS curiosities(id BIGINT PRIMARY KEY, title TEXT NOT NULL, content TEXT DEFAULT '', link TEXT DEFAULT '', image_url TEXT DEFAULT '', tag TEXT DEFAULT '', updates JSONB DEFAULT '[]', created TEXT)`;
