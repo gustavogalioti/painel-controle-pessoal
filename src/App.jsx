@@ -127,26 +127,36 @@ function useKV(key, def) {
 function useDB(table, localKey, def=[]) {
   const [data, setData] = useState(()=>S.get(localKey,def));
   const [synced, setSynced] = useState(false);
-  const dataRef = useRef(data);
-  dataRef.current = data;
+  const dataRef    = useRef(data);
+  dataRef.current  = data;
+  // Guard: true for 4s after any local write/delete — prevents poll from
+  // overwriting changes that haven't propagated to the DB yet
+  const writingRef = useRef(false);
+  const writeTimer = useRef(null);
+
+  const lockWrite = () => {
+    writingRef.current = true;
+    clearTimeout(writeTimer.current);
+    writeTimer.current = setTimeout(() => { writingRef.current = false; }, 4000);
+  };
 
   const pull = async (isInitial) => {
+    if (writingRef.current && !isInitial) return; // skip poll while a local op is in-flight
     const rows = await DB.list(table);
+    if (writingRef.current && !isInitial) return; // check again after await
     const local = S.get(localKey, def);
     if (rows && Array.isArray(rows) && rows.length>0) {
       if (isInitial) {
-        // First load: push any local-only items up, then merge
         const bankIds = new Set(rows.map(r=>String(r.id)));
         const onlyLocal = local.filter(l=>!bankIds.has(String(l.id)));
         for (const item of onlyLocal) await DB.insert(table,item);
         const all = [...rows,...onlyLocal].sort((a,b)=>Number(b.id)-Number(a.id));
         setData(all); S.set(localKey,all);
       } else {
-        // Subsequent polls: cloud is source of truth, just compare+update
         const sorted = [...rows].sort((a,b)=>Number(b.id)-Number(a.id));
         const rowsStr = JSON.stringify(sorted);
         const curStr  = JSON.stringify(dataRef.current);
-        if (rowsStr !== curStr) { setData(sorted); S.set(localKey, sorted); }
+        if (rowsStr !== curStr) { setData(sorted); S.set(localKey,sorted); }
       }
     } else if (local.length>0 && isInitial) {
       for (const item of local) await DB.insert(table,item);
@@ -157,21 +167,25 @@ function useDB(table, localKey, def=[]) {
 
   useEffect(() => { pull(true); }, [table]);
 
-  // Poll every 5s for changes from other devices
   useEffect(() => {
     const id = setInterval(() => pull(false), 5000);
     return () => clearInterval(id);
   }, [table]);
 
-  // Re-sync on focus / visibility change
   useEffect(() => {
-    const onFocus = () => pull(false);
+    const onFocus = () => { if (!writingRef.current) pull(false); };
     window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', () => { if(!document.hidden) pull(false); });
+    document.addEventListener('visibilitychange', () => { if(!document.hidden && !writingRef.current) pull(false); });
     return () => window.removeEventListener('focus', onFocus);
   }, [table]);
 
-  return [data,setData,synced];
+  // Wrap setData to also lock writes — pages call setData directly after DB ops
+  const setDataGuarded = (next) => {
+    lockWrite();
+    setData(next);
+  };
+
+  return [data, setDataGuarded, synced];
 }
 
 // ─── SHARED UI ───────────────────────────────────────────────────────────────
@@ -4241,6 +4255,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
