@@ -141,7 +141,9 @@ function useDB(table, localKey, def=[]) {
   };
 
   const applyRows = (rows) => {
-    const sorted = [...rows].sort((a,b)=>Number(b.id)-Number(a.id));
+    // Normaliza id para Number — banco pode retornar string, local usa Number
+    const normalized = rows.map(r => ({...r, id: Number(r.id)}));
+    const sorted = [...normalized].sort((a,b)=>b.id-a.id);
     setData(sorted);
     try { localStorage.setItem(localKey, JSON.stringify(sorted)); } catch {}
     setSynced(true);
@@ -163,9 +165,13 @@ function useDB(table, localKey, def=[]) {
     });
   }, [table]);
 
+  // Pull ref garante que o setInterval sempre chama a versão atual de pull
+  const pullRef = useRef(pull);
+  pullRef.current = pull;
+
   // Poll a cada 5s
   useEffect(() => {
-    const id = setInterval(pull, 5000);
+    const id = setInterval(() => pullRef.current(), 5000);
     return () => clearInterval(id);
   }, [table]);
 
@@ -307,7 +313,7 @@ function NoteColumn({ storageKey, title, placeholder, accent, emoji, hasCheck })
     const n = [e, ...entries];
     setEntries(n); DB.insert(storageKey, e); setText("");
   };
-  const del  = id => { const n=entries.filter(e=>e.id!==id); setEntries(n); DB.delete(storageKey,id); };
+  const del  = id => { const n=entries.filter(e=>Number(e.id)!==Number(id)); setEntries(n); DB.delete(storageKey,id); };
   const tick = id => {
     const cur = entries.find(e=>e.id===id);
     const n = entries.map(e=>e.id===id?{...e,done:!e.done}:e);
@@ -1023,7 +1029,7 @@ function IdeasCards() {
     const e={id:Date.now(),text,tag,mood:"💡",date:nowISO()};
     const n=[e,...entries]; setEntries(n); DB.insert("ideas",e); setText(""); setTag("");
   };
-  const del = id=>{ const n=entries.filter(e=>e.id!==id); setEntries(n); DB.delete("ideas",id); };
+  const del = id=>{ const n=entries.filter(e=>Number(e.id)!==Number(id)); setEntries(n); DB.delete("ideas",id); };
   const openEdit = e=>{ setEditing(e); setEditText(e.text); setEditTag(e.tag||""); };
   const saveEdit = ()=>{
     const n=entries.map(e=>e.id===editing.id?{...e,text:editText,tag:editTag}:e);
@@ -1085,7 +1091,7 @@ function RemindersCards() {
     const n=entries.map(e=>e.id===id?{...e,done:!e.done}:e);
     setEntries(n); DB.update("reminders",{id,done:!cur.done});
   };
-  const del = id=>{ const n=entries.filter(e=>e.id!==id); setEntries(n); DB.delete("reminders",id); };
+  const del = id=>{ const n=entries.filter(e=>Number(e.id)!==Number(id)); setEntries(n); DB.delete("reminders",id); };
   const openEdit = e=>{ setEditing(e); setEditText(e.text); };
   const saveEdit = ()=>{
     const n=entries.map(e=>e.id===editing.id?{...e,text:editText}:e);
@@ -1551,7 +1557,7 @@ function TasksPage() {
     }).catch(()=>{});
   };
 
-  const del = (id) => { save(tasks.filter(t=>t.id!==id)); DB.delete("tasks", id); };
+  const del = (id) => { save(tasks.filter(t=>Number(t.id)!==Number(id))); DB.delete("tasks", id); };
 
   const addTaskNote = (id) => {
     if (!addNote.trim()) return;
@@ -1916,7 +1922,7 @@ function DocsPage() {
     }
     setModal(false); setEditingId(null); setForm({name:"",cat:"Pessoal",tags:"",notes:""}); setFileData(null); setFileName("");
   };
-  const del  = id=>{ const n=docs.filter(d=>d.id!==id); setDocs(n); DB.delete("documents",id); };
+  const del  = id=>{ const n=docs.filter(d=>Number(d.id)!==Number(id)); setDocs(n); DB.delete("documents",id); };
   const edit = id=>{ const d=docs.find(d=>d.id===id); if(d){ setForm({name:d.name,cat:d.cat,tags:Array.isArray(d.tags)?d.tags.join(", "):"",notes:d.notes||""}); setFileData(d.file||null); setFileName(d.file?.name||""); setEditingId(id); setModal(true); } };
   const download = doc=>{ if(!doc.file?.data) return; const a=document.createElement("a"); a.href=doc.file.data; a.download=doc.file.name; a.click(); };
 
@@ -1992,7 +1998,7 @@ function BillsPage() {
     const b=bills.find(b=>b.id===id);
     const n=bills.map(b=>b.id===id?{...b,paid:!b.paid}:b); setBills(n); DB.update("bills",{id,paid:!b.paid});
   };
-  const del = id=>{ const n=bills.filter(b=>b.id!==id); setBills(n); DB.delete("bills",id); };
+  const del = id=>{ const n=bills.filter(b=>Number(b.id)!==Number(id)); setBills(n); DB.delete("bills",id); };
   const day = new Date().getDate();
   const upcoming = bills.filter(b=>!b.paid&&+b.dueDay>=day&&+b.dueDay<=day+5);
   const total    = bills.filter(b=>!b.paid).reduce((s,b)=>s+b.value,0);
@@ -2061,7 +2067,7 @@ function EventsPage() {
     setEvents(n); DB.insert("events",e);
     setModal(false); setForm({title:"",date:"",time:"",local:"",cat:"Pessoal",notes:""});
   };
-  const del = id=>{ const n=events.filter(e=>e.id!==id); setEvents(n); DB.delete("events",id); };
+  const del = id=>{ const n=events.filter(e=>Number(e.id)!==Number(id)); setEvents(n); DB.delete("events",id); };
   const todayStr = new Date().toISOString().split("T")[0];
 
   const Card = ({e})=>(
@@ -2208,7 +2214,7 @@ function WhiteboardPage() {
     if(boards.length===1) return;
     localStorage.removeItem(`whiteboard_${id}`);
     KV.del(`whiteboard_${id}`);
-    const n=boards.filter(b=>b.id!==id); setBoards(n);
+    const n=boards.filter(b=>Number(b.id)!==Number(id)); setBoards(n);
     setActive(n[n.length-1].id);
   };
 
@@ -2368,7 +2374,7 @@ function CuriositiesPage() {
 
   const add=()=>{ if(!form.title.trim()) return; const n=[...cards,{id:Date.now(),...form,updates:[],created:now()}]; setCards(n); setModal(false); setForm({title:"",content:"",link:"",imageUrl:"",tag:""}); };
   const addUpdate=id=>{ if(!updTxt.trim()) return; const n=cards.map(c=>c.id===id?{...c,updates:[...c.updates,{text:updTxt,date:now()}]}:c); setCards(n); setDetail(n.find(c=>c.id===id)); setUpdTxt(""); };
-  const del=id=>{ setCards(cards.filter(c=>c.id!==id)); setDetail(null); };
+  const del=id=>{ setCards(cards.filter(c=>Number(c.id)!==Number(id))); setDetail(null); };
 
   return(
     <div>
@@ -3274,7 +3280,7 @@ function BatPage() {
     const s={id:Date.now(),...form};
     save([...scripts,s]); setModal(false); setForm({name:"",code:"",desc:""});
   };
-  const del  = id=>save(scripts.filter(s=>s.id!==id));
+  const del  = id=>save(scripts.filter(s=>Number(s.id)!==Number(id)));
   const download = s=>{
     const blob=new Blob([s.code.replace(/\\n/g,"\n")],{type:"text/plain"});
     const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=s.name+".bat"; a.click();
@@ -4255,6 +4261,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
