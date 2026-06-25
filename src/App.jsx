@@ -304,7 +304,7 @@ function TickerStrip({ market }) {
 
 // ─── DIARY CARDS ─────────────────────────────────────────────────────────────
 function NoteColumn({ storageKey, title, placeholder, accent, emoji, hasCheck }) {
-  const [entries, setEntries, synced] = useDB(storageKey, storageKey, []);
+  const [entries, setEntries, synced] = useKV(storageKey+"_v1",[]);
   const [text, setText] = useState("");
   const [mood, setMood] = useState("🙂");
   const moods = ["😄","🙂","😐","😔","😤","🤔","🎉"];
@@ -314,13 +314,13 @@ function NoteColumn({ storageKey, title, placeholder, accent, emoji, hasCheck })
     if(!text.trim()) return;
     const e = {id:Date.now(), text, mood, done:false, date:nowISO()};
     const n = [e, ...entries];
-    setEntries(n); DB.insert(storageKey, e); setText("");
+    setEntries(n); setText("");
   };
-  const del  = id => { DB.delete(storageKey,id).then(()=>setEntries(p=>p.filter(e=>Number(e.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
+  const del  = id => { setEntries(p=>p.filter(e=>e.id!==id)); };
   const tick = id => {
     const cur = entries.find(e=>e.id===id);
     const n = entries.map(e=>e.id===id?{...e,done:!e.done}:e);
-    setEntries(n); DB.update(storageKey,{id,done:!cur.done});
+    setEntries(n);
   };
 
   // Group by day
@@ -1020,7 +1020,7 @@ function DayBoardPage() {
 
 // ─── IDEIAS — CARDS ──────────────────────────────────────────────────────────
 function IdeasCards() {
-  const [entries, setEntries, synced] = useDB("ideas","ideas",[]);
+  const [entries, setEntries, synced] = useKV("ideas_v1",[]);
   const [text, setText]   = useState("");
   const [tag, setTag]     = useState("");
   const [editing, setEditing] = useState(null);
@@ -1030,13 +1030,13 @@ function IdeasCards() {
   const add = () => {
     if(!text.trim()) return;
     const e={id:Date.now(),text,tag,mood:"💡",date:nowISO()};
-    const n=[e,...entries]; setEntries(n); DB.insert("ideas",e); setText(""); setTag("");
+    const n=[e,...entries]; setEntries(n); setText(""); setTag("");
   };
-  const del = id=>{ DB.delete("ideas",id).then(()=>setEntries(p=>p.filter(e=>Number(e.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
+  const del = id=>{ setEntries(p=>p.filter(e=>e.id!==id)); };
   const openEdit = e=>{ setEditing(e); setEditText(e.text); setEditTag(e.tag||""); };
   const saveEdit = ()=>{
     const n=entries.map(e=>e.id===editing.id?{...e,text:editText,tag:editTag}:e);
-    setEntries(n); DB.update("ideas",{id:editing.id,text:editText,mood:editing.mood}); setEditing(null);
+    setEntries(n); setEditing(null);
   };
 
   return (
@@ -1078,7 +1078,7 @@ function IdeasCards() {
 
 // ─── LEMBRETES — CARDS ───────────────────────────────────────────────────────
 function RemindersCards() {
-  const [entries, setEntries, synced] = useDB("reminders","reminders",[]);
+  const [entries, setEntries, synced] = useKV("reminders_v1",[]);
   const [text, setText]   = useState("");
   const [editing, setEditing] = useState(null);
   const [editText, setEditText] = useState("");
@@ -1087,18 +1087,18 @@ function RemindersCards() {
   const add = () => {
     if(!text.trim()) return;
     const e={id:Date.now(),text,mood:"🔔",done:false,date:nowISO()};
-    const n=[e,...entries]; setEntries(n); DB.insert("reminders",e); setText("");
+    const n=[e,...entries]; setEntries(n); setText("");
   };
   const tick = id=>{
     const cur=entries.find(e=>e.id===id);
     const n=entries.map(e=>e.id===id?{...e,done:!e.done}:e);
-    setEntries(n); DB.update("reminders",{id,done:!cur.done});
+    setEntries(n);
   };
-  const del = id=>{ DB.delete("reminders",id).then(()=>setEntries(p=>p.filter(e=>Number(e.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
+  const del = id=>{ setEntries(p=>p.filter(e=>e.id!==id)); };
   const openEdit = e=>{ setEditing(e); setEditText(e.text); };
   const saveEdit = ()=>{
     const n=entries.map(e=>e.id===editing.id?{...e,text:editText}:e);
-    setEntries(n); DB.update("reminders",{id:editing.id,text:editText,mood:editing.mood}); setEditing(null);
+    setEntries(n); setEditing(null);
   };
   const filtered = filter==="all"?entries: filter==="done"?entries.filter(e=>e.done): entries.filter(e=>!e.done);
 
@@ -1520,7 +1520,7 @@ function DiaryPage() {
 
 // ─── TASKS PAGE ───────────────────────────────────────────────────────────────
 function TasksPage() {
-  const [tasks, setTasks, synced] = useDB("tasks","tasks",[]);
+  const [tasks, setTasks, synced] = useKV("tasks_v1",[]);
   const [text, setText]   = useState("");
   const [prio, setPrio]   = useState("normal");
   const [editModal, setEditModal] = useState(null);
@@ -1547,20 +1547,16 @@ function TasksPage() {
     if (!text.trim()) return;
     const t = { id:Date.now(), text, prio, status:"todo", done:false, date:nowISO(), notes:[], updates:[] };
     const n = [t, ...tasks];
-    save(n); DB.insert("tasks", t);
+    save(n);
     setText(""); setAddOpen(false);
   };
 
   const setStatus = (id, status) => {
     const n = tasksRef.current.map(t => t.id===id ? { ...t, status, done: status==="done" } : t);
     save(n);
-    fetch(`/api/db?table=tasks`, {
-      method:"PUT", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ id, done: status==="done", status }),
-    }).catch(()=>{});
   };
 
-  const del = (id) => { DB.delete("tasks",id).then(()=>setTasks(p=>p.filter(t=>Number(t.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
+  const del = (id) => { setTasks(p=>p.filter(t=>t.id!==id)); };
 
   const addTaskNote = (id) => {
     if (!addNote.trim()) return;
@@ -1888,7 +1884,7 @@ function WeatherPage() {
 
 // ─── DOCS PAGE ────────────────────────────────────────────────────────────────
 function DocsPage() {
-  const [docs, setDocs, synced] = useDB("documents","docs",[]);
+  const [docs, setDocs, synced] = useKV("docs_v1",[]);
   const [modal, setModal] = useState(false);
   const [form, setForm]   = useState({name:"",cat:"Pessoal",tags:"",notes:""});
   const [filter, setFilter] = useState("Todos");
@@ -1915,17 +1911,15 @@ function DocsPage() {
     if(editingId) {
       const n=docs.map(d=>d.id===editingId?{...d,...form,tags,file:fileData||d.file}:d);
       setDocs(n);
-      DB.update("documents",{id:editingId,name:form.name,cat:form.cat,notes:form.notes});
+
     } else {
       const doc={id:Date.now(),...form,date:now(),tags,file:fileData};
       const n=[doc,...docs]; setDocs(n);
-      const dbRow={id:doc.id,name:doc.name,cat:doc.cat,tags:doc.tags,notes:doc.notes,date:doc.date,
-        file_data:fileData?.data||"",file_name:fileData?.name||"",file_size:fileData?.size||0,file_type:fileData?.type||""};
-      DB.insert("documents",dbRow);
+
     }
     setModal(false); setEditingId(null); setForm({name:"",cat:"Pessoal",tags:"",notes:""}); setFileData(null); setFileName("");
   };
-  const del  = id=>{ DB.delete("documents",id).then(()=>setDocs(p=>p.filter(d=>Number(d.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
+  const del  = id=>{ setDocs(p=>p.filter(d=>d.id!==id)); };
   const edit = id=>{ const d=docs.find(d=>d.id===id); if(d){ setForm({name:d.name,cat:d.cat,tags:Array.isArray(d.tags)?d.tags.join(", "):"",notes:d.notes||""}); setFileData(d.file||null); setFileName(d.file?.name||""); setEditingId(id); setModal(true); } };
   const download = doc=>{ if(!doc.file?.data) return; const a=document.createElement("a"); a.href=doc.file.data; a.download=doc.file.name; a.click(); };
 
@@ -1986,7 +1980,7 @@ function DocsPage() {
 
 // ─── BILLS PAGE ───────────────────────────────────────────────────────────────
 function BillsPage() {
-  const [bills, setBills, synced] = useDB("bills","bills",[]);
+  const [bills, setBills, synced] = useKV("bills_v1",[]);
   const [modal, setModal] = useState(false);
   const [form, setForm]   = useState({name:"",value:"",dueDay:"",cat:"Fixo",recurrent:true});
   const cats = ["Fixo","Variável","Cartão","Imposto","Assinatura"];
@@ -2001,7 +1995,7 @@ function BillsPage() {
     const b=bills.find(b=>b.id===id);
     const n=bills.map(b=>b.id===id?{...b,paid:!b.paid}:b); setBills(n); DB.update("bills",{id,paid:!b.paid});
   };
-  const del = id=>{ DB.delete("bills",id).then(()=>setBills(p=>p.filter(b=>Number(b.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
+  const del = id=>{ setBills(p=>p.filter(b=>b.id!==id)); };
   const day = new Date().getDate();
   const upcoming = bills.filter(b=>!b.paid&&+b.dueDay>=day&&+b.dueDay<=day+5);
   const total    = bills.filter(b=>!b.paid).reduce((s,b)=>s+b.value,0);
@@ -2057,7 +2051,7 @@ function BillsPage() {
 
 // ─── EVENTS PAGE ──────────────────────────────────────────────────────────────
 function EventsPage() {
-  const [events, setEvents, synced] = useDB("events","events",[]);
+  const [events, setEvents, synced] = useKV("events_v1",[]);
   const [modal, setModal] = useState(false);
   const [form, setForm]   = useState({title:"",date:"",time:"",local:"",cat:"Pessoal",notes:""});
   const cats = ["Pessoal","Médico","Reunião","Viagem","Aniversário","Outros"];
@@ -2070,7 +2064,7 @@ function EventsPage() {
     setEvents(n); DB.insert("events",e);
     setModal(false); setForm({title:"",date:"",time:"",local:"",cat:"Pessoal",notes:""});
   };
-  const del = id=>{ DB.delete("events",id).then(()=>setEvents(p=>p.filter(e=>Number(e.id)!==Number(id)))).catch(err=>{console.error(err);alert("Erro ao apagar.");}); };
+  const del = id=>{ setEvents(p=>p.filter(e=>e.id!==id)); };
   const todayStr = new Date().toISOString().split("T")[0];
 
   const Card = ({e})=>(
@@ -4264,6 +4258,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
