@@ -1888,10 +1888,11 @@ function DocsPage() {
   const [modal, setModal] = useState(false);
   const [form, setForm]   = useState({name:"",cat:"Pessoal",tags:"",notes:""});
   const [filter, setFilter] = useState("Todos");
-  const [fileData, setFileData] = useState(null);
+  const [fileData, setFileData] = useState(null); // {name,size,type,data:base64}
   const [fileName, setFileName] = useState("");
   const fileRef = useRef(null);
   const [editingId, setEditingId] = useState(null);
+  const [downloading, setDownloading] = useState(null); // id being downloaded
   const cats = ["Pessoal","Financeiro","Saúde","Legal","Trabalho","Outros"];
   const icons = {pdf:"📕",doc:"📘",docx:"📘",xls:"📗",xlsx:"📗",png:"🖼️",jpg:"🖼️",jpeg:"🖼️",default:"📄"};
   const getIcon = n=>{ const e=n.split(".").pop().toLowerCase(); return icons[e]||icons.default; };
@@ -1905,23 +1906,73 @@ function DocsPage() {
     reader.readAsDataURL(file);
   };
 
-  const add = ()=>{
+  const add = async ()=>{
     if(!form.name.trim()) return;
     const tags = form.tags.split(",").map(t=>t.trim()).filter(Boolean);
     if(editingId) {
-      const n=docs.map(d=>d.id===editingId?{...d,...form,tags,file:fileData||d.file}:d);
+      // Se trocou o arquivo, salva novo na nuvem
+      if(fileData && fileData.data) {
+        await KV.set("doc_file_"+editingId, fileData.data);
+      }
+      const n=docs.map(d=>d.id===editingId?{...d,...form,tags,
+        hasFile:!!(fileData||d.hasFile),
+        fileName:fileData?.name||d.fileName,
+        fileSize:fileData?.size||d.fileSize,
+        fileType:fileData?.type||d.fileType,
+      }:d);
       setDocs(n);
-
     } else {
-      const doc={id:Date.now(),...form,date:now(),tags,file:fileData};
-      const n=[doc,...docs]; setDocs(n);
-
+      const id=Date.now();
+      // Salva arquivo em chave separada para não sobrecarregar a lista
+      if(fileData?.data) {
+        await KV.set("doc_file_"+id, fileData.data);
+      }
+      const doc={id,date:now(),...form,tags,
+        hasFile:!!fileData?.data,
+        fileName:fileData?.name||"",
+        fileSize:fileData?.size||0,
+        fileType:fileData?.type||"",
+      };
+      setDocs([doc,...docs]);
     }
-    setModal(false); setEditingId(null); setForm({name:"",cat:"Pessoal",tags:"",notes:""}); setFileData(null); setFileName("");
+    setModal(false); setEditingId(null);
+    setForm({name:"",cat:"Pessoal",tags:"",notes:""});
+    setFileData(null); setFileName("");
   };
-  const del  = id=>{ setDocs(p=>p.filter(d=>d.id!==id)); };
-  const edit = id=>{ const d=docs.find(d=>d.id===id); if(d){ setForm({name:d.name,cat:d.cat,tags:Array.isArray(d.tags)?d.tags.join(", "):"",notes:d.notes||""}); setFileData(d.file||null); setFileName(d.file?.name||""); setEditingId(id); setModal(true); } };
-  const download = doc=>{ if(!doc.file?.data) return; const a=document.createElement("a"); a.href=doc.file.data; a.download=doc.file.name; a.click(); };
+
+  const del = id=>{
+    setDocs(p=>p.filter(d=>d.id!==id));
+    KV.del("doc_file_"+id); // apaga arquivo da nuvem também
+  };
+
+  const edit = id=>{
+    const d=docs.find(d=>d.id===id);
+    if(!d) return;
+    setForm({name:d.name,cat:d.cat,tags:Array.isArray(d.tags)?d.tags.join(", "):"",notes:d.notes||""});
+    // Arquivo será re-carregado na hora do download, não precisa pré-carregar aqui
+    setFileData(null); setFileName(d.fileName||"");
+    setEditingId(id); setModal(true);
+  };
+
+  // Download: busca o base64 da chave separada na nuvem
+  const download = async (doc)=>{
+    if(!doc.hasFile) return;
+    setDownloading(doc.id);
+    try {
+      // Tenta primeiro no cache local (se acabou de subir nesta sessão)
+      let data = null;
+      // Busca da nuvem
+      data = await KV.get("doc_file_"+doc.id);
+      if(!data) { alert("Arquivo não encontrado na nuvem."); setDownloading(null); return; }
+      const a=document.createElement("a");
+      a.href=data;
+      a.download=doc.fileName||doc.name;
+      a.click();
+    } catch(e) {
+      alert("Erro ao baixar arquivo.");
+    }
+    setDownloading(null);
+  };
 
   const filtered = filter==="Todos"?docs:docs.filter(d=>d.cat===filter);
 
@@ -1941,13 +1992,13 @@ function DocsPage() {
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12}}>
         {filtered.map(d=>(
           <div key={d.id} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:16,position:"relative"}}>
-            <div style={{fontSize:28,marginBottom:10}}>{getIcon(d.file?.name||d.name)}</div>
+            <div style={{fontSize:28,marginBottom:10}}>{getIcon(d.fileName||d.name)}</div>
             <div style={{fontWeight:700,marginBottom:4,fontSize:14}}>{d.name}</div>
             <div style={{fontSize:11,color:"var(--accent)",marginBottom:6}}>{d.cat}</div>
             {d.notes&&<div style={{fontSize:11,color:"var(--text-3)",marginBottom:6,lineHeight:1.4}}>{d.notes}</div>}
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
               <span style={{fontSize:10,color:"var(--text-3)"}}>{d.date}</span>
-              {d.file?.data&&<button onClick={()=>download(d)} style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:6,padding:"3px 8px",color:"var(--accent)",fontSize:10,cursor:"pointer",fontWeight:600}}>⬇ Baixar</button>}
+              {d.hasFile&&<button onClick={()=>download(d)} disabled={downloading===d.id} style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:6,padding:"3px 8px",color:"var(--accent)",fontSize:10,cursor:downloading===d.id?"wait":"pointer",fontWeight:600}}>{downloading===d.id?"⏳...":"⬇ Baixar"}</button>}
             </div>
             <div style={{position:"absolute",top:10,right:10,display:"flex",gap:4}}>
               <button onClick={()=>edit(d.id)} style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:6,padding:"3px 8px",color:"var(--accent)",fontSize:10,cursor:"pointer"}}>✏️</button>
@@ -2312,263 +2363,51 @@ function NewsBlock({mode,q,label}){
 
 function MarketPage() {
   const [tab, setTab] = useState("indicadores");
-  const [mkt, setMkt] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState(null);
-
-  const fetchMkt = async () => {
-    try {
-      const r = await fetch("/api/market2");
-      const d = await r.json();
-      if (!d.error) { setMkt(d); setLastUpdate(new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})); }
-    } catch {}
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchMkt();
-    const id = setInterval(fetchMkt, 60000);
-    return () => clearInterval(id);
-  }, []);
-
-  const tabs = [
-    {id:"indicadores", l:"📊 Indicadores"},
-    {id:"cambio",      l:"💱 Câmbio"},
-    {id:"commodities", l:"🛢 Commodities"},
-    {id:"cripto",      l:"₿ Cripto"},
-    {id:"noticias",    l:"📰 Notícias"},
-    {id:"calendario",  l:"📅 Calendário"},
-    {id:"curiosidades",l:"⭐ Curiosidades"},
-  ];
-
-  // ── Table row ──
-  const Row = ({item}) => (
-    <tr style={{borderBottom:"1px solid var(--border)"}}>
-      <td style={{padding:"7px 10px",fontSize:13,color:"var(--text-1)",whiteSpace:"nowrap"}}>
-        <span style={{marginRight:6}}>{item.flag}</span>{item.name}
-      </td>
-      <td style={{padding:"7px 10px",fontSize:13,fontWeight:700,color:"var(--text-1)",textAlign:"right",whiteSpace:"nowrap"}}>
-        {item.price}
-      </td>
-      <td style={{padding:"7px 10px",fontSize:12,fontWeight:700,textAlign:"right",whiteSpace:"nowrap",
-        color:item.up===true?"#22c55e":item.up===false?"#ef4444":"var(--text-3)"}}>
-        {item.chg}
-      </td>
-      <td style={{padding:"7px 10px",fontSize:12,fontWeight:700,textAlign:"right",whiteSpace:"nowrap"}}>
-        <span style={{background:item.up===true?"#22c55e22":item.up===false?"#ef444422":"var(--bg-input)",
-          color:item.up===true?"#22c55e":item.up===false?"#ef4444":"var(--text-3)",
-          borderRadius:6,padding:"2px 7px",fontSize:11}}>
-          {item.pct}
-        </span>
-      </td>
-      <td style={{padding:"7px 10px",fontSize:10,color:"var(--text-3)",textAlign:"right"}}>{item.time}</td>
-    </tr>
-  );
-
-  const Table = ({title, data, flag}) => (
-    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-      <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>{title}</span>
-        {flag && <span style={{fontSize:18}}>{flag}</span>}
-      </div>
-      <div style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead>
-            <tr style={{background:"var(--bg-sub)"}}>
-              <th style={{padding:"6px 10px",fontSize:10,color:"var(--text-3)",textAlign:"left",fontWeight:700,letterSpacing:1}}>NOME</th>
-              <th style={{padding:"6px 10px",fontSize:10,color:"var(--text-3)",textAlign:"right",fontWeight:700,letterSpacing:1}}>ÚLTIMO</th>
-              <th style={{padding:"6px 10px",fontSize:10,color:"var(--text-3)",textAlign:"right",fontWeight:700,letterSpacing:1}}>VAR.</th>
-              <th style={{padding:"6px 10px",fontSize:10,color:"var(--text-3)",textAlign:"right",fontWeight:700,letterSpacing:1}}>VAR.%</th>
-              <th style={{padding:"6px 10px",fontSize:10,color:"var(--text-3)",textAlign:"right",fontWeight:700,letterSpacing:1}}>HORA</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(data||[]).map((item,i) => <Row key={i} item={item}/>)}
-            {loading && !data && [1,2,3,4].map(i=>(
-              <tr key={i}><td colSpan={5} style={{padding:"8px 14px"}}>
-                <div style={{height:14,background:"var(--bg-sub)",borderRadius:4,animation:"pulse 1.5s infinite"}}/>
-              </td></tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+  const dark = {colorTheme:"dark",locale:"pt_BR",isTransparent:true};
+  const tabs = [{id:"indicadores",l:"📊 Indicadores"},{id:"noticias",l:"📰 Notícias"},{id:"curiosidades",l:"⭐ Curiosidades"}];
 
   return (
     <div>
-      {/* Tab bar */}
-      <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{
-            background:tab===t.id?"var(--accent)":"var(--bg-card)",
-            border:`1px solid ${tab===t.id?"var(--accent)":"var(--border)"}`,
-            borderRadius:20,padding:"7px 16px",
-            color:tab===t.id?"#fff":"var(--text-2)",
-            fontSize:12,fontWeight:700,cursor:"pointer",transition:"all .15s",
-          }}>{t.l}</button>
-        ))}
-        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
-          {lastUpdate && <span style={{fontSize:10,color:"var(--text-3)"}}>Atualizado {lastUpdate}</span>}
-          <button onClick={fetchMkt} style={{...btn("var(--bg-card)"),border:"1px solid var(--border)",color:"var(--text-2)",padding:"6px 12px",fontSize:11,borderRadius:16}}>↻ Atualizar</button>
-        </div>
+      <div style={{display:"flex",gap:6,marginBottom:20,flexWrap:"wrap"}}>
+        {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"8px 18px",color:tab===t.id?"#fff":"var(--text-2)",fontSize:13,fontWeight:600,cursor:"pointer"}}>{t.l}</button>)}
       </div>
 
-      {/* INDICADORES */}
-      {tab==="indicadores" && (
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(380px,1fr))",gap:14}}>
-          <Table title="🌎 AMÉRICAS" data={mkt?.americas}/>
-          <Table title="🇪🇺 EUROPA"  data={mkt?.europa}/>
-          <Table title="🌏 ÁSIA & OCEANIA" data={mkt?.asia}/>
-          <Table title="📋 FUTUROS" data={mkt?.futuros}/>
+      {tab==="indicadores"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          <TVCard title="📊 ÍNDICES — BOLSAS GLOBAIS">
+            <TVWidget type="market-overview" height={500} config={{...dark,tabs:[{title:"Índices",symbols:[{s:"BMFBOVESPA:IBOV",d:"Ibovespa"},{s:"TVC:SPX",d:"S&P 500"},{s:"NASDAQ:NDX",d:"Nasdaq 100"},{s:"DJ:DJI",d:"Dow Jones"},{s:"CBOE:VIX",d:"VIX"},{s:"TVC:FTSE",d:"FTSE 100"},{s:"XETR:DAX",d:"DAX"},{s:"TVC:NI225",d:"Nikkei 225"}],originalTitle:"Índices"}]}}/>
+          </TVCard>
+          <TVCard title="💱 CÂMBIO">
+            <TVWidget type="forex-cross-rates" height={500} config={{...dark,currencies:["USD","BRL","EUR","GBP","JPY","CNY","CHF","AUD"]}}/>
+          </TVCard>
+          <TVCard title="₿ CRIPTO">
+            <TVWidget type="market-overview" height={480} config={{...dark,tabs:[{title:"Cripto",symbols:[{s:"BITSTAMP:BTCUSD",d:"Bitcoin"},{s:"BITSTAMP:ETHUSD",d:"Ethereum"},{s:"BINANCE:BNBUSD",d:"BNB"},{s:"BINANCE:SOLUSD",d:"Solana"},{s:"BINANCE:XRPUSD",d:"XRP"},{s:"BINANCE:ADAUSD",d:"Cardano"}],originalTitle:"Cripto"}]}}/>
+          </TVCard>
+          <TVCard title="🛢 COMMODITIES">
+            <TVWidget type="market-overview" height={480} config={{...dark,tabs:[{title:"Commodities",symbols:[{s:"TVC:GOLD",d:"Ouro"},{s:"TVC:SILVER",d:"Prata"},{s:"TVC:USOIL",d:"Petróleo WTI"},{s:"TVC:UKOIL",d:"Petróleo Brent"},{s:"CBOT:ZS1!",d:"Soja"},{s:"CBOT:ZC1!",d:"Milho"},{s:"CBOT:ZW1!",d:"Trigo"},{s:"NYMEX:NG1!",d:"Gás Natural"}],originalTitle:"Commodities"}]}}/>
+          </TVCard>
         </div>
       )}
 
-      {/* CÂMBIO */}
-      {tab==="cambio" && (
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(420px,1fr))",gap:14}}>
-          <Table title="💱 CÂMBIO — BRL & Principais" data={mkt?.cambio}/>
-          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",minHeight:400}}>
-            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📊 Cross Rates — TradingView</span>
+      {tab==="noticias"&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:14}}>
+          <TVCard title="🌍 DESTAQUES DO DIA">
+            <div style={{padding:"0 16px"}}>
+              {useGNews("top","").news.slice(0,6).map((n,i)=>(
+                <div key={i} style={{padding:"10px 0",borderBottom:i<5?"1px solid var(--border-2)":"none"}}>
+                  <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:3}}>{n.title}</div>
+                  <div style={{fontSize:10,color:"var(--text-3)"}}>{n.src}</div>
+                </div>
+              ))}
             </div>
-            <div className="tradingview-widget-container" style={{height:400}}>
-              <div className="tradingview-widget-container__widget"/>
-              <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-forex-cross-rates.js" async>{JSON.stringify({
-                width:"100%",height:400,colorTheme:"light",isTransparent:true,locale:"pt_BR",
-                currencies:["USD","BRL","EUR","GBP","JPY","CNY","CHF","AUD","CAD"]
-              })}</script>
-            </div>
-          </div>
+          </TVCard>
+          {[["economia brasil","🇧🇷 BRASIL"],["ibovespa bolsa b3","📈 BOLSA"],["bitcoin cripto ethereum","₿ CRIPTO"],["trump estados unidos","🇺🇸 EUA"],["guerra conflito militar","⚔️ GUERRAS"],["tecnologia inteligencia artificial","🤖 TECNOLOGIA"]].map(([q,l])=>(
+            <NewsBlock key={q} mode="search" q={q} label={l}/>
+          ))}
         </div>
       )}
 
-      {/* COMMODITIES */}
-      {tab==="commodities" && (
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(420px,1fr))",gap:14}}>
-          <Table title="🛢 COMMODITIES" data={mkt?.commodities}/>
-          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📈 Gráfico — TradingView</span>
-            </div>
-            <TVWidget type="market-overview" height={480} config={{
-              colorTheme:"light",locale:"pt_BR",isTransparent:true,
-              tabs:[{title:"Commodities",symbols:[
-                {s:"TVC:GOLD",d:"Ouro"},{s:"TVC:SILVER",d:"Prata"},
-                {s:"TVC:USOIL",d:"Petróleo WTI"},{s:"TVC:UKOIL",d:"Petróleo Brent"},
-                {s:"CBOT:ZS1!",d:"Soja"},{s:"CBOT:ZC1!",d:"Milho"},
-                {s:"CBOT:ZW1!",d:"Trigo"},{s:"NYMEX:KC1!",d:"Café"},
-              ],originalTitle:"Commodities"}]
-            }}/>
-          </div>
-        </div>
-      )}
-
-      {/* CRIPTO */}
-      {tab==="cripto" && (
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(420px,1fr))",gap:14}}>
-          <Table title="₿ CRIPTOMOEDAS" data={mkt?.cripto}/>
-          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📊 Cripto — TradingView</span>
-            </div>
-            <TVWidget type="market-overview" height={480} config={{
-              colorTheme:"light",locale:"pt_BR",isTransparent:true,
-              tabs:[{title:"Cripto",symbols:[
-                {s:"BITSTAMP:BTCUSD",d:"Bitcoin"},{s:"BITSTAMP:ETHUSD",d:"Ethereum"},
-                {s:"BINANCE:BNBUSD",d:"BNB"},{s:"BINANCE:SOLUSD",d:"Solana"},
-                {s:"BINANCE:XRPUSD",d:"XRP"},{s:"BINANCE:ADAUSD",d:"Cardano"},
-                {s:"BINANCE:DOGEUSD",d:"Dogecoin"},{s:"BINANCE:AVAXUSD",d:"Avalanche"},
-              ],originalTitle:"Cripto"}]
-            }}/>
-          </div>
-        </div>
-      )}
-
-      {/* NOTÍCIAS — TradingView widget timeline */}
-      {tab==="noticias" && (
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",minHeight:600}}>
-            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>🌍 Notícias Globais — TradingView</span>
-            </div>
-            <div className="tradingview-widget-container" style={{height:580}}>
-              <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
-              <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({
-                feedMode:"all_symbols",
-                colorTheme:"light",
-                isTransparent:true,
-                displayMode:"regular",
-                width:"100%",
-                height:580,
-                locale:"pt_BR"
-              })}</script>
-            </div>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",flex:1}}>
-              <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-                <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📈 Notícias — Mercado BR</span>
-              </div>
-              <div className="tradingview-widget-container" style={{height:280}}>
-                <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
-                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({
-                  feedMode:"symbol",
-                  symbol:"BMFBOVESPA:IBOV",
-                  colorTheme:"light",
-                  isTransparent:true,
-                  displayMode:"compact",
-                  width:"100%",
-                  height:280,
-                  locale:"pt_BR"
-                })}</script>
-              </div>
-            </div>
-            <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",flex:1}}>
-              <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-                <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>₿ Notícias — Cripto</span>
-              </div>
-              <div className="tradingview-widget-container" style={{height:280}}>
-                <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
-                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({
-                  feedMode:"symbol",
-                  symbol:"BITSTAMP:BTCUSD",
-                  colorTheme:"light",
-                  isTransparent:true,
-                  displayMode:"compact",
-                  width:"100%",
-                  height:280,
-                  locale:"pt_BR"
-                })}</script>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CALENDÁRIO ECONÔMICO — Investing.com widget */}
-      {tab==="calendario" && (
-        <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-          <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:14,fontWeight:800,color:"var(--text-1)"}}>📅 Agenda Econômica</span>
-            <a href="https://br.investing.com/economic-calendar" target="_blank" rel="noreferrer"
-              style={{fontSize:11,color:"var(--accent)",textDecoration:"none"}}>Abrir no Investing.com ↗</a>
-          </div>
-          <iframe
-            src="https://ssliframes.investing.com/widgets/frame?lang=56&type=economic_calendar_widget&theme=1&customColor=1&innerBorderColor=%23ebeff2&calendarType=week&timeZone=12&time=week&showMore=0&bp=918&width=100%&height=450"
-            width="100%"
-            height="450"
-            frameBorder="0"
-            allowTransparency="true"
-            marginWidth="0"
-            marginHeight="0"
-            style={{display:"block"}}
-          />
-        </div>
-      )}
-
-      {/* CURIOSIDADES */}
-      {tab==="curiosidades" && <CuriositiesPage/>}
+      {tab==="curiosidades"&&<CuriositiesPage/>}
     </div>
   );
 }
