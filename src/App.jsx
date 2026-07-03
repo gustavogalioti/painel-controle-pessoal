@@ -2363,47 +2363,184 @@ function NewsBlock({mode,q,label}){
 
 function MarketPage() {
   const [tab, setTab] = useState("indicadores");
-  const dark = {colorTheme:"dark",locale:"pt_BR",isTransparent:true};
-  const tabs = [{id:"indicadores",l:"📊 Indicadores"},{id:"noticias",l:"📰 Notícias"},{id:"curiosidades",l:"⭐ Curiosidades"}];
+  const [mkt, setMkt] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState(null);
+
+  const fetchMkt = async () => {
+    try {
+      const r = await fetch("/api/market2");
+      const d = await r.json();
+      if (!d.error) { setMkt(d); setLastUpdate(new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})); }
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchMkt(); const id=setInterval(fetchMkt,60000); return()=>clearInterval(id); }, []);
+
+  const tabs = [
+    {id:"indicadores", l:"📊 Indicadores"},
+    {id:"cambio",      l:"💱 Câmbio"},
+    {id:"commodities", l:"🛢 Commodities"},
+    {id:"cripto",      l:"₿ Cripto"},
+    {id:"noticias",    l:"📰 Notícias"},
+    {id:"calendario",  l:"📅 Calendário"},
+    {id:"curiosidades",l:"⭐ Curiosidades"},
+  ];
+
+  const Row = ({item}) => (
+    <tr style={{borderBottom:"1px solid var(--border)"}}>
+      <td style={{padding:"7px 10px",fontSize:13,color:"var(--text-1)",whiteSpace:"nowrap"}}>
+        <span style={{marginRight:6}}>{item.flag}</span>{item.name}
+      </td>
+      <td style={{padding:"7px 10px",fontSize:13,fontWeight:700,color:"var(--text-1)",textAlign:"right",whiteSpace:"nowrap"}}>{item.price}</td>
+      <td style={{padding:"7px 10px",fontSize:12,fontWeight:700,textAlign:"right",whiteSpace:"nowrap",
+        color:item.up===true?"#22c55e":item.up===false?"#ef4444":"var(--text-3)"}}>{item.chg}</td>
+      <td style={{padding:"7px 10px",fontSize:12,fontWeight:700,textAlign:"right",whiteSpace:"nowrap"}}>
+        <span style={{background:item.up===true?"#22c55e22":item.up===false?"#ef444422":"var(--bg-input)",
+          color:item.up===true?"#22c55e":item.up===false?"#ef4444":"var(--text-3)",
+          borderRadius:6,padding:"2px 7px",fontSize:11}}>{item.pct}</span>
+      </td>
+      <td style={{padding:"7px 10px",fontSize:10,color:"var(--text-3)",textAlign:"right"}}>{item.time}</td>
+    </tr>
+  );
+
+  const Table = ({title, data}) => (
+    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+      <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
+        <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>{title}</span>
+      </div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead>
+            <tr style={{background:"var(--bg-sub)"}}>
+              {["NOME","ÚLTIMO","VAR.","VAR.%","HORA"].map((h,i)=>(
+                <th key={h} style={{padding:"6px 10px",fontSize:10,color:"var(--text-3)",
+                  textAlign:i===0?"left":"right",fontWeight:700,letterSpacing:1}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading && !data ? [1,2,3,4].map(i=>(
+              <tr key={i}><td colSpan={5} style={{padding:"10px 14px"}}>
+                <div style={{height:12,background:"var(--bg-sub)",borderRadius:4}}/>
+              </td></tr>
+            )) : (data||[]).map((item,i)=><Row key={i} item={item}/>)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 
   return (
     <div>
-      <div style={{display:"flex",gap:6,marginBottom:20,flexWrap:"wrap"}}>
-        {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"8px 18px",color:tab===t.id?"#fff":"var(--text-2)",fontSize:13,fontWeight:600,cursor:"pointer"}}>{t.l}</button>)}
+      <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{
+            background:tab===t.id?"var(--accent)":"var(--bg-card)",
+            border:`1px solid ${tab===t.id?"var(--accent)":"var(--border)"}`,
+            borderRadius:20,padding:"7px 16px",
+            color:tab===t.id?"#fff":"var(--text-2)",
+            fontSize:12,fontWeight:700,cursor:"pointer",transition:"all .15s",
+          }}>{t.l}</button>
+        ))}
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
+          {lastUpdate&&<span style={{fontSize:10,color:"var(--text-3)"}}>Atualizado {lastUpdate}</span>}
+          <button onClick={fetchMkt} style={{...btn("var(--bg-card)"),border:"1px solid var(--border)",color:"var(--text-2)",padding:"6px 12px",fontSize:11,borderRadius:16}}>↻</button>
+        </div>
       </div>
 
       {tab==="indicadores"&&(
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-          <TVCard title="📊 ÍNDICES — BOLSAS GLOBAIS">
-            <TVWidget type="market-overview" height={500} config={{...dark,tabs:[{title:"Índices",symbols:[{s:"BMFBOVESPA:IBOV",d:"Ibovespa"},{s:"TVC:SPX",d:"S&P 500"},{s:"NASDAQ:NDX",d:"Nasdaq 100"},{s:"DJ:DJI",d:"Dow Jones"},{s:"CBOE:VIX",d:"VIX"},{s:"TVC:FTSE",d:"FTSE 100"},{s:"XETR:DAX",d:"DAX"},{s:"TVC:NI225",d:"Nikkei 225"}],originalTitle:"Índices"}]}}/>
-          </TVCard>
-          <TVCard title="💱 CÂMBIO">
-            <TVWidget type="forex-cross-rates" height={500} config={{...dark,currencies:["USD","BRL","EUR","GBP","JPY","CNY","CHF","AUD"]}}/>
-          </TVCard>
-          <TVCard title="₿ CRIPTO">
-            <TVWidget type="market-overview" height={480} config={{...dark,tabs:[{title:"Cripto",symbols:[{s:"BITSTAMP:BTCUSD",d:"Bitcoin"},{s:"BITSTAMP:ETHUSD",d:"Ethereum"},{s:"BINANCE:BNBUSD",d:"BNB"},{s:"BINANCE:SOLUSD",d:"Solana"},{s:"BINANCE:XRPUSD",d:"XRP"},{s:"BINANCE:ADAUSD",d:"Cardano"}],originalTitle:"Cripto"}]}}/>
-          </TVCard>
-          <TVCard title="🛢 COMMODITIES">
-            <TVWidget type="market-overview" height={480} config={{...dark,tabs:[{title:"Commodities",symbols:[{s:"TVC:GOLD",d:"Ouro"},{s:"TVC:SILVER",d:"Prata"},{s:"TVC:USOIL",d:"Petróleo WTI"},{s:"TVC:UKOIL",d:"Petróleo Brent"},{s:"CBOT:ZS1!",d:"Soja"},{s:"CBOT:ZC1!",d:"Milho"},{s:"CBOT:ZW1!",d:"Trigo"},{s:"NYMEX:NG1!",d:"Gás Natural"}],originalTitle:"Commodities"}]}}/>
-          </TVCard>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(380px,1fr))",gap:14}}>
+          <Table title="🌎 AMÉRICAS" data={mkt?.americas}/>
+          <Table title="🇪🇺 EUROPA"  data={mkt?.europa}/>
+          <Table title="🌏 ÁSIA & OCEANIA" data={mkt?.asia}/>
+          <Table title="📋 FUTUROS" data={mkt?.futuros}/>
+        </div>
+      )}
+
+      {tab==="cambio"&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(400px,1fr))",gap:14}}>
+          <Table title="💱 CÂMBIO" data={mkt?.cambio}/>
+          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
+              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📊 Cross Rates — TradingView</span>
+            </div>
+            <TVWidget type="forex-cross-rates" height={400} config={{colorTheme:"light",isTransparent:true,locale:"pt_BR",currencies:["USD","BRL","EUR","GBP","JPY","CNY","CHF","AUD","CAD"]}}/>
+          </div>
+        </div>
+      )}
+
+      {tab==="commodities"&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(400px,1fr))",gap:14}}>
+          <Table title="🛢 COMMODITIES" data={mkt?.commodities}/>
+          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
+              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📈 TradingView</span>
+            </div>
+            <TVWidget type="market-overview" height={480} config={{colorTheme:"light",locale:"pt_BR",isTransparent:true,tabs:[{title:"Commodities",symbols:[{s:"TVC:GOLD",d:"Ouro"},{s:"TVC:SILVER",d:"Prata"},{s:"TVC:USOIL",d:"Petróleo WTI"},{s:"TVC:UKOIL",d:"Brent"},{s:"CBOT:ZS1!",d:"Soja"},{s:"CBOT:ZC1!",d:"Milho"},{s:"CBOT:ZW1!",d:"Trigo"},{s:"NYMEX:KC1!",d:"Café"}],originalTitle:"Commodities"}]}}/>
+          </div>
+        </div>
+      )}
+
+      {tab==="cripto"&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(400px,1fr))",gap:14}}>
+          <Table title="₿ CRIPTOMOEDAS" data={mkt?.cripto}/>
+          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
+              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📊 Cripto — TradingView</span>
+            </div>
+            <TVWidget type="market-overview" height={480} config={{colorTheme:"light",locale:"pt_BR",isTransparent:true,tabs:[{title:"Cripto",symbols:[{s:"BITSTAMP:BTCUSD",d:"Bitcoin"},{s:"BITSTAMP:ETHUSD",d:"Ethereum"},{s:"BINANCE:BNBUSD",d:"BNB"},{s:"BINANCE:SOLUSD",d:"Solana"},{s:"BINANCE:XRPUSD",d:"XRP"},{s:"BINANCE:ADAUSD",d:"Cardano"},{s:"BINANCE:DOGEUSD",d:"Dogecoin"},{s:"BINANCE:AVAXUSD",d:"Avalanche"}],originalTitle:"Cripto"}]}}/>
+          </div>
         </div>
       )}
 
       {tab==="noticias"&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:14}}>
-          <TVCard title="🌍 DESTAQUES DO DIA">
-            <div style={{padding:"0 16px"}}>
-              {useGNews("top","").news.slice(0,6).map((n,i)=>(
-                <div key={i} style={{padding:"10px 0",borderBottom:i<5?"1px solid var(--border-2)":"none"}}>
-                  <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:3}}>{n.title}</div>
-                  <div style={{fontSize:10,color:"var(--text-3)"}}>{n.src}</div>
-                </div>
-              ))}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
+              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>🌍 Notícias Globais — TradingView</span>
             </div>
-          </TVCard>
-          {[["economia brasil","🇧🇷 BRASIL"],["ibovespa bolsa b3","📈 BOLSA"],["bitcoin cripto ethereum","₿ CRIPTO"],["trump estados unidos","🇺🇸 EUA"],["guerra conflito militar","⚔️ GUERRAS"],["tecnologia inteligencia artificial","🤖 TECNOLOGIA"]].map(([q,l])=>(
-            <NewsBlock key={q} mode="search" q={q} label={l}/>
-          ))}
+            <div className="tradingview-widget-container" style={{height:580}}>
+              <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
+              <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({feedMode:"all_symbols",colorTheme:"light",isTransparent:true,displayMode:"regular",width:"100%",height:580,locale:"pt_BR"})}</script>
+            </div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",flex:1}}>
+              <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
+                <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📈 Ibovespa</span>
+              </div>
+              <div className="tradingview-widget-container" style={{height:270}}>
+                <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
+                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({feedMode:"symbol",symbol:"BMFBOVESPA:IBOV",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}</script>
+              </div>
+            </div>
+            <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",flex:1}}>
+              <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
+                <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>₿ Bitcoin</span>
+              </div>
+              <div className="tradingview-widget-container" style={{height:270}}>
+                <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
+                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({feedMode:"symbol",symbol:"BITSTAMP:BTCUSD",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}</script>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab==="calendario"&&(
+        <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:14,fontWeight:800,color:"var(--text-1)"}}>📅 Agenda Econômica</span>
+            <a href="https://br.investing.com/economic-calendar" target="_blank" rel="noreferrer"
+              style={{fontSize:11,color:"var(--accent)",textDecoration:"none"}}>Abrir no Investing.com ↗</a>
+          </div>
+          <iframe
+            src="https://ssliframes.investing.com/widgets/frame?lang=56&type=economic_calendar_widget&theme=1&customColor=1&innerBorderColor=%23ebeff2&calendarType=week&timeZone=12&time=week&showMore=0&bp=918&width=100%25&height=450"
+            width="100%" height="450" frameBorder="0" allowTransparency="true"
+            marginWidth="0" marginHeight="0" style={{display:"block"}}
+          />
         </div>
       )}
 
@@ -4309,6 +4446,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
