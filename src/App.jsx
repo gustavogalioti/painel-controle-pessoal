@@ -2531,16 +2531,27 @@ function MarketPage() {
 
       {tab==="calendario"&&(
         <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-          <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:14,fontWeight:800,color:"var(--text-1)"}}>📅 Agenda Econômica</span>
-            <a href="https://br.investing.com/economic-calendar" target="_blank" rel="noreferrer"
-              style={{fontSize:11,color:"var(--accent)",textDecoration:"none"}}>Abrir no Investing.com ↗</a>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <span style={{fontSize:14,fontWeight:800,color:"var(--text-1)"}}>📅 Agenda Econômica — TradingView</span>
+            <div style={{display:"flex",gap:8}}>
+              <a href="https://br.investing.com/economic-calendar" target="_blank" rel="noreferrer"
+                style={{fontSize:11,color:"var(--accent)",textDecoration:"none"}}>Investing.com ↗</a>
+              <a href="https://br.tradingview.com/economic-calendar/" target="_blank" rel="noreferrer"
+                style={{fontSize:11,color:"var(--accent)",textDecoration:"none"}}>TradingView ↗</a>
+            </div>
           </div>
-          <iframe
-            src="https://ssliframes.investing.com/widgets/frame?lang=56&type=economic_calendar_widget&theme=1&customColor=1&innerBorderColor=%23ebeff2&calendarType=week&timeZone=12&time=week&showMore=0&bp=918&width=100%25&height=450"
-            width="100%" height="450" frameBorder="0" allowTransparency="true"
-            marginWidth="0" marginHeight="0" style={{display:"block"}}
-          />
+          <div className="tradingview-widget-container" style={{height:600}}>
+            <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
+            <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>{JSON.stringify({
+              colorTheme:"light",
+              isTransparent:true,
+              width:"100%",
+              height:600,
+              locale:"pt_BR",
+              importanceFilter:"0,1",
+              countryFilter:"us,eu,gb,br,cn,jp,de,fr,it,ca,au,nz,ch,es"
+            })}</script>
+          </div>
         </div>
       )}
 
