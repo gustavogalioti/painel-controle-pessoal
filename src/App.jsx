@@ -15,6 +15,7 @@ const I = {
   edit:    "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
   bell:    "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0",
   back:    "M19 12H5 M12 19l-7-7 7-7",
+  next:    "M5 12h14 M12 5l7 7-7 7",
   refresh: "M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
   monitor: "M8 21h8 M12 17v4 M2 3h20v14H2z",
   link:    "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
@@ -2111,59 +2112,177 @@ function BillsPage() {
 }
 
 // ─── EVENTS PAGE ──────────────────────────────────────────────────────────────
-function EventsPage() {
-  const [events, setEvents, synced] = useKV("events_v1",[]);
+const toDateStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+
+function buildMonthGrid(year, month) {
+  const first = new Date(year, month, 1);
+  const startWeekday = first.getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+  const cells = [];
+  for (let i=startWeekday-1;i>=0;i--) cells.push({ date:new Date(year,month-1,daysInPrevMonth-i), inMonth:false });
+  for (let d=1;d<=daysInMonth;d++) cells.push({ date:new Date(year,month,d), inMonth:true });
+  while (cells.length%7!==0) {
+    const last = cells[cells.length-1].date;
+    cells.push({ date:new Date(last.getFullYear(),last.getMonth(),last.getDate()+1), inMonth:false });
+  }
+  return cells;
+}
+
+function AgendaPage() {
+  const [events, setEvents] = useKV("events_v1",[]);
   const [modal, setModal] = useState(false);
-  const [form, setForm]   = useState({title:"",date:"",time:"",local:"",cat:"Pessoal",notes:""});
+  const [editId, setEditId] = useState(null);
+  const [detailId, setDetailId] = useState(null);
+  const [form, setForm] = useState({title:"",date:"",time:"",local:"",cat:"Pessoal",notes:""});
+  const today = new Date();
+  const todayStr = toDateStr(today);
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [selectedDate, setSelectedDate] = useState(todayStr);
+
   const cats = ["Pessoal","Médico","Reunião","Viagem","Aniversário","Outros"];
   const catColors = {Pessoal:"var(--accent)",Médico:"var(--red)",Reunião:"var(--purple)",Viagem:"var(--green)",Aniversário:"var(--yellow)",Outros:"var(--text-3)"};
 
-  const add = ()=>{
-    if(!form.title.trim()||!form.date) return;
-    const e={id:Date.now(),...form};
-    const n=[...events,e].sort((a,b)=>new Date(a.date+"T"+(a.time||"00:00"))-new Date(b.date+"T"+(b.time||"00:00")));
-    setEvents(n); DB.insert("events",e);
-    setModal(false); setForm({title:"",date:"",time:"",local:"",cat:"Pessoal",notes:""});
-  };
-  const del = id=>{ setEvents(p=>p.filter(e=>e.id!==id)); };
-  const todayStr = new Date().toISOString().split("T")[0];
+  const sortFn = (a,b)=>new Date(a.date+"T"+(a.time||"00:00"))-new Date(b.date+"T"+(b.time||"00:00"));
 
-  const Card = ({e})=>(
-    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 18px",display:"flex",gap:14,alignItems:"flex-start",marginBottom:10}}>
-      <div style={{width:4,borderRadius:4,background:catColors[e.cat]||"var(--accent)",alignSelf:"stretch",flexShrink:0}}/>
-      <div style={{flex:1}}>
-        <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{e.title}</div>
-        <div style={{fontSize:12,color:"var(--text-3)"}}>📅 {new Date(e.date+"T12:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}{e.time&&` · ⏰ ${e.time}`}{e.local&&` · 📍 ${e.local}`}</div>
-        {e.notes&&<div style={{fontSize:12,color:"var(--text-2)",marginTop:6}}>{e.notes}</div>}
-      </div>
-      <button onClick={()=>del(e.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
-    </div>
-  );
+  const eventsByDate = {};
+  events.forEach(e => { (eventsByDate[e.date] = eventsByDate[e.date]||[]).push(e); });
+  Object.values(eventsByDate).forEach(list=>list.sort(sortFn));
+
+  const openNew = (dateStr) => {
+    setEditId(null);
+    setForm({title:"",date:dateStr||selectedDate,time:"",local:"",cat:"Pessoal",notes:""});
+    setModal(true);
+  };
+  const openEdit = (e) => {
+    setEditId(e.id);
+    setForm({title:e.title,date:e.date,time:e.time||"",local:e.local||"",cat:e.cat||"Pessoal",notes:e.notes||""});
+    setDetailId(null);
+    setModal(true);
+  };
+  const save = () => {
+    if(!form.title.trim()||!form.date) return;
+    if (editId) setEvents(prev => prev.map(e=>e.id===editId?{...e,...form}:e).sort(sortFn));
+    else setEvents(prev => [...prev,{id:Date.now(),...form}].sort(sortFn));
+    setModal(false); setEditId(null);
+  };
+  const del = (id) => { setEvents(prev=>prev.filter(e=>e.id!==id)); setDetailId(null); };
+
+  const cells = buildMonthGrid(viewYear, viewMonth);
+  const monthLabel = new Date(viewYear,viewMonth,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
+
+  const prevMonth = () => { if(viewMonth===0){setViewMonth(11);setViewYear(y=>y-1);} else setViewMonth(m=>m-1); };
+  const nextMonth = () => { if(viewMonth===11){setViewMonth(0);setViewYear(y=>y+1);} else setViewMonth(m=>m+1); };
+  const goToday = () => { setViewYear(today.getFullYear()); setViewMonth(today.getMonth()); setSelectedDate(todayStr); };
+
+  const navBtn = { background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:8,width:30,height:30,
+    display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)" };
+
+  const sortedDates = Object.keys(eventsByDate).sort();
+  const detailEvent = events.find(e=>e.id===detailId);
 
   return (
     <div>
       <div style={{display:"flex",justifyContent:"flex-end",marginBottom:20}}>
-        <button onClick={()=>setModal(true)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Novo Compromisso</button>
+        <button onClick={()=>openNew()} style={{...btn(),display:"flex",alignItems:"center",gap:6}}>
+          <Icon path={I.plus} size={14}/> Novo Compromisso
+        </button>
       </div>
-      {events.filter(e=>e.date>=todayStr).length>0&&<>
-        <div style={{fontSize:11,color:"var(--accent)",letterSpacing:2,fontWeight:700,marginBottom:14,paddingBottom:8,borderBottom:"1px solid var(--border-2)"}}>PRÓXIMOS</div>
-        {events.filter(e=>e.date>=todayStr).map(e=><Card key={e.id} e={e}/>)}
-      </>}
-      {events.filter(e=>e.date<todayStr).length>0&&<>
-        <div style={{fontSize:11,color:"var(--text-3)",letterSpacing:2,fontWeight:700,margin:"20px 0 14px",paddingBottom:8,borderBottom:"1px solid var(--border-2)"}}>PASSADOS</div>
-        {events.filter(e=>e.date<todayStr).map(e=><Card key={e.id} e={e}/>)}
-      </>}
-      {events.length===0&&<Empty text="Nenhum compromisso cadastrado."/>}
+
+      <div className="agenda-layout">
+        <div className="agenda-calendar">
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+            <button onClick={prevMonth} style={navBtn}><Icon path={I.back} size={14}/></button>
+            <div style={{textTransform:"capitalize",fontWeight:700,fontSize:14}}>{monthLabel}</div>
+            <button onClick={nextMonth} style={navBtn}><Icon path={I.next} size={14}/></button>
+          </div>
+          <button onClick={goToday}
+            style={{fontSize:11,color:"var(--accent)",background:"none",border:"none",cursor:"pointer",marginBottom:10,fontWeight:700,padding:0}}>
+            Hoje
+          </button>
+          <div className="cal-grid">
+            {["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"].map(d=><div key={d} className="cal-weekday">{d}</div>)}
+            {cells.map((c,i)=>{
+              const ds = toDateStr(c.date);
+              const has = !!eventsByDate[ds];
+              const isToday = ds===todayStr;
+              const isSel = ds===selectedDate;
+              return (
+                <div key={i}
+                  className={`cal-day${c.inMonth?"":" other-month"}${isToday?" today":""}${isSel?" selected":""}${has?" has-events":""}`}
+                  onClick={()=>setSelectedDate(ds)}
+                  onDoubleClick={()=>openNew(ds)}>
+                  {c.date.getDate()}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{fontSize:10.5,color:"var(--text-3)",marginTop:10,textAlign:"center"}}>
+            Toque para selecionar · 2 toques para novo compromisso
+          </div>
+        </div>
+
+        <div className="agenda-list">
+          {sortedDates.length===0 && <Empty text="Nenhum compromisso cadastrado."/>}
+          {sortedDates.map(ds=>(
+            <div key={ds} style={{marginBottom:18}}>
+              <div style={{fontSize:11,color: ds===todayStr?"var(--accent)":"var(--text-3)",letterSpacing:1.5,fontWeight:700,
+                marginBottom:8,paddingBottom:6,borderBottom:"1px solid var(--border-2)",textTransform:"capitalize"}}>
+                {new Date(ds+"T12:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}{ds===todayStr?" · Hoje":""}
+              </div>
+              {eventsByDate[ds].map(e=>(
+                <div key={e.id} onClick={()=>setDetailId(e.id)}
+                  style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",
+                    display:"flex",gap:12,alignItems:"flex-start",marginBottom:8,cursor:"pointer"}}>
+                  <div style={{width:4,borderRadius:4,background:catColors[e.cat]||"var(--accent)",alignSelf:"stretch",flexShrink:0}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:14}}>{e.title}</div>
+                    <div style={{fontSize:12,color:"var(--text-3)",marginTop:2}}>
+                      {e.time&&`⏰ ${e.time}`}{e.local&&` · 📍 ${e.local}`}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
       {modal&&(
-        <Modal title="Novo Compromisso" onClose={()=>setModal(false)}>
+        <Modal title={editId?"Editar Compromisso":"Novo Compromisso"} onClose={()=>{setModal(false);setEditId(null);}}>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
             <input style={inp} placeholder="Título" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/>
             <input style={inp} type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>
             <input style={inp} type="time" value={form.time} onChange={e=>setForm({...form,time:e.target.value})}/>
             <input style={inp} placeholder="Local (opcional)" value={form.local} onChange={e=>setForm({...form,local:e.target.value})}/>
             <select style={inp} value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})}>{cats.map(c=><option key={c}>{c}</option>)}</select>
-            <textarea style={{...inp,resize:"vertical"}} rows={3} placeholder="Observações" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
-            <button onClick={add} style={btn()}>Salvar</button>
+            <textarea style={{...inp,resize:"vertical"}} rows={3} placeholder="Descrição" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
+            <button onClick={save} style={btn()}>Salvar</button>
+          </div>
+        </Modal>
+      )}
+
+      {detailEvent && (
+        <Modal title={detailEvent.title} onClose={()=>setDetailId(null)}>
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
+            <div style={{fontSize:13,color:"var(--text-2)"}}>
+              📅 {new Date(detailEvent.date+"T12:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
+            </div>
+            {detailEvent.time && <div style={{fontSize:13,color:"var(--text-2)"}}>⏰ {detailEvent.time}</div>}
+            {detailEvent.local && <div style={{fontSize:13,color:"var(--text-2)"}}>📍 {detailEvent.local}</div>}
+            <div style={{fontSize:12,color:"var(--text-3)"}}>Categoria: {detailEvent.cat}</div>
+            {detailEvent.notes && <div style={{fontSize:13,color:"var(--text-1)",marginTop:6,lineHeight:1.5}}>{detailEvent.notes}</div>}
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>openEdit(detailEvent)}
+              style={{...btn(),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              <Icon path={I.edit} size={13}/> Editar
+            </button>
+            <button onClick={()=>del(detailEvent.id)}
+              style={{...btn("var(--red)"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              <Icon path={I.trash} size={13}/> Excluir
+            </button>
           </div>
         </Modal>
       )}
@@ -3051,7 +3170,7 @@ const TILE_DEFS = [
   { id:"tasks",     color:"var(--tile-tasks)",  icon:"checkSq",  label:"Tarefas",               sub:"Cards editáveis" },
   { id:"docs",      color:"var(--tile-docs)",   icon:"folder",   label:"Documentos",            sub:"Arquivos e anexos" },
   { id:"bills",     color:"var(--tile-bills)",  icon:"card",     label:"Contas",                sub:"Vencimentos e pagamentos" },
-  { id:"events",    color:"var(--tile-events)", icon:"calendar", label:"Compromissos",          sub:"Agenda e eventos" },
+  { id:"events",    color:"var(--tile-events)", icon:"calendar", label:"Agenda",                sub:"Calendário e compromissos" },
   { id:"lists",     color:"var(--tile-lists)",  icon:"list",     label:"Listas",                sub:"Checklists e anotações" },
   { id:"weather",   color:"var(--tile-weather)",icon:null,       label:"Clima",                 sub:"" },
   { id:"market",    color:"var(--tile-market)", icon:"trend",    label:"Mercado & Indicadores", sub:"Bolsas, câmbio, cripto, notícias" },
@@ -3635,7 +3754,7 @@ const PAGE_META = {
   tasks:      {label:"Tarefas",             emoji:"✅"},
   docs:       {label:"Documentos",          emoji:"📁"},
   bills:      {label:"Contas",              emoji:"💳"},
-  events:     {label:"Compromissos",        emoji:"📅"},
+  events:     {label:"Agenda",              emoji:"📅"},
   lists:      {label:"Listas",              emoji:"📋"},
   weather:    {label:"Clima",               emoji:"🌤"},
   market:     {label:"Mercado & Indicadores",emoji:"📈"},
@@ -3759,7 +3878,7 @@ export default function App() {
       case "tasks":      return <TasksPage/>;
       case "docs":       return <DocsPage/>;
       case "bills":      return <BillsPage/>;
-      case "events":     return <EventsPage/>;
+      case "events":     return <AgendaPage/>;
       case "lists":      return <ListsPage/>;
       case "weather":    return <WeatherPage/>;
       case "market":     return <MarketPage/>;

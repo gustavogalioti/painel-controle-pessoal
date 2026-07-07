@@ -178,3 +178,66 @@ input, textarea, select { color-scheme:light; }
   touch-action: none;
   display: block;
 }
+
+/* Agenda — month calendar + list */
+.agenda-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+@media (min-width: 900px) {
+  .agenda-layout { flex-direction: row; align-items: flex-start; }
+  .agenda-calendar { flex: 0 0 380px; position: sticky; top: 16px; }
+  .agenda-list { flex: 1; min-width: 0; }
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.cal-weekday {
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-weight: 700;
+  padding-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+.cal-day {
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  transition: filter .1s;
+}
+.cal-day:hover { filter: brightness(1.05); }
+.cal-day.other-month { opacity: 0.35; }
+.cal-day.today {
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  font-weight: 800;
+}
+.cal-day.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.cal-day.has-events::after {
+  content: "";
+  position: absolute;
+  bottom: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.cal-day.selected.has-events::after { background: #fff; }
