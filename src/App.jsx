@@ -2361,6 +2361,26 @@ function NewsBlock({mode,q,label}){
   );
 }
 
+// Injects a TradingView script tag safely (no raw <script> in JSX)
+function TVScript({ src, config }) {
+  const ref = React.useRef(null);
+  useEffect(() => {
+    if (!ref.current || ref.current.querySelector('script')) return;
+    const s = document.createElement('script');
+    s.type = 'text/javascript';
+    s.src = src;
+    s.async = true;
+    s.innerHTML = JSON.stringify(config);
+    ref.current.appendChild(s);
+  }, []);
+  return (
+    <div className="tradingview-widget-container" ref={ref} style={{height:'100%',width:'100%'}}>
+      <div className="tradingview-widget-container__widget" style={{height:'100%',width:'100%'}}/>
+    </div>
+  );
+}
+
+
 function MarketPage() {
   const [tab, setTab] = useState("indicadores");
   const [mkt, setMkt] = useState(null);
@@ -2501,29 +2521,20 @@ function MarketPage() {
             <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
               <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>🌍 Notícias Globais — TradingView</span>
             </div>
-            <div className="tradingview-widget-container" style={{height:580}}>
-              <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
-              <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({feedMode:"all_symbols",colorTheme:"light",isTransparent:true,displayMode:"regular",width:"100%",height:580,locale:"pt_BR"})}</script>
-            </div>
+            <div style={{height:580}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" config={JSON.stringify({feedMode:"all_symbols",colorTheme:"light",isTransparent:true,displayMode:"regular",width:"100%",height:580,locale:"pt_BR"})}/></div>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
             <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",flex:1}}>
               <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
                 <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📈 Ibovespa</span>
               </div>
-              <div className="tradingview-widget-container" style={{height:270}}>
-                <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
-                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({feedMode:"symbol",symbol:"BMFBOVESPA:IBOV",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}</script>
-              </div>
+              <div style={{height:270}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" config={JSON.stringify({feedMode:"symbol",symbol:"BMFBOVESPA:IBOV",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}/></div>
             </div>
             <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",flex:1}}>
               <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
                 <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>₿ Bitcoin</span>
               </div>
-              <div className="tradingview-widget-container" style={{height:270}}>
-                <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
-                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({feedMode:"symbol",symbol:"BITSTAMP:BTCUSD",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}</script>
-              </div>
+              <div style={{height:270}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" config={JSON.stringify({feedMode:"symbol",symbol:"BITSTAMP:BTCUSD",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}/></div>
             </div>
           </div>
         </div>
@@ -2540,9 +2551,7 @@ function MarketPage() {
                 style={{fontSize:11,color:"var(--accent)",textDecoration:"none"}}>TradingView ↗</a>
             </div>
           </div>
-          <div className="tradingview-widget-container" style={{height:600}}>
-            <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
-            <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>{JSON.stringify({
+          <div style={{height:600}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" config={JSON.stringify({
               colorTheme:"light",
               isTransparent:true,
               width:"100%",
@@ -2550,8 +2559,7 @@ function MarketPage() {
               locale:"pt_BR",
               importanceFilter:"0,1",
               countryFilter:"us,eu,gb,br,cn,jp,de,fr,it,ca,au,nz,ch,es"
-            })}</script>
-          </div>
+            })}/></div>
         </div>
       )}
 
@@ -5986,29 +5994,20 @@ function MarketPage() {
             <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
               <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>🌍 Notícias Globais — TradingView</span>
             </div>
-            <div className="tradingview-widget-container" style={{height:580}}>
-              <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
-              <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({feedMode:"all_symbols",colorTheme:"light",isTransparent:true,displayMode:"regular",width:"100%",height:580,locale:"pt_BR"})}</script>
-            </div>
+            <div style={{height:580}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" config={JSON.stringify({feedMode:"all_symbols",colorTheme:"light",isTransparent:true,displayMode:"regular",width:"100%",height:580,locale:"pt_BR"})}/></div>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
             <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",flex:1}}>
               <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
                 <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📈 Ibovespa</span>
               </div>
-              <div className="tradingview-widget-container" style={{height:270}}>
-                <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
-                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({feedMode:"symbol",symbol:"BMFBOVESPA:IBOV",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}</script>
-              </div>
+              <div style={{height:270}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" config={JSON.stringify({feedMode:"symbol",symbol:"BMFBOVESPA:IBOV",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}/></div>
             </div>
             <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",flex:1}}>
               <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
                 <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>₿ Bitcoin</span>
               </div>
-              <div className="tradingview-widget-container" style={{height:270}}>
-                <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
-                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" async>{JSON.stringify({feedMode:"symbol",symbol:"BITSTAMP:BTCUSD",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}</script>
-              </div>
+              <div style={{height:270}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" config={JSON.stringify({feedMode:"symbol",symbol:"BITSTAMP:BTCUSD",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}/></div>
             </div>
           </div>
         </div>
@@ -6025,9 +6024,7 @@ function MarketPage() {
                 style={{fontSize:11,color:"var(--accent)",textDecoration:"none"}}>TradingView ↗</a>
             </div>
           </div>
-          <div className="tradingview-widget-container" style={{height:600}}>
-            <div className="tradingview-widget-container__widget" style={{height:"100%"}}/>
-            <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" async>{JSON.stringify({
+          <div style={{height:600}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" config={JSON.stringify({
               colorTheme:"light",
               isTransparent:true,
               width:"100%",
@@ -6035,8 +6032,7 @@ function MarketPage() {
               locale:"pt_BR",
               importanceFilter:"0,1",
               countryFilter:"us,eu,gb,br,cn,jp,de,fr,it,ca,au,nz,ch,es"
-            })}</script>
-          </div>
+            })}/></div>
         </div>
       )}
 
@@ -7071,6 +7067,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
