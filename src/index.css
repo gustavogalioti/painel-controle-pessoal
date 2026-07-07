@@ -92,7 +92,7 @@ input, textarea, select { color-scheme:light; }
 .tile.tall   { grid-row: span 2; aspect-ratio: 1 / 2; }
 .tile.large  { grid-column: span 2; grid-row: span 2; aspect-ratio: 1 / 1; }
 
-.tile-text { width: 100%; }
+.tile-text { width: 100%; text-align: center; }
 .tile-label {
   font-size: 13px;
   font-weight: 700;
@@ -100,11 +100,13 @@ input, textarea, select { color-scheme:light; }
   letter-spacing: 0.3px;
   text-shadow: 0 1px 4px rgba(0,0,0,0.35);
   line-height: 1.25;
+  text-align: center;
 }
 .tile-sub {
   font-size: 10px;
   color: rgba(255,255,255,0.65);
   margin-top: 2px;
+  text-align: center;
 }
 .tile-icon-wrap {
   flex: 1;

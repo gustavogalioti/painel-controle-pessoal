@@ -3630,7 +3630,7 @@ function LetreirPage() {
 
 // ─── PAGE TITLES ─────────────────────────────────────────────────────────────
 const PAGE_META = {
-  home:       {label:"Menu",                emoji:"🏠"},
+  home:       {label:"Menu",                emoji:""},
   diary:      {label:"Diário",              emoji:"📓"},
   tasks:      {label:"Tarefas",             emoji:"✅"},
   docs:       {label:"Documentos",          emoji:"📁"},
@@ -3797,7 +3797,7 @@ export default function App() {
           </button>
         )}
         {page!=="home"&&<span style={{color:"var(--border)",fontSize:12}}>/</span>}
-        <span style={{fontSize:13,fontWeight:700,color:"var(--text-1)"}}>{meta.emoji} {meta.label}</span>
+        <span style={{fontSize:13,fontWeight:700,color:"var(--text-1)"}}>{meta.emoji?`${meta.emoji} `:""}{meta.label}</span>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
           <ViewToggle/>
           <LiveBadge label=""/>
