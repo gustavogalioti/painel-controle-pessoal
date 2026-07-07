@@ -3085,7 +3085,9 @@ function TileFrame({ tileRef, children, color, size, editMode, isDragging, onPoi
 function MenuTile({ color, icon, label, sub, ...frameProps }) {
   return (
     <TileFrame color={color} {...frameProps}>
-      <span className="tile-icon">{icon && <Icon path={I[icon]} size={34} color="#fff"/>}</span>
+      <div className="tile-icon-wrap">
+        {icon && <Icon path={I[icon]} size={52} color="#fff"/>}
+      </div>
       <div className="tile-text">
         <div className="tile-label">{label}</div>
         {sub&&<div className="tile-sub">{sub}</div>}
@@ -3099,7 +3101,7 @@ function WeatherTile({ ...frameProps }) {
   return (
     <TileFrame color="var(--tile-weather)" {...frameProps}>
       <span className="tile-live">CLIMA</span>
-      <span className="tile-icon" style={{fontSize:32}}>{w?.desc?.split(" ")[0]||"🌡"}</span>
+      <div className="tile-icon-wrap" style={{fontSize:44}}>{w?.desc?.split(" ")[0]||"🌡"}</div>
       <div className="tile-text">
         {w&&!w.error
           ? <><div className="tile-label" style={{fontSize:26,fontFamily:"'DM Mono',monospace"}}>{w.temp}{w.unit}</div><div className="tile-sub">{w.city||"..."}</div></>
@@ -3773,7 +3775,9 @@ export default function App() {
       {/* TOP BAR */}
       <header style={{background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:54,flexShrink:0,gap:16}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <div style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>📱</div>
+          <div style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <img src="/radioactive-icon.png" alt="logo" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+          </div>
           <div>
             <div style={{fontWeight:800,fontSize:11,letterSpacing:1.5,lineHeight:1}}>PAINEL DE CONTROLE</div>
             <div style={{fontWeight:400,fontSize:9,letterSpacing:2,color:"var(--text-3)",lineHeight:1,marginTop:2}}>PESSOAL</div>
