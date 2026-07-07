@@ -2363,7 +2363,7 @@ function NewsBlock({mode,q,label}){
 
 // Injects a TradingView script tag safely (no raw <script> in JSX)
 function TVScript({ src, config }) {
-  const ref = React.useRef(null);
+  const ref = useRef(null);
   useEffect(() => {
     if (!ref.current || ref.current.querySelector('script')) return;
     const s = document.createElement('script');
@@ -7067,6 +7067,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
