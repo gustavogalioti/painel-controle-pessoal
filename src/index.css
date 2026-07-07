@@ -57,66 +57,102 @@ input[type="time"]::-webkit-calendar-picker-indicator { filter:invert(0.2) brigh
 input, textarea, select { color-scheme:light; }
 ::selection { background:var(--accent); color:#fff; }
 
-/* Tiles grid */
+/* Tiles grid — Windows 8 Start screen style */
 .tiles-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 3px;
   padding: 20px;
 }
 @media (min-width: 900px) {
-  .tiles-grid { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .tiles-grid { grid-template-columns: repeat(6, 1fr); gap: 4px; }
 }
 @media (min-width: 1400px) {
-  .tiles-grid { grid-template-columns: repeat(5, 1fr); }
+  .tiles-grid { grid-template-columns: repeat(8, 1fr); }
 }
 
 .tile {
   aspect-ratio: 1 / 1;
-  border-radius: 4px;
+  border-radius: 2px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px;
   cursor: pointer;
   position: relative;
   overflow: hidden;
   transition: filter .15s, transform .15s;
   user-select: none;
-  text-align: center;
+  text-align: left;
 }
-.tile:hover  { filter: brightness(1.08); transform: scale(1.02); }
+.tile:hover  { filter: brightness(1.08); }
 .tile:active { transform: scale(0.97); }
 .tile.wide   { grid-column: span 2; aspect-ratio: 2 / 1; }
 .tile.tall   { grid-row: span 2; aspect-ratio: 1 / 2; }
+.tile.large  { grid-column: span 2; grid-row: span 2; aspect-ratio: 1 / 1; }
 
+.tile-text { width: 100%; }
 .tile-label {
   font-size: 13px;
   font-weight: 700;
   color: rgba(255,255,255,0.95);
-  letter-spacing: 0.5px;
-  text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  letter-spacing: 0.3px;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.35);
+  line-height: 1.25;
 }
 .tile-sub {
-  font-size: 11px;
+  font-size: 10px;
   color: rgba(255,255,255,0.65);
   margin-top: 2px;
 }
 .tile-icon {
-  font-size: 52px;
-  margin-bottom: 8px;
   display: block;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.3));
+  filter: drop-shadow(0 1px 4px rgba(0,0,0,0.3));
 }
 .tile-live {
   position: absolute;
   top: 8px;
-  left: 10px;
+  right: 10px;
   font-size: 9px;
   font-weight: 700;
   color: rgba(255,255,255,0.5);
   letter-spacing: 1.5px;
+}
+
+/* Edit / customize mode ("press and hold" state, Windows-8 style jiggle) */
+@keyframes tileJiggle {
+  0%, 100% { transform: rotate(-0.8deg); }
+  50%      { transform: rotate(0.8deg); }
+}
+.tile.edit-mode {
+  animation: tileJiggle 0.26s infinite ease-in-out;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.55);
+}
+.tile.edit-mode:nth-child(3n+1) { animation-delay: .04s; }
+.tile.edit-mode:nth-child(3n+2) { animation-delay: .09s; }
+.tile.dragging {
+  animation: none !important;
+  opacity: 0.55;
+  transform: scale(1.05) !important;
+  z-index: 50;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+.tile-resize-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.4);
+  border: 1px solid rgba(255,255,255,0.45);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 5;
 }
 
 /* Responsive diary grid */

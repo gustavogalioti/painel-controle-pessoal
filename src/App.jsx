@@ -21,6 +21,16 @@ const I = {
   folder:  "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z",
   down:    "M6 9l6 6 6-6",
   up:      "M18 15l-6-6-6 6",
+  book:    "M4 19V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2 M6 21h13",
+  checkSq: "M9 12l2 2 4-4 M4 5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z",
+  card:    "M2 6a1 1 0 0 1 1-1h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z M2 10h20 M5 15h4",
+  calendar:"M4 5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z M4 9h16 M8 2v4 M16 2v4",
+  list:    "M7 4h10v3H7z M6 7h12v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1z M9 12h6 M9 16h6",
+  trend:   "M3 17l6-6 4 4 8-8 M15 6h6v6",
+  terminal:"M3 4a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z M6 8l4 4-4 4 M12 16h6",
+  marquee: "M3 10v4h4l5 4V6l-5 4H3z M16 8a5 5 0 0 1 0 8 M19 5a9 9 0 0 1 0 14",
+  resize:  "M15 3h6v6 M9 21H3v-6 M21 3l-7 7 M3 21l7-7",
+  image:   "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3 M21 15l-5-5L5 21",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -3036,48 +3046,259 @@ function BedrockPage() {
 }
 
 // ─── PROFESSIONAL PAGE ────────────────────────────────────────────────────────
-function MenuTile({ color, emoji, label, sub, wide, tall, onClick }) {
+const TILE_DEFS = [
+  { id:"diary",     color:"var(--tile-diary)",  icon:"book",     label:"Diário",               sub:"Registros, ideias, lembretes" },
+  { id:"tasks",     color:"var(--tile-tasks)",  icon:"checkSq",  label:"Tarefas",               sub:"Cards editáveis" },
+  { id:"docs",      color:"var(--tile-docs)",   icon:"folder",   label:"Documentos",            sub:"Arquivos e anexos" },
+  { id:"bills",     color:"var(--tile-bills)",  icon:"card",     label:"Contas",                sub:"Vencimentos e pagamentos" },
+  { id:"events",    color:"var(--tile-events)", icon:"calendar", label:"Compromissos",          sub:"Agenda e eventos" },
+  { id:"lists",     color:"var(--tile-lists)",  icon:"list",     label:"Listas",                sub:"Checklists e anotações" },
+  { id:"weather",   color:"var(--tile-weather)",icon:null,       label:"Clima",                 sub:"" },
+  { id:"market",    color:"var(--tile-market)", icon:"trend",    label:"Mercado & Indicadores", sub:"Bolsas, câmbio, cripto, notícias" },
+  { id:"whiteboard",color:"var(--tile-white)",  icon:"edit",     label:"Whiteboard",            sub:"Lousa digital" },
+  { id:"bat",       color:"#1a3a2a",            icon:"terminal", label:".BAT / Scripts",        sub:"Automações e comandos" },
+  { id:"letreiro",  color:"#1a0a2a",            icon:"marquee",  label:"Letreiro",              sub:"Mensagem em tela cheia" },
+];
+const DEFAULT_ORDER = TILE_DEFS.map(t=>t.id);
+const DEFAULT_SIZES = { diary:"wide", market:"wide" };
+const SIZE_CYCLE = ["normal","wide","tall","large"];
+
+function TileFrame({ tileRef, children, color, size, editMode, isDragging, onPointerDown, onResize, onClick }) {
+  const sizeClass = size==="wide" ? " wide" : size==="tall" ? " tall" : size==="large" ? " large" : "";
   return (
-    <div className={`tile${wide?" wide":""}${tall?" tall":""}`}
-      style={{background:color}} onClick={onClick}>
-      <span className="tile-icon">{emoji}</span>
-      <div>
-        <div className="tile-label">{label}</div>
-        {sub&&<div className="tile-sub">{sub}</div>}
-      </div>
+    <div ref={tileRef}
+      className={`tile${sizeClass}${editMode?" edit-mode":""}${isDragging?" dragging":""}`}
+      style={{background:color, touchAction: editMode?"none":"auto", cursor: editMode?(isDragging?"grabbing":"grab"):"pointer"}}
+      onMouseDown={onPointerDown} onTouchStart={onPointerDown} onClick={onClick}>
+      {children}
+      {editMode && onResize && (
+        <button className="tile-resize-btn"
+          onClick={e=>{e.stopPropagation();onResize();}}
+          onTouchEnd={e=>{e.stopPropagation();e.preventDefault();onResize();}}>
+          <Icon path={I.resize} size={13} color="#fff"/>
+        </button>
+      )}
     </div>
   );
 }
 
-function WeatherTile({ onClick }) {
+function MenuTile({ color, icon, label, sub, ...frameProps }) {
+  return (
+    <TileFrame color={color} {...frameProps}>
+      <span className="tile-icon">{icon && <Icon path={I[icon]} size={34} color="#fff"/>}</span>
+      <div className="tile-text">
+        <div className="tile-label">{label}</div>
+        {sub&&<div className="tile-sub">{sub}</div>}
+      </div>
+    </TileFrame>
+  );
+}
+
+function WeatherTile({ ...frameProps }) {
   const w = useWeather();
   return (
-    <div className="tile" style={{background:"var(--tile-weather)"}} onClick={onClick}>
+    <TileFrame color="var(--tile-weather)" {...frameProps}>
       <span className="tile-live">CLIMA</span>
-      <span className="tile-icon">{w?.desc?.split(" ")[0]||"🌡"}</span>
-      <div>
+      <span className="tile-icon" style={{fontSize:32}}>{w?.desc?.split(" ")[0]||"🌡"}</span>
+      <div className="tile-text">
         {w&&!w.error
-          ? <><div className="tile-label" style={{fontSize:28,fontFamily:"'DM Mono',monospace"}}>{w.temp}{w.unit}</div><div className="tile-sub">{w.city||"..."}</div></>
+          ? <><div className="tile-label" style={{fontSize:26,fontFamily:"'DM Mono',monospace"}}>{w.temp}{w.unit}</div><div className="tile-sub">{w.city||"..."}</div></>
           : <div className="tile-label">Clima</div>}
       </div>
-    </div>
+    </TileFrame>
+  );
+}
+
+function BackgroundModal({ current, onSave, onClose }) {
+  const [type,  setType]  = useState(current.type  || "default");
+  const [color, setColor] = useState(current.type==="color" ? current.value : "#0d1b2e");
+  const [image, setImage] = useState(current.type==="image" ? current.value : null);
+  const [dim,   setDim]   = useState(current.dim ?? 40);
+  const fileRef = useRef(null);
+  const COLORS = ["#0d1b2e","#102a43","#1a0a2e","#0a1e0f","#1a1a1a","#0f2540","#2d0a2e","#1e0505"];
+
+  const handleFile = (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { setImage(ev.target.result); };
+    reader.readAsDataURL(file);
+  };
+
+  const save = () => {
+    if (type==="color") onSave({ type:"color", value:color });
+    else if (type==="image" && image) onSave({ type:"image", value:image, dim });
+    else onSave({ type:"default" });
+  };
+
+  return (
+    <Modal title="Fundo do Painel" onClose={onClose}>
+      <div style={{display:"flex",gap:8,marginBottom:20}}>
+        {[["default","Padrão"],["color","Cor"],["image","Imagem"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setType(k)}
+            style={{flex:1,background:type===k?"var(--accent)":"var(--bg-input)",border:"none",borderRadius:10,
+              padding:"8px 0",color:type===k?"#fff":"var(--text-2)",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {type==="color" && (
+        <>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
+            {COLORS.map(c=>(
+              <div key={c} onClick={()=>setColor(c)}
+                style={{aspectRatio:"1/1",borderRadius:10,background:c,cursor:"pointer",
+                  border: color===c ? "3px solid var(--accent)" : "3px solid transparent"}}/>
+            ))}
+          </div>
+          <label style={{fontSize:12,color:"var(--text-3)",display:"block",marginBottom:6}}>Cor personalizada</label>
+          <input type="color" value={color} onChange={e=>setColor(e.target.value)} style={{width:"100%",height:44,border:"none",borderRadius:10,cursor:"pointer"}}/>
+        </>
+      )}
+
+      {type==="image" && (
+        <>
+          <div onClick={()=>fileRef.current?.click()}
+            style={{border:"2px dashed var(--border)",borderRadius:12,padding:20,textAlign:"center",cursor:"pointer",
+              backgroundImage:image?`url(${image})`:"none",backgroundSize:"cover",backgroundPosition:"center",
+              minHeight:120,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:16}}>
+            {!image && <div style={{fontSize:13,color:"var(--text-3)"}}>Toque para escolher uma imagem</div>}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
+          <label style={{fontSize:12,color:"var(--text-3)",display:"block",marginBottom:6}}>Escurecer para legibilidade ({dim}%)</label>
+          <input type="range" min="0" max="80" value={dim} onChange={e=>setDim(Number(e.target.value))} style={{width:"100%",marginBottom:16}}/>
+        </>
+      )}
+
+      <button onClick={save} style={{...btn(),width:"100%",marginTop:8}}>Salvar</button>
+    </Modal>
   );
 }
 
 function HomePage({ onNavigate }) {
+  const [layout, setLayout] = useKV("home_layout_v1", { order: DEFAULT_ORDER, sizes: DEFAULT_SIZES });
+  const [bg, setBg] = useKV("home_bg_v1", { type:"default" });
+  const [editMode, setEditMode] = useState(false);
+  const [showBgModal, setShowBgModal] = useState(false);
+  const [dragId, setDragId] = useState(null);
+  const tileRefs = useRef({});
+  const drag = useRef(null);
+
+  const order = (layout.order && layout.order.length) ? layout.order.filter(id=>TILE_DEFS.some(t=>t.id===id)) : DEFAULT_ORDER;
+  const fullOrder = [...order, ...DEFAULT_ORDER.filter(id=>!order.includes(id))];
+  const sizes = layout.sizes || {};
+
+  const findTileAt = (x,y) => {
+    for (const id of fullOrder) {
+      const el = tileRefs.current[id];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (x>=r.left && x<=r.right && y>=r.top && y<=r.bottom) return id;
+    }
+    return null;
+  };
+
+  const onTilePointerDown = (e, id) => {
+    if (!editMode) return;
+    if (e.button !== undefined && e.button !== 0) return;
+    const point = e.touches ? e.touches[0] : e;
+    drag.current = { id, startX: point.clientX, startY: point.clientY, moved:false };
+  };
+
+  useEffect(() => {
+    if (!editMode) return;
+    const onMove = (e) => {
+      const d = drag.current; if (!d) return;
+      const point = e.touches ? e.touches[0] : e;
+      const dx = point.clientX-d.startX, dy = point.clientY-d.startY;
+      if (!d.moved && Math.hypot(dx,dy)>8) { d.moved=true; setDragId(d.id); }
+      if (!d.moved) return;
+      if (e.cancelable) e.preventDefault();
+      const overId = findTileAt(point.clientX, point.clientY);
+      if (overId && overId !== d.id) {
+        setLayout(prev => {
+          const ord = (prev.order && prev.order.length) ? [...prev.order] : [...DEFAULT_ORDER];
+          const from = ord.indexOf(d.id), to = ord.indexOf(overId);
+          if (from===-1||to===-1) return prev;
+          ord.splice(from,1); ord.splice(to,0,d.id);
+          return { ...prev, order: ord };
+        });
+      }
+    };
+    const onUp = () => { drag.current = null; setDragId(null); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive:false });
+    window.addEventListener('touchend', onUp);
+    window.addEventListener('touchcancel', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+      window.removeEventListener('touchcancel', onUp);
+    };
+  }, [editMode]);
+
+  const cycleSize = (id) => {
+    setLayout(prev => {
+      const cur = (prev.sizes||{})[id] || DEFAULT_SIZES[id] || "normal";
+      const next = SIZE_CYCLE[(SIZE_CYCLE.indexOf(cur)+1) % SIZE_CYCLE.length];
+      return { ...prev, sizes: { ...(prev.sizes||{}), [id]: next } };
+    });
+  };
+
+  const bgStyle = (() => {
+    if (bg.type==="color") return { background:bg.value };
+    if (bg.type==="image" && bg.value) return {
+      backgroundImage:`linear-gradient(rgba(0,0,0,${(bg.dim??40)/100}),rgba(0,0,0,${(bg.dim??40)/100})),url(${bg.value})`,
+      backgroundSize:"cover", backgroundPosition:"center", backgroundAttachment:"fixed",
+    };
+    return {};
+  })();
+
   return (
-    <div className="tiles-grid">
-      <MenuTile color="var(--tile-diary)"  emoji="📓" label="Diário"       sub="Registros, ideias, lembretes" wide onClick={()=>onNavigate("diary")}/>
-      <MenuTile color="var(--tile-tasks)"  emoji="✅" label="Tarefas"      sub="Cards editáveis"              onClick={()=>onNavigate("tasks")}/>
-      <MenuTile color="var(--tile-docs)"   emoji="📁" label="Documentos"   sub="Arquivos e anexos"            onClick={()=>onNavigate("docs")}/>
-      <MenuTile color="var(--tile-bills)"  emoji="💳" label="Contas"       sub="Vencimentos e pagamentos"     onClick={()=>onNavigate("bills")}/>
-      <MenuTile color="var(--tile-events)" emoji="📅" label="Compromissos" sub="Agenda e eventos"             onClick={()=>onNavigate("events")}/>
-      <MenuTile color="var(--tile-lists)"  emoji="📋" label="Listas"       sub="Checklists e anotações"       onClick={()=>onNavigate("lists")}/>
-      <WeatherTile onClick={()=>onNavigate("weather")}/>
-      <MenuTile color="var(--tile-market)" emoji="📈" label="Mercado & Indicadores" sub="Bolsas, câmbio, cripto, notícias" wide onClick={()=>onNavigate("market")}/>
-      <MenuTile color="var(--tile-white)"  emoji="🖊️" label="Whiteboard"   sub="Lousa digital"               onClick={()=>onNavigate("whiteboard")}/>
-      <MenuTile color="#1a3a2a"             emoji="💻" label=".BAT / Scripts" sub="Automações e comandos"       onClick={()=>onNavigate("bat")}/>
-      <MenuTile color="#1a0a2a"             emoji="📺" label="Letreiro"     sub="Mensagem em tela cheia" onClick={()=>onNavigate("letreiro")}/>
+    <div style={{minHeight:"calc(100vh - 148px)", ...bgStyle}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:"14px 20px 0"}}>
+        <button onClick={()=>setEditMode(m=>!m)}
+          style={{background: editMode?"var(--accent)":"rgba(0,0,0,0.06)", border:"none", borderRadius:20,
+            padding:"7px 16px", color: editMode?"#fff":"var(--text-2)", fontSize:12, fontWeight:700, cursor:"pointer",
+            display:"flex",alignItems:"center",gap:6}}>
+          <Icon path={I.edit} size={13}/> {editMode ? "Concluído" : "Personalizar"}
+        </button>
+        {editMode && (
+          <button onClick={()=>setShowBgModal(true)}
+            style={{background:"rgba(0,0,0,0.06)", border:"none", borderRadius:20, padding:"7px 16px",
+              color:"var(--text-2)", fontSize:12, fontWeight:700, cursor:"pointer", display:"flex",alignItems:"center",gap:6}}>
+            <Icon path={I.image} size={13}/> Fundo
+          </button>
+        )}
+        {editMode && <span style={{fontSize:11,color:"var(--text-3)"}}>Arraste para reordenar · toque no ⤢ para redimensionar</span>}
+      </div>
+
+      <div className="tiles-grid">
+        {fullOrder.map(id => {
+          const def = TILE_DEFS.find(t=>t.id===id);
+          if (!def) return null;
+          const size = sizes[id] || DEFAULT_SIZES[id] || "normal";
+          const commonProps = {
+            tileRef: el=>tileRefs.current[id]=el, size, editMode,
+            isDragging: dragId===id,
+            onPointerDown: (e)=>onTilePointerDown(e,id),
+            onResize: editMode ? ()=>cycleSize(id) : undefined,
+            onClick: editMode ? undefined : ()=>onNavigate(id),
+          };
+          return id==="weather"
+            ? <WeatherTile key={id} {...commonProps}/>
+            : <MenuTile key={id} {...commonProps} color={def.color} icon={def.icon} label={def.label} sub={def.sub}/>;
+        })}
+      </div>
+
+      {showBgModal && (
+        <BackgroundModal current={bg}
+          onSave={(v)=>{ setBg(v); setShowBgModal(false); }}
+          onClose={()=>setShowBgModal(false)}/>
+      )}
     </div>
   );
 }
