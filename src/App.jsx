@@ -3028,49 +3028,6 @@ function BedrockPage() {
 }
 
 // ─── PROFESSIONAL PAGE ────────────────────────────────────────────────────────
-function ProfessionalPage() {
-  const [section, setSection] = useState("home");
-
-  const tiles = [
-    { id:"macro",    label:"MACRO",        emoji:"🌐", color:"#1a3a5c", sub:"Estratégia e contexto" },
-    { id:"tools",    label:"FERRAMENTAS",  emoji:"🛠",  color:"#2d1a5c", sub:"Simuladores e análises" },
-    { id:"bedrock",  label:"BEDROCK",      emoji:"🪨", color:"#0a2a4a", sub:"Seu projeto" },
-  ];
-
-  if(section !== "home") {
-    const meta = tiles.find(t=>t.id===section)||{};
-    return (
-      <div>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24}}>
-          <button onClick={()=>setSection("home")} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"7px 14px",color:"var(--text-2)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-            <Icon path={I.back} size={14}/> Profissional
-          </button>
-          <span style={{color:"var(--border)"}}>/</span>
-          <span style={{fontSize:14,fontWeight:700}}>{meta.emoji} {meta.label}</span>
-        </div>
-        {section==="macro"   && <MacroPage/>}
-        {section==="tools"   && <ToolsPage/>}
-        {section==="bedrock" && <BedrockPage/>}
-      </div>
-    );
-  }
-
-  return (
-    <div className="tiles-grid" style={{maxWidth:900}}>
-      {tiles.map(t=>(
-        <div key={t.id} className="tile" style={{background:t.color,aspectRatio:"1/1"}} onClick={()=>setSection(t.id)}>
-          <span className="tile-icon">{t.emoji}</span>
-          <div>
-            <div className="tile-label">{t.label}</div>
-            <div className="tile-sub">{t.sub}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── MENU (HOME) ──────────────────────────────────────────────────────────────
 function MenuTile({ color, emoji, label, sub, wide, tall, onClick }) {
   return (
     <div className={`tile${wide?" wide":""}${tall?" tall":""}`}
@@ -3109,7 +3066,6 @@ function HomePage({ onNavigate }) {
       <MenuTile color="var(--tile-events)" emoji="📅" label="Compromissos" sub="Agenda e eventos"             onClick={()=>onNavigate("events")}/>
       <MenuTile color="var(--tile-lists)"  emoji="📋" label="Listas"       sub="Checklists e anotações"       onClick={()=>onNavigate("lists")}/>
       <WeatherTile onClick={()=>onNavigate("weather")}/>
-      <MenuTile color="#1a3050"             emoji="💼" label="Profissional"         sub="Macro, Ferramentas, BEDROCK"  onClick={()=>onNavigate("professional")}/>
       <MenuTile color="var(--tile-market)" emoji="📈" label="Mercado & Indicadores" sub="Bolsas, câmbio, cripto, notícias" wide onClick={()=>onNavigate("market")}/>
       <MenuTile color="var(--tile-white)"  emoji="🖊️" label="Whiteboard"   sub="Lousa digital"               onClick={()=>onNavigate("whiteboard")}/>
       <MenuTile color="#1a3a2a"             emoji="💻" label=".BAT / Scripts" sub="Automações e comandos"       onClick={()=>onNavigate("bat")}/>
@@ -3455,7 +3411,6 @@ const PAGE_META = {
   market:     {label:"Mercado & Indicadores",emoji:"📈"},
   whiteboard: {label:"Whiteboard",          emoji:"🖊️"},
   bat:          {label:".BAT / Scripts",     emoji:"💻"},
-  professional: {label:"Profissional",        emoji:"💼"},
   dj:           {label:"DJ Studio",            emoji:"🎛️"},
   letreiro:     {label:"Letreiro",             emoji:"📺"},
 };
@@ -4405,7 +4360,6 @@ export default function App() {
       case "market":     return <MarketPage/>;
       case "whiteboard": return <WhiteboardPage/>;
       case "bat":          return <BatPage/>;
-      case "professional": return <ProfessionalPage/>;
       case "dj":            return <DJStudioPage/>;
       case "letreiro":      return <LetreirPage/>;
       default:           return <HomePage onNavigate={setPage}/>;
@@ -4457,6 +4411,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
