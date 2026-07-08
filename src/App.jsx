@@ -2140,6 +2140,8 @@ function AgendaPage() {
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState(todayStr);
+  const [dayFilter, setDayFilter] = useState(null);
+  const [showPast, setShowPast] = useState(false);
 
   const cats = ["Pessoal","Médico","Reunião","Viagem","Aniversário","Outros"];
   const catColors = {Pessoal:"var(--accent)",Médico:"var(--red)",Reunião:"var(--purple)",Viagem:"var(--green)",Aniversário:"var(--yellow)",Outros:"var(--text-3)"};
@@ -2174,7 +2176,7 @@ function AgendaPage() {
 
   const prevMonth = () => { if(viewMonth===0){setViewMonth(11);setViewYear(y=>y-1);} else setViewMonth(m=>m-1); };
   const nextMonth = () => { if(viewMonth===11){setViewMonth(0);setViewYear(y=>y+1);} else setViewMonth(m=>m+1); };
-  const goToday = () => { setViewYear(today.getFullYear()); setViewMonth(today.getMonth()); setSelectedDate(todayStr); };
+  const goToday = () => { setViewYear(today.getFullYear()); setViewMonth(today.getMonth()); setSelectedDate(todayStr); setDayFilter(null); };
 
   const navBtn = { background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:8,width:30,height:30,
     display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)" };
@@ -2211,7 +2213,7 @@ function AgendaPage() {
               return (
                 <div key={i}
                   className={`cal-day${c.inMonth?"":" other-month"}${isToday?" today":""}${isSel?" selected":""}${has?" has-events":""}`}
-                  onClick={()=>setSelectedDate(ds)}
+                  onClick={()=>{ setSelectedDate(ds); setDayFilter(prev => prev===ds ? null : ds); }}
                   onDoubleClick={()=>openNew(ds)}>
                   {c.date.getDate()}
                 </div>
@@ -2225,13 +2227,20 @@ function AgendaPage() {
 
         <div className="agenda-list">
           {sortedDates.length===0 && <Empty text="Nenhum compromisso cadastrado."/>}
-          {sortedDates.map(ds=>(
-            <div key={ds} style={{marginBottom:18}}>
-              <div style={{fontSize:11,color: ds===todayStr?"var(--accent)":"var(--text-3)",letterSpacing:1.5,fontWeight:700,
-                marginBottom:8,paddingBottom:6,borderBottom:"1px solid var(--border-2)",textTransform:"capitalize"}}>
-                {new Date(ds+"T12:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}{ds===todayStr?" · Hoje":""}
+
+          {dayFilter ? (
+            <div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                <div style={{fontSize:12,color:"var(--accent)",letterSpacing:1.5,fontWeight:700,textTransform:"capitalize"}}>
+                  {new Date(dayFilter+"T12:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}{dayFilter===todayStr?" · Hoje":""}
+                </div>
+                <button onClick={()=>setDayFilter(null)}
+                  style={{fontSize:11,color:"var(--text-3)",background:"none",border:"none",cursor:"pointer",fontWeight:700}}>
+                  Ver todos
+                </button>
               </div>
-              {eventsByDate[ds].map(e=>(
+              {(eventsByDate[dayFilter]||[]).length===0 && <Empty text="Nenhum compromisso neste dia."/>}
+              {(eventsByDate[dayFilter]||[]).map(e=>(
                 <div key={e.id} onClick={()=>setDetailId(e.id)}
                   style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",
                     display:"flex",gap:12,alignItems:"flex-start",marginBottom:8,cursor:"pointer"}}>
@@ -2245,7 +2254,63 @@ function AgendaPage() {
                 </div>
               ))}
             </div>
-          ))}
+          ) : (
+            <>
+              {sortedDates.filter(ds=>ds>=todayStr).map(ds=>(
+                <div key={ds} style={{marginBottom:18}}>
+                  <div style={{fontSize:11,color: ds===todayStr?"var(--accent)":"var(--text-3)",letterSpacing:1.5,fontWeight:700,
+                    marginBottom:8,paddingBottom:6,borderBottom:"1px solid var(--border-2)",textTransform:"capitalize"}}>
+                    {new Date(ds+"T12:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}{ds===todayStr?" · Hoje":""}
+                  </div>
+                  {eventsByDate[ds].map(e=>(
+                    <div key={e.id} onClick={()=>setDetailId(e.id)}
+                      style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",
+                        display:"flex",gap:12,alignItems:"flex-start",marginBottom:8,cursor:"pointer"}}>
+                      <div style={{width:4,borderRadius:4,background:catColors[e.cat]||"var(--accent)",alignSelf:"stretch",flexShrink:0}}/>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:700,fontSize:14}}>{e.title}</div>
+                        <div style={{fontSize:12,color:"var(--text-3)",marginTop:2}}>
+                          {e.time&&`⏰ ${e.time}`}{e.local&&` · 📍 ${e.local}`}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+
+              {sortedDates.filter(ds=>ds<todayStr).length>0 && (
+                <div style={{marginTop:8}}>
+                  <button onClick={()=>setShowPast(p=>!p)}
+                    style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",cursor:"pointer",
+                      color:"var(--text-3)",fontSize:12,fontWeight:700,letterSpacing:1,padding:0,marginBottom:showPast?12:0}}>
+                    <Icon path={showPast?I.up:I.down} size={12}/>
+                    Eventos passados ({sortedDates.filter(ds=>ds<todayStr).length})
+                  </button>
+                  {showPast && sortedDates.filter(ds=>ds<todayStr).sort().reverse().map(ds=>(
+                    <div key={ds} style={{marginBottom:18, opacity:0.75}}>
+                      <div style={{fontSize:11,color:"var(--text-3)",letterSpacing:1.5,fontWeight:700,
+                        marginBottom:8,paddingBottom:6,borderBottom:"1px solid var(--border-2)",textTransform:"capitalize"}}>
+                        {new Date(ds+"T12:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}
+                      </div>
+                      {eventsByDate[ds].map(e=>(
+                        <div key={e.id} onClick={()=>setDetailId(e.id)}
+                          style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",
+                            display:"flex",gap:12,alignItems:"flex-start",marginBottom:8,cursor:"pointer"}}>
+                          <div style={{width:4,borderRadius:4,background:catColors[e.cat]||"var(--accent)",alignSelf:"stretch",flexShrink:0}}/>
+                          <div style={{flex:1}}>
+                            <div style={{fontWeight:700,fontSize:14}}>{e.title}</div>
+                            <div style={{fontSize:12,color:"var(--text-3)",marginTop:2}}>
+                              {e.time&&`⏰ ${e.time}`}{e.local&&` · 📍 ${e.local}`}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 
