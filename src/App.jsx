@@ -3513,7 +3513,7 @@ function HomePage({ onNavigate }) {
 
 // ─── PROJETOS PAGE ────────────────────────────────────────────────────────────
 const PROJECT_DEFS = [
-  { id:"solvelabs",    color:"var(--tile-market)", icon:"trend",   label:"SolveLabs",    sub:"Signare",       url:"https://gustavogalioti.github.io/Signare/" },
+  { id:"solvelabs",    color:"var(--tile-market)", icon:"trend",   label:"SolveLabs",    sub:"Signare",       url:"http://solvelabs.com.br/" },
   { id:"painelglobal", color:"var(--tile-docs)",   icon:"monitor", label:"Painel Global",sub:"Painel Global", url:"https://gustavogalioti.github.io/painelglobal/" },
   { id:"domina",       color:"var(--purple)",      icon:"checkSq", label:"Domina",       sub:"Domina",        url:"https://domina-virid.vercel.app/" },
   { id:"warmaps",      color:"#0f2540",            icon:"list",    label:"War Maps",     sub:"War Maps",      url:"https://warmaps-ecru.vercel.app/" },
