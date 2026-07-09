@@ -1052,8 +1052,8 @@ function DayBoardPage() {
 }
 
 // ─── IDEIAS — CARDS ──────────────────────────────────────────────────────────
-function IdeasCards() {
-  const [entries, setEntries, synced] = useKV("ideas_v1",[]);
+function IdeasCards({ storageKey="ideas_v1" }) {
+  const [entries, setEntries, synced] = useKV(storageKey,[]);
   const [text, setText]   = useState("");
   const [tag, setTag]     = useState("");
   const [editing, setEditing] = useState(null);
@@ -3511,6 +3511,46 @@ function HomePage({ onNavigate }) {
   );
 }
 
+// ─── PROJETOS PAGE ────────────────────────────────────────────────────────────
+const PROJECT_DEFS = [
+  { id:"solvelabs",    color:"var(--tile-market)", icon:"trend",   label:"SolveLabs",    sub:"Signare",       url:"https://gustavogalioti.github.io/Signare/" },
+  { id:"painelglobal", color:"var(--tile-docs)",   icon:"monitor", label:"Painel Global",sub:"Painel Global", url:"https://gustavogalioti.github.io/painelglobal/" },
+];
+
+function ProjectsPage() {
+  const [tab, setTab] = useState("projects");
+  const tabs = [
+    {id:"projects", label:"🗂 Projetos"},
+    {id:"ideas",    label:"💡 Ideias/Atualizações"},
+  ];
+  return (
+    <div style={{padding:"20px"}}>
+      <div style={{display:"flex",gap:8,marginBottom:24,flexWrap:"wrap"}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            style={{background:tab===t.id?"var(--accent)":"var(--bg-card)",
+              border:`1px solid ${tab===t.id?"var(--accent)":"var(--border)"}`,
+              borderRadius:24,padding:"10px 24px",color:tab===t.id?"#fff":"var(--text-2)",
+              fontSize:14,fontWeight:700,cursor:"pointer",transition:"all .2s"}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab==="projects" ? (
+        <div className="tiles-grid" style={{padding:0}}>
+          {PROJECT_DEFS.map(p=>(
+            <MenuTile key={p.id} color={p.color} icon={p.icon} label={p.label} sub={p.sub}
+              onClick={()=>window.open(p.url,"_blank","noopener,noreferrer")}/>
+          ))}
+        </div>
+      ) : (
+        <IdeasCards storageKey="project_ideas_v1"/>
+      )}
+    </div>
+  );
+}
+
 
 // ─── LETREIRO PAGE ────────────────────────────────────────────────────────────
 function LetreirPage() {
@@ -3837,6 +3877,7 @@ function LetreirPage() {
 // ─── PAGE TITLES ─────────────────────────────────────────────────────────────
 const PAGE_META = {
   home:       {label:"Menu",                emoji:""},
+  projects:   {label:"Projetos",            emoji:"🗂"},
   diary:      {label:"Diário",              emoji:"📓"},
   tasks:      {label:"Tarefas",             emoji:"✅"},
   docs:       {label:"Documentos",          emoji:"📁"},
@@ -3972,6 +4013,7 @@ export default function App() {
       case "whiteboard": return <WhiteboardPage/>;
       case "bat":          return <BatPage/>;
       case "letreiro":      return <LetreirPage/>;
+      case "projects":   return <ProjectsPage/>;
       default:           return <HomePage onNavigate={setPage}/>;
     }
   };
@@ -4012,8 +4054,29 @@ export default function App() {
       </div>
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: page==="home"?"0":"24px 20px",maxWidth: page==="market"||page==="home"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease"}}>
-        {renderPage()}
+      <main style={{flex:1,padding: (page==="home"||page==="projects")?"0":"24px 20px",maxWidth: page==="market"||page==="home"||page==="projects"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects")?"hidden":"visible",position:"relative"}}>
+        {(page==="home"||page==="projects") ? (
+          <div style={{display:"flex",width:"200%",transform:`translateX(${page==="home"?"0%":"-50%"})`,transition:"transform .35s ease"}}>
+            <div style={{width:"50%",flexShrink:0,position:"relative"}}>
+              <HomePage onNavigate={setPage}/>
+              <button onClick={()=>setPage("projects")} title="Ir para Projetos"
+                style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
+                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
+                <Icon path={I.next} size={18}/>
+              </button>
+            </div>
+            <div style={{width:"50%",flexShrink:0,position:"relative"}}>
+              <ProjectsPage/>
+              <button onClick={()=>setPage("home")} title="Voltar ao Menu"
+                style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
+                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.08)",border:"1px solid var(--border)",
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)"}}>
+                <Icon path={I.back} size={18}/>
+              </button>
+            </div>
+          </div>
+        ) : renderPage()}
       </main>
 
       <footer style={{borderTop:"1px solid var(--border-2)",padding:"8px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
