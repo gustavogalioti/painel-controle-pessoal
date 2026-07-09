@@ -264,24 +264,46 @@ function useMarketData() {
 }
 
 // ─── WEATHER ─────────────────────────────────────────────────────────────────
+const WEATHER_CACHE_KEY = "weather_cache_v1";
+const WEATHER_TTL = 20*60*1000; // 20 minutes
+let weatherMemCache = null;
+
+function loadWeatherCache() {
+  if (weatherMemCache) return weatherMemCache;
+  try {
+    const raw = localStorage.getItem(WEATHER_CACHE_KEY);
+    if (raw) weatherMemCache = JSON.parse(raw);
+  } catch {}
+  return weatherMemCache;
+}
+function saveWeatherCache(data) {
+  weatherMemCache = { data, ts: Date.now() };
+  try { localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(weatherMemCache)); } catch {}
+}
+
 function useWeather() {
-  const [weather, setWeather] = useState(null);
+  const cached = loadWeatherCache();
+  const [weather, setWeather] = useState(cached?.data || null);
   useEffect(()=>{
-    if(!navigator.geolocation){ setWeather({error:"GPS indisponível"}); return; }
+    const c = loadWeatherCache();
+    if (c && (Date.now()-c.ts < WEATHER_TTL)) { setWeather(c.data); return; }
+    if(!navigator.geolocation){ const d={error:"GPS indisponível"}; saveWeatherCache(d); setWeather(d); return; }
     navigator.geolocation.getCurrentPosition(async pos=>{
       try {
         const {latitude:lat,longitude:lon} = pos.coords;
         const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto`);
         const d = await r.json();
-        const c = d.current;
+        const cur = d.current;
         const codes = {0:"☀️ Céu limpo",1:"🌤 Quase limpo",2:"⛅ Parcialmente nublado",3:"☁️ Nublado",45:"🌫 Névoa",48:"🌫 Névoa com gelo",51:"🌦 Chuvisco leve",61:"🌧 Chuva leve",63:"🌧 Chuva moderada",65:"🌧 Chuva forte",71:"❄️ Neve leve",80:"🌦 Aguaceiros",95:"⛈ Tempestade"};
-        setWeather({ temp:c.temperature_2m, humidity:c.relative_humidity_2m, wind:c.wind_speed_10m, desc:codes[c.weather_code]||"🌡 Variável", unit:d.current_units?.temperature_2m||"°C" });
+        let data = { temp:cur.temperature_2m, humidity:cur.relative_humidity_2m, wind:cur.wind_speed_10m, desc:codes[cur.weather_code]||"🌡 Variável", unit:d.current_units?.temperature_2m||"°C" };
+        saveWeatherCache(data); setWeather(data);
         // Reverse geocode
         const geo = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`);
         const gd  = await geo.json();
-        setWeather(prev=>({...prev, city: gd.address?.city||gd.address?.town||gd.address?.county||"Sua localização"}));
-      } catch { setWeather({error:"Erro ao buscar clima"}); }
-    }, ()=>setWeather({error:"Permissão negada"}));
+        data = { ...data, city: gd.address?.city||gd.address?.town||gd.address?.county||"Sua localização" };
+        saveWeatherCache(data); setWeather(data);
+      } catch { const d={error:"Erro ao buscar clima"}; saveWeatherCache(d); setWeather(d); }
+    }, ()=>{ const d={error:"Permissão negada"}; saveWeatherCache(d); setWeather(d); });
   },[]);
   return weather;
 }
