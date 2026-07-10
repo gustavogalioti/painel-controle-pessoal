@@ -2687,11 +2687,22 @@ function MarketPage() {
       </div>
 
       {tab==="indicadores"&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(380px,1fr))",gap:14}}>
-          <Table title="🌎 AMÉRICAS" data={mkt?.americas}/>
-          <Table title="🇪🇺 EUROPA"  data={mkt?.europa}/>
-          <Table title="🌏 ÁSIA & OCEANIA" data={mkt?.asia}/>
-          <Table title="📋 FUTUROS" data={mkt?.futuros}/>
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          {/* Índices mundiais via TradingView — dados reais em tempo real */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(420px,1fr))",gap:14}}>
+            <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+              <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}><span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>🌎 AMÉRICAS & EUROPA</span></div>
+              <TVWidget type="market-overview" height={460} config={{colorTheme:"light",locale:"pt_BR",isTransparent:true,tabs:[{title:"Américas",symbols:[{s:"BMFBOVESPA:IBOV",d:"Ibovespa"},{s:"SP:SPX",d:"S&P 500"},{s:"NASDAQ:NDX",d:"Nasdaq"},{s:"DJ:DJI",d:"Dow Jones"},{s:"INDEX:RTY",d:"Russell 2000"},{s:"CBOE:VIX",d:"VIX"},{s:"TSX:TX60",d:"Toronto"},{s:"BMV:IPC",d:"México"}],originalTitle:"Américas"},{title:"Europa",symbols:[{s:"XETR:DAX",d:"Alemanha"},{s:"EURONEXT:PX1",d:"França"},{s:"LSE:UKX",d:"Inglaterra"},{s:"MIL:FTSEMIB",d:"Itália"},{s:"BME:IBC",d:"Espanha"},{s:"INDEX:SX5E",d:"Euro Stoxx"}],originalTitle:"Europa"}]}}/>
+            </div>
+            <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+              <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}><span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>🌏 ÁSIA & FUTUROS</span></div>
+              <TVWidget type="market-overview" height={460} config={{colorTheme:"light",locale:"pt_BR",isTransparent:true,tabs:[{title:"Ásia",symbols:[{s:"TVC:NI225",d:"Japão"},{s:"HSI:HSI",d:"Hong Kong"},{s:"HKEX:800000",d:"China"},{s:"KRX:KOSPI",d:"Coreia"},{s:"ASX:XJO",d:"Austrália"},{s:"NSE:NIFTY50",d:"Índia"}],originalTitle:"Ásia"},{title:"Futuros",symbols:[{s:"CME_MINI:ES1!",d:"S&P Fut"},{s:"CME_MINI:NQ1!",d:"Nasdaq Fut"},{s:"CBOT_MINI:YM1!",d:"Dow Fut"},{s:"TVC:GOLD",d:"Ouro"},{s:"TVC:USOIL",d:"Petróleo"}],originalTitle:"Futuros"}]}}/>
+            </div>
+          </div>
+          {/* Ticker horizontal em tempo real */}
+          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+            <TVWidget type="ticker-tape" height={72} config={{colorTheme:"light",isTransparent:true,locale:"pt_BR",showSymbolLogo:true,symbols:[{s:"BMFBOVESPA:IBOV",d:"Ibovespa"},{s:"SP:SPX",d:"S&P 500"},{s:"NASDAQ:NDX",d:"Nasdaq"},{s:"BITSTAMP:BTCUSD",d:"Bitcoin"},{s:"BITSTAMP:ETHUSD",d:"Ethereum"},{s:"TVC:GOLD",d:"Ouro"},{s:"TVC:USOIL",d:"Petróleo"},{s:"FX:USDBRL",d:"USD/BRL"},{s:"FX:EURBRL",d:"EUR/BRL"}]}}/>
+          </div>
         </div>
       )}
 
@@ -4088,6 +4099,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
