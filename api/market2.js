@@ -2,111 +2,115 @@ export const config = { runtime: "edge" };
 
 const CORS = { "Access-Control-Allow-Origin":"*","Content-Type":"application/json" };
 
-// Brapi — funciona com ações BR e câmbio
-const brapi = (syms) =>
-  fetch(`https://brapi.dev/api/quote/${syms.join(",")}?token=4NkivGqSUVTRj1JX3TZSZ5`)
-    .then(r=>r.json()).catch(()=>({results:[]}));
+async function tvScan(tickers) {
+  const r = await fetch("https://scanner.tradingview.com/global/scan", {
+    method: "POST",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify({
+      symbols: { tickers, query: { types:[] } },
+      columns: ["close","change","change_abs","volume","description"]
+    })
+  });
+  const d = await r.json();
+  return d?.data || [];
+}
 
-// CoinGecko — cripto
-const cg = () =>
-  fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,binancecoin,solana,ripple,cardano,dogecoin,avalanche-2&vs_currencies=usd,brl&include_24hr_change=true")
-    .then(r=>r.json()).catch(()=>({}));
-
-// ExchangeRate — câmbio USD base
-const er = () =>
-  fetch("https://open.er-api.com/v6/latest/USD")
-    .then(r=>r.json()).catch(()=>null);
-
-function item(flag, name, price, chg, pct, time) {
-  const up = pct!=null ? pct>=0 : null;
-  const f  = (v,d) => v!=null ? Number(v).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d}) : "--";
+function makeRow(flag, name, sym, scanData) {
+  const row = scanData.find(r => r.s === sym);
+  const d   = row?.d || [];
+  const price = d[0], pct = d[1], chg = d[2];
+  const up = pct != null ? pct >= 0 : null;
+  const fmt = (v, dec) => v != null ? Number(v).toLocaleString("pt-BR",{minimumFractionDigits:dec,maximumFractionDigits:dec}) : "--";
   return {
     flag, name,
-    price: price!=null ? f(price, price<1?4:price<10?4:price<1000?2:0) : "--",
-    chg:   chg!=null   ? (chg>=0?"+":"")+f(chg, Math.abs(chg)<10?2:0)   : "--",
-    pct:   pct!=null   ? (pct>=0?"+":"")+Number(pct).toFixed(2)+"%"      : "--",
-    up, time: time||"--",
+    price: price != null ? fmt(price, price<1?4:price<10?3:price<1000?2:0) : "--",
+    chg:   chg   != null ? (chg>=0?"+":"")+fmt(chg, Math.abs(chg)<10?2:0) : "--",
+    pct:   pct   != null ? (pct>=0?"+":"")+Number(pct).toFixed(2)+"%" : "--",
+    up,
   };
-}
-
-function fromBrapi(results, sym, flag, name) {
-  const q = (results||[]).find(r => r.symbol?.toUpperCase()===sym.toUpperCase());
-  if (!q) return item(flag,name,null,null,null,null);
-  return item(flag,name,
-    q.regularMarketPrice,
-    q.regularMarketChange,
-    q.regularMarketChangePercent,
-    q.regularMarketTime ? new Date(q.regularMarketTime*1000).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : null
-  );
-}
-
-function fromER(rates, from, to, flag, name) {
-  if (!rates) return item(flag,name,null,null,null,null);
-  const r = rates[to];
-  if (!r) return item(flag,name,null,null,null,null);
-  return item(flag,name, 1/r, null, null, null);
 }
 
 export default async function handler(req) {
   if (req.method==="OPTIONS") return new Response(null,{headers:CORS});
   try {
-    // Fetch apenas o que funciona no Edge Vercel
-    const [brapiData, cgData, erData] = await Promise.all([
-      brapi(["USDBRL=X","EURBRL=X","GBPBRL=X","JPYBRL=X",
-             "EURUSD=X","GBPUSD=X","USDJPY=X","USDCNY=X",
-             "USDARS=X","USDCHF=X","USDCAD=X","USDMXN=X",
-             "GC=F","SI=F","CL=F","BZ=F","HG=F","NG=F",
-             "ZS=F","ZC=F","ZW=F","ES=F","NQ=F","YM=F","GC=F","SI=F"]),
-      cg(),
-      er(),
+    const [scanAm, scanEu, scanAs, scanFut, scanFx, scanComm, scanCrypto] = await Promise.all([
+      tvScan(["BMFBOVESPA:IBOV","SP:SPX","NASDAQ:NDX","DJ:DJI","INDEX:RTY","CBOE:VIX","TSX:TX60","BMV:IPC"]),
+      tvScan(["INDEX:SX5E","LSE:UKX","EURONEXT:PX1","XETR:DAX","EURONEXT:AEX","BME:IBC","MIL:FTSEMIB","SMI:SMI"]),
+      tvScan(["TVC:NI225","HSI:HSI","KRX:KOSPI","NSE:NIFTY50","ASX:XJO","SGX:STI"]),
+      tvScan(["CME_MINI:ES1!","CME_MINI:NQ1!","CBOT_MINI:YM1!","BMFBOVESPA:WIN1!","COMEX:GC1!","COMEX:SI1!","NYMEX:CL1!","NYMEX:BZ1!"]),
+      tvScan(["FX:USDBRL","FX:EURBRL","FX:GBPBRL","FX:EURJPY","FX:EURUSD","FX:GBPUSD","FX:USDJPY","FX:USDCNY","FX:USDARS","FX:USDCHF","FX:USDCAD","FX:USDMXN"]),
+      tvScan(["COMEX:GC1!","COMEX:SI1!","NYMEX:CL1!","NYMEX:BZ1!","COMEX:HG1!","NYMEX:NG1!","CBOT:ZS1!","CBOT:ZC1!","CBOT:ZW1!"]),
+      tvScan(["BITSTAMP:BTCUSD","BITSTAMP:ETHUSD","BINANCE:BNBUSDT","BINANCE:SOLUSDT","BITSTAMP:XRPUSD","BINANCE:ADAUSDT","BINANCE:DOGEUSDT","BINANCE:AVAXUSDT"]),
     ]);
 
-    const br = brapiData?.results || [];
-    const fb = (s,f,n) => fromBrapi(br,s,f,n);
-
-    const cambio = [
-      fb("USDBRL=X","🇺🇸","USD/BRL"), fb("EURBRL=X","🇪🇺","EUR/BRL"),
-      fb("GBPBRL=X","🇬🇧","GBP/BRL"), fb("JPYBRL=X","🇯🇵","JPY/BRL"),
-      fb("EURUSD=X","🇪🇺","EUR/USD"), fb("GBPUSD=X","🇬🇧","GBP/USD"),
-      fb("USDJPY=X","🇯🇵","USD/JPY"), fb("USDCNY=X","🇨🇳","USD/CNY"),
-      fb("USDARS=X","🇦🇷","USD/ARS"), fb("USDCHF=X","🇨🇭","USD/CHF"),
-      fb("USDCAD=X","🇨🇦","USD/CAD"), fb("USDMXN=X","🇲🇽","USD/MXN"),
-    ];
-
-    const commodities = [
-      fb("GC=F","🟡","Ouro"),       fb("SI=F","⚪","Prata"),
-      fb("CL=F","🛢","Petróleo WTI"),fb("BZ=F","🛢","Petróleo Brent"),
-      fb("HG=F","🟠","Cobre"),      fb("NG=F","🔥","Gás Natural"),
-      fb("ZS=F","🌱","Soja"),       fb("ZC=F","🌽","Milho"),
-      fb("ZW=F","🌾","Trigo"),
-    ];
-
-    const futuros = [
-      fb("ES=F","🇺🇸","S&P 500 Fut"), fb("NQ=F","🇺🇸","Nasdaq Fut"),
-      fb("YM=F","🇺🇸","Dow Fut"),
-    ];
-
-    const cgList = [
-      {id:"bitcoin",       flag:"₿", name:"Bitcoin"},
-      {id:"ethereum",      flag:"Ξ", name:"Ethereum"},
-      {id:"binancecoin",   flag:"🔶",name:"BNB"},
-      {id:"solana",        flag:"◎", name:"Solana"},
-      {id:"ripple",        flag:"✕", name:"XRP"},
-      {id:"cardano",       flag:"₳", name:"Cardano"},
-      {id:"dogecoin",      flag:"Ð", name:"Dogecoin"},
-      {id:"avalanche-2",   flag:"🔺",name:"Avalanche"},
-    ];
-    const cripto = cgList.map(({id,flag,name}) => {
-      const d = cgData?.[id];
-      return item(flag,name, d?.usd||null, null, d?.usd_24h_change||null, null);
-    });
+    const mk = (f,n,s,data) => makeRow(f,n,s,data);
 
     return new Response(JSON.stringify({
-      cambio, commodities, futuros, cripto,
-      // Índices mundiais virão do TradingView widget no frontend
-      americas:[], europa:[], asia:[],
+      americas: [
+        mk("🇧🇷","Ibovespa",      "BMFBOVESPA:IBOV", scanAm),
+        mk("🇺🇸","S&P 500",       "SP:SPX",           scanAm),
+        mk("🇺🇸","Nasdaq",         "NASDAQ:NDX",       scanAm),
+        mk("🇺🇸","Dow Jones",      "DJ:DJI",           scanAm),
+        mk("🇺🇸","Russell 2000",   "INDEX:RTY",        scanAm),
+        mk("🇺🇸","S&P VIX",        "CBOE:VIX",         scanAm),
+        mk("🇨🇦","Toronto",        "TSX:TX60",         scanAm),
+        mk("🇲🇽","México",         "BMV:IPC",          scanAm),
+      ],
+      europa: [
+        mk("🇪🇺","Euro Stoxx 50", "INDEX:SX5E",       scanEu),
+        mk("🇬🇧","Inglaterra",     "LSE:UKX",          scanEu),
+        mk("🇫🇷","França",         "EURONEXT:PX1",     scanEu),
+        mk("🇩🇪","Alemanha",       "XETR:DAX",         scanEu),
+        mk("🇳🇱","Holanda",        "EURONEXT:AEX",     scanEu),
+        mk("🇪🇸","Espanha",        "BME:IBC",          scanEu),
+        mk("🇮🇹","Itália",         "MIL:FTSEMIB",      scanEu),
+        mk("🇨🇭","Suíça",          "SMI:SMI",          scanEu),
+      ],
+      asia: [
+        mk("🇯🇵","Japão (Nikkei)", "TVC:NI225",        scanAs),
+        mk("🇭🇰","Hong Kong",      "HSI:HSI",          scanAs),
+        mk("🇰🇷","Coreia do Sul",  "KRX:KOSPI",        scanAs),
+        mk("🇮🇳","Índia",          "NSE:NIFTY50",      scanAs),
+        mk("🇦🇺","Austrália",      "ASX:XJO",          scanAs),
+        mk("🇸🇬","Singapura",      "SGX:STI",          scanAs),
+      ],
+      futuros: [
+        mk("🇺🇸","S&P 500 Fut",   "CME_MINI:ES1!",    scanFut),
+        mk("🇺🇸","Nasdaq Fut",     "CME_MINI:NQ1!",    scanFut),
+        mk("🇺🇸","Dow Jones Fut",  "CBOT_MINI:YM1!",   scanFut),
+        mk("🇧🇷","Ibovespa Fut",   "BMFBOVESPA:WIN1!", scanFut),
+        mk("🟡","Ouro Fut",        "COMEX:GC1!",       scanFut),
+        mk("⚪","Prata Fut",       "COMEX:SI1!",       scanFut),
+        mk("🛢","Petróleo WTI",    "NYMEX:CL1!",       scanFut),
+        mk("🛢","Petróleo Brent",  "NYMEX:BZ1!",       scanFut),
+      ],
+      cambio: [
+        mk("🇺🇸","USD/BRL","FX:USDBRL",scanFx), mk("🇪🇺","EUR/BRL","FX:EURBRL",scanFx),
+        mk("🇬🇧","GBP/BRL","FX:GBPBRL",scanFx), mk("🇯🇵","JPY/BRL","FX:EURJPY",scanFx),
+        mk("🇪🇺","EUR/USD","FX:EURUSD",scanFx), mk("🇬🇧","GBP/USD","FX:GBPUSD",scanFx),
+        mk("🇯🇵","USD/JPY","FX:USDJPY",scanFx), mk("🇨🇳","USD/CNY","FX:USDCNY",scanFx),
+        mk("🇦🇷","USD/ARS","FX:USDARS",scanFx), mk("🇨🇭","USD/CHF","FX:USDCHF",scanFx),
+        mk("🇨🇦","USD/CAD","FX:USDCAD",scanFx), mk("🇲🇽","USD/MXN","FX:USDMXN",scanFx),
+      ],
+      commodities: [
+        mk("🟡","Ouro",         "COMEX:GC1!", scanComm), mk("⚪","Prata",      "COMEX:SI1!", scanComm),
+        mk("🛢","WTI",          "NYMEX:CL1!", scanComm), mk("🛢","Brent",      "NYMEX:BZ1!", scanComm),
+        mk("🟠","Cobre",        "COMEX:HG1!", scanComm), mk("🔥","Gás Natural","NYMEX:NG1!", scanComm),
+        mk("🌱","Soja",         "CBOT:ZS1!",  scanComm), mk("🌽","Milho",      "CBOT:ZC1!",  scanComm),
+        mk("🌾","Trigo",        "CBOT:ZW1!",  scanComm),
+      ],
+      cripto: [
+        mk("₿","Bitcoin",   "BITSTAMP:BTCUSD",   scanCrypto),
+        mk("Ξ","Ethereum",  "BITSTAMP:ETHUSD",   scanCrypto),
+        mk("🔶","BNB",      "BINANCE:BNBUSDT",   scanCrypto),
+        mk("◎","Solana",    "BINANCE:SOLUSDT",   scanCrypto),
+        mk("✕","XRP",       "BITSTAMP:XRPUSD",   scanCrypto),
+        mk("₳","Cardano",   "BINANCE:ADAUSDT",   scanCrypto),
+        mk("Ð","Dogecoin",  "BINANCE:DOGEUSDT",  scanCrypto),
+        mk("🔺","Avalanche","BINANCE:AVAXUSDT",  scanCrypto),
+      ],
       ts: Date.now()
-    }),{headers:CORS});
+    }), {headers:CORS});
 
   } catch(e) {
     return new Response(JSON.stringify({error:e.message}),{status:500,headers:CORS});

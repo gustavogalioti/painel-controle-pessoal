@@ -2598,91 +2598,6 @@ function TVScript({ src, config }) {
 
 
 
-// Tabela de cotações usando TradingView Single Quote widgets
-function TVQuoteTable({ title, symbols }) {
-  return (
-    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-      <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-        <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>{title}</span>
-      </div>
-      <div style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead>
-            <tr style={{background:"var(--bg-sub)"}}>
-              {["NOME","ÚLTIMO","VAR.","VAR.%"].map((h,i)=>(
-                <th key={h} style={{padding:"6px 10px",fontSize:10,color:"var(--text-3)",
-                  textAlign:i===0?"left":"right",fontWeight:700,letterSpacing:1,whiteSpace:"nowrap"}}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {symbols.map((sym,i)=>(
-              <TVQuoteRow key={i} sym={sym}/>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function TVQuoteRow({ sym }) {
-  const [data, setData] = useState(null);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    // Use TradingView REST quote endpoint (public, no auth needed)
-    const ticker = encodeURIComponent(sym.s);
-    fetch(`https://symbol-search.tradingview.com/symbol_info/?symbol=${ticker}`)
-      .catch(()=>null);
-
-    // Fallback: use iframe widget approach via postMessage
-    // Actually use the public screener API
-    const [exchange, symbol] = sym.s.includes(':') ? sym.s.split(':') : ['', sym.s];
-    fetch(`https://scanner.tradingview.com/global/scan`, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        symbols: {tickers:[sym.s], query:{types:[]}},
-        columns: ['close','change','change_abs']
-      })
-    })
-    .then(r=>r.json())
-    .then(d=>{
-      if(d?.data?.[0]?.d) {
-        const [price, pct, chg] = d.data[0].d;
-        setData({price, pct, chg});
-      }
-    })
-    .catch(()=>null);
-  }, [sym.s]);
-
-  const fmt = (v,dec=2) => v!=null ? Number(v).toLocaleString("pt-BR",{minimumFractionDigits:dec,maximumFractionDigits:dec}) : "--";
-  const up = data?.pct != null ? data.pct >= 0 : null;
-  const green = "#22c55e", red = "#ef4444", dim = "var(--text-3)";
-
-  return (
-    <tr style={{borderBottom:"1px solid var(--border)"}}>
-      <td style={{padding:"7px 10px",fontSize:13,color:"var(--text-1)",whiteSpace:"nowrap"}}>
-        <span style={{marginRight:6}}>{sym.flag}</span>{sym.d}
-      </td>
-      <td style={{padding:"7px 10px",fontSize:13,fontWeight:700,textAlign:"right",whiteSpace:"nowrap",color:"var(--text-1)"}}>
-        {data ? fmt(data.price, data.price < 10 ? 4 : data.price < 1000 ? 2 : 0) : <span style={{color:dim}}>--</span>}
-      </td>
-      <td style={{padding:"7px 10px",fontSize:12,fontWeight:700,textAlign:"right",color:up===true?green:up===false?red:dim,whiteSpace:"nowrap"}}>
-        {data?.chg != null ? (data.chg>=0?"+":"")+fmt(data.chg,2) : "--"}
-      </td>
-      <td style={{padding:"7px 10px",fontSize:12,fontWeight:700,textAlign:"right",whiteSpace:"nowrap"}}>
-        {data?.pct != null
-          ? <span style={{background:up?green+"22":red+"22",color:up?green:red,borderRadius:6,padding:"2px 7px",fontSize:11}}>
-              {(data.pct>=0?"+":"")+fmt(data.pct,2)+"%"}
-            </span>
-          : <span style={{color:dim}}>--</span>}
-      </td>
-    </tr>
-  );
-}
-
 function MarketPage() {
   const [tab, setTab] = useState("indicadores");
   const [mkt, setMkt] = useState(null);
@@ -2774,44 +2689,10 @@ function MarketPage() {
 
       {tab==="indicadores"&&(
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))",gap:14}}>
-          <TVQuoteTable title="🌎 AMÉRICAS" symbols={[
-            {s:"BMFBOVESPA:IBOV",d:"Ibovespa",flag:"🇧🇷"},
-            {s:"SP:SPX",d:"S&P 500",flag:"🇺🇸"},
-            {s:"NASDAQ:NDX",d:"Nasdaq",flag:"🇺🇸"},
-            {s:"DJ:DJI",d:"Dow Jones",flag:"🇺🇸"},
-            {s:"INDEX:RTY",d:"Russell 2000",flag:"🇺🇸"},
-            {s:"CBOE:VIX",d:"S&P VIX",flag:"🇺🇸"},
-            {s:"TSX:TX60",d:"Toronto",flag:"🇨🇦"},
-            {s:"BMV:IPC",d:"México",flag:"🇲🇽"},
-          ]}/>
-          <TVQuoteTable title="🇪🇺 EUROPA" symbols={[
-            {s:"INDEX:SX5E",d:"Euro Stoxx 50",flag:"🇪🇺"},
-            {s:"LSE:UKX",d:"Inglaterra",flag:"🇬🇧"},
-            {s:"EURONEXT:PX1",d:"França",flag:"🇫🇷"},
-            {s:"XETR:DAX",d:"Alemanha",flag:"🇩🇪"},
-            {s:"EURONEXT:AEX",d:"Holanda",flag:"🇳🇱"},
-            {s:"BME:IBC",d:"Espanha",flag:"🇪🇸"},
-            {s:"MIL:FTSEMIB",d:"Itália",flag:"🇮🇹"},
-            {s:"SMI:SMI",d:"Suíça",flag:"🇨🇭"},
-          ]}/>
-          <TVQuoteTable title="🌏 ÁSIA & OCEANIA" symbols={[
-            {s:"TVC:NI225",d:"Japão (Nikkei)",flag:"🇯🇵"},
-            {s:"HSI:HSI",d:"Hong Kong",flag:"🇭🇰"},
-            {s:"KRX:KOSPI",d:"Coreia do Sul",flag:"🇰🇷"},
-            {s:"NSE:NIFTY50",d:"Índia",flag:"🇮🇳"},
-            {s:"ASX:XJO",d:"Austrália",flag:"🇦🇺"},
-            {s:"SGX:STI",d:"Singapura",flag:"🇸🇬"},
-          ]}/>
-          <TVQuoteTable title="📋 FUTUROS" symbols={[
-            {s:"CME_MINI:ES1!",d:"S&P 500 Fut",flag:"🇺🇸"},
-            {s:"CME_MINI:NQ1!",d:"Nasdaq Fut",flag:"🇺🇸"},
-            {s:"CBOT_MINI:YM1!",d:"Dow Jones Fut",flag:"🇺🇸"},
-            {s:"BMFBOVESPA:WIN1!",d:"Ibovespa Fut",flag:"🇧🇷"},
-            {s:"COMEX:GC1!",d:"Ouro Fut",flag:"🟡"},
-            {s:"COMEX:SI1!",d:"Prata Fut",flag:"⚪"},
-            {s:"NYMEX:CL1!",d:"Petróleo WTI",flag:"🛢"},
-            {s:"NYMEX:BZ1!",d:"Petróleo Brent",flag:"🛢"},
-          ]}/>
+          <Table title="🌎 AMÉRICAS" data={mkt?.americas}/>
+          <Table title="🇪🇺 EUROPA"  data={mkt?.europa}/>
+          <Table title="🌏 ÁSIA & OCEANIA" data={mkt?.asia}/>
+          <Table title="📋 FUTUROS" data={mkt?.futuros}/>
         </div>
       )}
 
