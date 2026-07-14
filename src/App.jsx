@@ -251,7 +251,7 @@ function useMarketData() {
         dolar:{val:fmt$(d.dolar?.price,"R$ "),  chg:fmtPct(d.dolar?.chg)},
         ibov: {val:fmt$(d.ibov?.price,"",0),    chg:fmtPct(d.ibov?.chg)},
         sp500:{val:fmt$(d.sp500?.price,"",0),   chg:fmtPct(d.sp500?.chg)},
-        ouro: {val:fmt$(d.ouro?.price,"R$ ",0), chg:fmtPct(d.ouro?.chg)},
+        ouro: {val:fmt$(d.ouroUsd?.price,"$ ",0), chg:fmtPct(d.ouroUsd?.chg)},
         btc:  {val:fmt$(d.btc?.price,"$ ",0),   chg:fmtPct(d.btc?.chg)},
         euro: {val:fmt$(d.euro?.price,"R$ "),   chg:fmtPct(d.euro?.chg)},
       });
