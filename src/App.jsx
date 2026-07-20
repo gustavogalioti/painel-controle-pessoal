@@ -32,6 +32,8 @@ const I = {
   marquee: "M3 10v4h4l5 4V6l-5 4H3z M16 8a5 5 0 0 1 0 8 M19 5a9 9 0 0 1 0 14",
   resize:  "M15 3h6v6 M9 21H3v-6 M21 3l-7 7 M3 21l7-7",
   image:   "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3 M21 15l-5-5L5 21",
+  lock:    "M5 11a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z M7 9V6a5 5 0 0 1 10 0v3",
+  search:  "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -1953,7 +1955,175 @@ function WeatherPage() {
 }
 
 // ─── DOCS PAGE ────────────────────────────────────────────────────────────────
+// ─── DADOS TAB (password-protected personal backup cards) ────────────────────
+function DadosCard({ card, onOpen }) {
+  return (
+    <div onClick={onOpen}
+      style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:16,cursor:"pointer"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+        {card.hasImage && <Icon path={I.image} size={13} color="var(--text-3)"/>}
+        <div style={{fontWeight:700,fontSize:14}}>{card.title}</div>
+      </div>
+      {card.text && <div style={{fontSize:12,color:"var(--text-3)",lineHeight:1.4,
+        display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{card.text}</div>}
+      <div style={{fontSize:10,color:"var(--text-3)",marginTop:8}}>{card.date}</div>
+    </div>
+  );
+}
+
+function DadosTab() {
+  const [unlocked, setUnlocked] = useState(false);
+  const [pwd, setPwd] = useState("");
+  const [err, setErr] = useState(false);
+
+  const [cards, setCards] = useKV("dados_cards_v1", []);
+  const [search, setSearch] = useState("");
+  const [modal, setModal] = useState(false);
+  const [detailId, setDetailId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({title:"",text:""});
+  const [imgData, setImgData] = useState(null);
+  const [detailImg, setDetailImg] = useState(null);
+  const [detailImgLoading, setDetailImgLoading] = useState(false);
+  const fileRef = useRef(null);
+
+  const unlock = () => {
+    if (pwd===".") { setUnlocked(true); setErr(false); }
+    else { setErr(true); setPwd(""); }
+  };
+
+  if (!unlocked) {
+    return (
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"80px 20px",gap:14}}>
+        <div style={{width:56,height:56,borderRadius:"50%",background:"var(--bg-card)",border:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <Icon path={I.lock} size={22} color="var(--text-2)"/>
+        </div>
+        <div style={{fontSize:14,color:"var(--text-2)",fontWeight:700}}>Área protegida</div>
+        <input type="password" value={pwd} autoFocus
+          onChange={e=>{setPwd(e.target.value);setErr(false);}}
+          onKeyDown={e=>e.key==="Enter"&&unlock()}
+          placeholder="Senha"
+          style={{...inp,width:200,textAlign:"center"}}/>
+        {err && <div style={{fontSize:12,color:"var(--red)"}}>Senha incorreta</div>}
+        <button onClick={unlock} style={btn()}>Entrar</button>
+      </div>
+    );
+  }
+
+  const handleImg = e => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => setImgData(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const openNew = () => { setEditingId(null); setForm({title:"",text:""}); setImgData(null); setModal(true); };
+
+  const openEdit = async (c) => {
+    setEditingId(c.id); setForm({title:c.title,text:c.text||""}); setImgData(null); setDetailId(null);
+    if (c.hasImage) {
+      const d = await KV.get("dados_img_"+c.id);
+      if (d) setImgData(d);
+    }
+    setModal(true);
+  };
+
+  const save = async () => {
+    if (!form.title.trim()) return;
+    if (editingId) {
+      if (imgData) await KV.set("dados_img_"+editingId, imgData);
+      setCards(prev => prev.map(c=>c.id===editingId?{...c,...form,hasImage:!!(imgData||c.hasImage)}:c));
+    } else {
+      const id = Date.now();
+      if (imgData) await KV.set("dados_img_"+id, imgData);
+      setCards(prev => [{id,date:now(),...form,hasImage:!!imgData}, ...prev]);
+    }
+    setModal(false); setEditingId(null); setImgData(null); setForm({title:"",text:""});
+  };
+
+  const del = (id) => { setCards(prev=>prev.filter(c=>c.id!==id)); KV.del("dados_img_"+id); setDetailId(null); };
+
+  const openDetail = async (c) => {
+    setDetailId(c.id); setDetailImg(null);
+    if (c.hasImage) {
+      setDetailImgLoading(true);
+      const d = await KV.get("dados_img_"+c.id);
+      setDetailImg(d); setDetailImgLoading(false);
+    }
+  };
+
+  const filtered = cards.filter(c=>{
+    const q = search.toLowerCase().trim();
+    return !q || c.title.toLowerCase().includes(q) || (c.text||"").toLowerCase().includes(q);
+  });
+  const detailCard = cards.find(c=>c.id===detailId);
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <div style={{position:"relative",flex:1,maxWidth:320}}>
+          <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)"}}>
+            <Icon path={I.search} size={14} color="var(--text-3)"/>
+          </span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Pesquisar..." style={{...inp,paddingLeft:36}}/>
+        </div>
+        <button onClick={openNew} style={{...btn(),display:"flex",alignItems:"center",gap:6}}>
+          <Icon path={I.plus} size={14}/> Novo Card
+        </button>
+      </div>
+
+      {filtered.length===0 && <Empty text="Nenhum registro encontrado."/>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:14}}>
+        {filtered.map(c=><DadosCard key={c.id} card={c} onOpen={()=>openDetail(c)}/>)}
+      </div>
+
+      {modal && (
+        <Modal title={editingId?"Editar Card":"Novo Card"} onClose={()=>{setModal(false);setEditingId(null);setImgData(null);}}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <input style={inp} placeholder="Título" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/>
+            <textarea style={{...inp,resize:"vertical"}} rows={5} placeholder="Texto / informações" value={form.text} onChange={e=>setForm({...form,text:e.target.value})}/>
+            <div>
+              <button onClick={()=>fileRef.current?.click()}
+                style={{...btn("var(--bg-input)"),color:"var(--text-2)",display:"flex",alignItems:"center",gap:6}}>
+                <Icon path={I.image} size={14}/> {imgData?"Trocar imagem":"Adicionar imagem"}
+              </button>
+              <input ref={fileRef} type="file" accept="image/*" onChange={handleImg} style={{display:"none"}}/>
+              {imgData && <img src={imgData} alt="preview" style={{marginTop:10,maxWidth:"100%",borderRadius:10,display:"block"}}/>}
+            </div>
+            <button onClick={save} style={btn()}>Salvar</button>
+          </div>
+        </Modal>
+      )}
+
+      {detailCard && (
+        <Modal title={detailCard.title} onClose={()=>setDetailId(null)}>
+          <div style={{display:"flex",flexDirection:"column",gap:14,marginBottom:20}}>
+            {detailCard.text && <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{detailCard.text}</div>}
+            {detailCard.hasImage && (
+              detailImgLoading
+                ? <div style={{fontSize:12,color:"var(--text-3)"}}>Carregando imagem...</div>
+                : detailImg && <img src={detailImg} alt="" style={{maxWidth:"100%",borderRadius:10}}/>
+            )}
+            <div style={{fontSize:10,color:"var(--text-3)"}}>{detailCard.date}</div>
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>openEdit(detailCard)}
+              style={{...btn(),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              <Icon path={I.edit} size={13}/> Editar
+            </button>
+            <button onClick={()=>del(detailCard.id)}
+              style={{...btn("var(--red)"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              <Icon path={I.trash} size={13}/> Excluir
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function DocsPage() {
+  const [pageTab, setPageTab] = useState("documentos");
   const [docs, setDocs, synced] = useKV("docs_v1",[]);
   const [modal, setModal] = useState(false);
   const [form, setForm]   = useState({name:"",cat:"Pessoal",tags:"",notes:""});
@@ -2048,6 +2218,20 @@ function DocsPage() {
 
   return (
     <div>
+      <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+        {[["documentos","📁 Documentos"],["dados","🔒 Dados"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setPageTab(id)}
+            style={{background:pageTab===id?"var(--accent)":"var(--bg-card)",
+              border:`1px solid ${pageTab===id?"var(--accent)":"var(--border)"}`,
+              borderRadius:24,padding:"10px 24px",color:pageTab===id?"#fff":"var(--text-2)",
+              fontSize:14,fontWeight:700,cursor:"pointer"}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {pageTab==="dados" ? <DadosTab/> : (
+      <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {["Todos",...cats].map(c=>(
@@ -2094,6 +2278,8 @@ function DocsPage() {
             <button onClick={add} style={btn()}>Salvar</button>
           </div>
         </Modal>
+      )}
+      </div>
       )}
     </div>
   );
