@@ -3740,6 +3740,7 @@ const PROJECT_DEFS = [
   { id:"painelglobal", color:"var(--tile-docs)",   icon:"monitor", label:"Painel Global",sub:"Painel Global", url:"https://gustavogalioti.github.io/painelglobal/" },
   { id:"domina",       color:"var(--purple)",      icon:"checkSq", label:"Domina",       sub:"Domina",        url:"https://domina-virid.vercel.app/" },
   { id:"warmaps",      color:"#0f2540",            icon:"list",    label:"War Maps",     sub:"War Maps",      url:"https://warmaps-ecru.vercel.app/" },
+  { id:"paporapido",   color:"var(--tile-tasks)",  icon:"marquee", label:"Papo Rápido",  sub:"Papo Rápido",   url:"https://gustavogalioti.github.io/paporapido/" },
 ];
 
 function ProjectsPage() {
