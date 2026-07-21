@@ -3741,6 +3741,7 @@ const PROJECT_DEFS = [
   { id:"domina",       color:"var(--purple)",      icon:"checkSq", label:"Domina",       sub:"Domina",        url:"https://domina-virid.vercel.app/" },
   { id:"warmaps",      color:"#0f2540",            icon:"list",    label:"War Maps",     sub:"War Maps",      url:"https://warmaps-ecru.vercel.app/" },
   { id:"paporapido",   color:"var(--tile-tasks)",  icon:"marquee", label:"Papo Rápido",  sub:"Papo Rápido",   url:"https://gustavogalioti.github.io/paporapido/" },
+  { id:"simuladorcarteira", color:"var(--green)",  icon:"trend",   label:"Simulador de Carteira", sub:"Simulador de Carteira", url:"https://investment-platform-drab.vercel.app/" },
 ];
 
 const OTHER_PROJECT_DEFS = [
