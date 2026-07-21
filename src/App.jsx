@@ -3743,10 +3743,17 @@ const PROJECT_DEFS = [
   { id:"paporapido",   color:"var(--tile-tasks)",  icon:"marquee", label:"Papo Rápido",  sub:"Papo Rápido",   url:"https://gustavogalioti.github.io/paporapido/" },
 ];
 
+const OTHER_PROJECT_DEFS = [
+  { id:"hermanocafes",     color:"#5c3a1a",       icon:"card",     label:"Café Hermanos",     sub:"Café Hermanos",     url:"https://hermanocafes.com/" },
+  { id:"parissemsegredos", color:"var(--tile-events)", icon:"book", label:"Paris Sem Segredos",sub:"Paris Sem Segredos",url:"https://parissemsegredos.com.br/" },
+  { id:"aindanestavida",   color:"#2d0a2e",       icon:"calendar", label:"Ainda Nesta Vida",  sub:"Ainda Nesta Vida",  url:"https://gustavogalioti.github.io/aindanestavida/" },
+];
+
 function ProjectsPage() {
   const [tab, setTab] = useState("projects");
   const tabs = [
     {id:"projects", label:"🗂 Projetos"},
+    {id:"others",   label:"🤝 Projetos de Outros"},
     {id:"ideas",    label:"💡 Ideias/Atualizações"},
   ];
   return (
@@ -3763,14 +3770,23 @@ function ProjectsPage() {
         ))}
       </div>
 
-      {tab==="projects" ? (
+      {tab==="projects" && (
         <div className="tiles-grid" style={{padding:0}}>
           {PROJECT_DEFS.map(p=>(
             <MenuTile key={p.id} color={p.color} icon={p.icon} label={p.label} sub={p.sub}
               onClick={()=>window.open(p.url,"_blank","noopener,noreferrer")}/>
           ))}
         </div>
-      ) : (
+      )}
+      {tab==="others" && (
+        <div className="tiles-grid" style={{padding:0}}>
+          {OTHER_PROJECT_DEFS.map(p=>(
+            <MenuTile key={p.id} color={p.color} icon={p.icon} label={p.label} sub={p.sub}
+              onClick={()=>window.open(p.url,"_blank","noopener,noreferrer")}/>
+          ))}
+        </div>
+      )}
+      {tab==="ideas" && (
         <IdeasCards storageKey="project_ideas_v1"/>
       )}
     </div>
