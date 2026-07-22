@@ -4415,6 +4415,14 @@ function DJPage() {
   const fileInputRef = useRef(null);
   const effectInputRef = useRef(null);
   const deck = useDeck();
+  const [isNarrow, setIsNarrow] = useState(()=> typeof window!=="undefined" && window.innerWidth < 720);
+  useEffect(()=>{
+    const mq = window.matchMedia("(max-width: 720px)");
+    const onChange = () => setIsNarrow(mq.matches);
+    onChange();
+    mq.addEventListener ? mq.addEventListener("change", onChange) : mq.addListener(onChange);
+    return () => { mq.removeEventListener ? mq.removeEventListener("change", onChange) : mq.removeListener(onChange); };
+  }, []);
 
   const activePreset = presets.find(p=>p.id===activePresetId) || presets[0];
   const pads = activePreset?.pads || DJ_DEFAULT_PADS;
@@ -4510,7 +4518,8 @@ function DJPage() {
 
   const sideBtn = (icon, label, onClick, active) => (
     <button onClick={onClick} title={label}
-      style={{width:52,height:44,borderRadius:10,border:"1px solid var(--border)",
+      style={{width: isNarrow? undefined:52, height:44, flex: isNarrow? "1 1 68px":"none", minWidth: isNarrow? 60:undefined,
+        borderRadius:10,border:"1px solid var(--border)",
         background: active?"var(--accent)":"var(--bg-input)", color: active?"#fff":"var(--text-1)",
         display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
       <Icon path={I[icon]} size={18}/>
@@ -4558,7 +4567,8 @@ function DJPage() {
           </div>
 
           {/* BOTOES LATERAIS */}
-          <div style={{display:"flex",flexDirection:"column",gap:8,flex:"0 0 60px"}}>
+          <div style={{display:"flex",flexDirection:isNarrow?"row":"column",flexWrap:"wrap",gap:8,
+            flex: isNarrow? "1 1 100%":"0 0 60px", order: isNarrow? 2:0}}>
             {sideBtn("play","Play",()=>deck.play(deck.currentTime()),deck.isPlaying)}
             {sideBtn("pause","Pause",()=>deck.pause())}
             {sideBtn("stop","Stop",()=>deck.stop())}
