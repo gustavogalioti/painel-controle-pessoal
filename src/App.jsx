@@ -34,6 +34,14 @@ const I = {
   image:   "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3 M21 15l-5-5L5 21",
   lock:    "M5 11a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z M7 9V6a5 5 0 0 1 10 0v3",
   search:  "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35",
+  play:    "M7 4l13 8-13 8V4z",
+  pause:   "M6 4h4v16H6z M14 4h4v16h-4z",
+  stop:    "M5 5h14v14H5z",
+  disc:    "M9 18V5l12-2v13 M9 18a3 3 0 1 0 0 6 3 3 0 0 0 0-6z M21 16a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
+  upload:  "M12 16V4 M7 9l5-5 5 5 M5 21h14",
+  shift:   "M12 19V6 M5 13l7-7 7 7",
+  record:  "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z",
+  scissors:"M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M20 4L8.12 15.88 M14.47 14.48 20 20 M8.12 8.12 12 12",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -3487,6 +3495,7 @@ const TILE_DEFS = [
   { id:"whiteboard",color:"var(--tile-white)",  icon:"edit",     label:"Whiteboard",            sub:"Lousa digital" },
   { id:"bat",       color:"#1a3a2a",            icon:"terminal", label:".BAT / Scripts",        sub:"Automações e comandos" },
   { id:"letreiro",  color:"#1a0a2a",            icon:"marquee",  label:"Letreiro",              sub:"Mensagem em tela cheia" },
+  { id:"dj",        color:"#2a0a3a",            icon:"disc",     label:"DJ Mix",                sub:"Pads, mixagem e efeitos" },
 ];
 const DEFAULT_ORDER = TILE_DEFS.map(t=>t.id);
 const DEFAULT_SIZES = { diary:"wide", market:"wide" };
@@ -4133,6 +4142,7 @@ const PAGE_META = {
   whiteboard: {label:"Whiteboard",          emoji:"🖊️"},
   bat:          {label:".BAT / Scripts",     emoji:"💻"},
   letreiro:     {label:"Letreiro",             emoji:"📺"},
+  dj:           {label:"DJ Mix",               emoji:"🎧"},
 };
 
 // ─── BAT PAGE ─────────────────────────────────────────────────────────────────
@@ -4204,6 +4214,428 @@ function BatPage() {
 }
 
 
+// ─── DJ MIX ──────────────────────────────────────────────────────────────────
+function bufferToWav(buffer) {
+  const numCh = buffer.numberOfChannels, len = buffer.length * numCh * 2 + 44;
+  const ab = new ArrayBuffer(len), view = new DataView(ab);
+  const writeStr = (o,s)=>{ for(let i=0;i<s.length;i++) view.setUint8(o+i, s.charCodeAt(i)); };
+  writeStr(0,"RIFF"); view.setUint32(4, len-8, true); writeStr(8,"WAVE");
+  writeStr(12,"fmt "); view.setUint32(16,16,true); view.setUint16(20,1,true);
+  view.setUint16(22,numCh,true); view.setUint32(24,buffer.sampleRate,true);
+  view.setUint32(28,buffer.sampleRate*numCh*2,true); view.setUint16(32,numCh*2,true); view.setUint16(34,16,true);
+  writeStr(36,"data"); view.setUint32(40, len-44, true);
+  let off=44;
+  const chans=[]; for(let c=0;c<numCh;c++) chans.push(buffer.getChannelData(c));
+  for(let i=0;i<buffer.length;i++){
+    for(let c=0;c<numCh;c++){
+      let s = Math.max(-1, Math.min(1, chans[c][i]));
+      view.setInt16(off, s<0? s*0x8000 : s*0x7FFF, true); off+=2;
+    }
+  }
+  return new Blob([ab], {type:"audio/wav"});
+}
+
+function useDeck() {
+  const ctxRef = useRef(null);
+  const bufferRef = useRef(null);
+  const sourceRef = useRef(null);
+  const gainRef = useRef(null);
+  const startedAtRef = useRef(0);
+  const offsetRef = useRef(0);
+  const loopRef = useRef(null); // {start,end} or null
+  const rateRef = useRef(1);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [name, setName] = useState("");
+
+  const getCtx = () => { if(!ctxRef.current){ ctxRef.current = new (window.AudioContext||window.webkitAudioContext)(); gainRef.current = ctxRef.current.createGain(); gainRef.current.connect(ctxRef.current.destination); } return ctxRef.current; };
+
+  const load = async (arrayBuffer, fname) => {
+    const ctx = getCtx();
+    const buf = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    bufferRef.current = buf; setDuration(buf.duration); offsetRef.current = 0; setName(fname||""); loopRef.current=null;
+    stop();
+    return buf;
+  };
+
+  const stopInternal = () => { if(sourceRef.current){ try{ sourceRef.current.onended=null; sourceRef.current.stop(); }catch{} sourceRef.current=null; } };
+
+  const currentTime = () => {
+    if(!bufferRef.current) return 0;
+    if(!isPlaying) return offsetRef.current;
+    const ctx = getCtx();
+    let t = ctx.currentTime - startedAtRef.current;
+    if(loopRef.current && t > loopRef.current.end) {
+      const span = loopRef.current.end - loopRef.current.start;
+      t = loopRef.current.start + ((t - loopRef.current.start) % span);
+    }
+    return Math.min(t, bufferRef.current.duration);
+  };
+
+  const play = (from=null) => {
+    const ctx = getCtx(); if(!bufferRef.current) return;
+    stopInternal();
+    const src = ctx.createBufferSource();
+    src.buffer = bufferRef.current;
+    src.playbackRate.value = rateRef.current;
+    if(loopRef.current){ src.loop=true; src.loopStart=loopRef.current.start; src.loopEnd=loopRef.current.end; }
+    src.connect(gainRef.current);
+    const startOffset = from!=null ? from : offsetRef.current;
+    src.start(0, startOffset);
+    startedAtRef.current = ctx.currentTime - startOffset;
+    sourceRef.current = src;
+    setIsPlaying(true);
+    src.onended = () => { setIsPlaying(false); };
+  };
+
+  const pause = () => { if(!isPlaying) return; offsetRef.current = currentTime(); stopInternal(); setIsPlaying(false); };
+  const stop = () => { offsetRef.current = 0; stopInternal(); setIsPlaying(false); };
+  const seek = (t) => { offsetRef.current = Math.max(0, Math.min(t, duration)); if(isPlaying) play(offsetRef.current); };
+  const setLoop = (region) => { loopRef.current = region; if(isPlaying) play(currentTime()); };
+  const setRate = (r) => { rateRef.current = r; if(isPlaying) play(currentTime()); };
+  const setVolume = (v) => { getCtx(); gainRef.current.gain.value = v; };
+
+  const exportRegion = (start, end) => {
+    const buf = bufferRef.current; if(!buf) return null;
+    const ctx = getCtx();
+    const startSample = Math.floor(start*buf.sampleRate), endSample = Math.floor(end*buf.sampleRate);
+    const len = Math.max(1, endSample-startSample);
+    const out = ctx.createBuffer(buf.numberOfChannels, len, buf.sampleRate);
+    for(let c=0;c<buf.numberOfChannels;c++){
+      out.getChannelData(c).set(buf.getChannelData(c).subarray(startSample, endSample));
+    }
+    return bufferToWav(out);
+  };
+
+  return { getCtx, load, play, pause, stop, seek, setLoop, setRate, setVolume, currentTime, exportRegion, isPlaying, duration, name, bufferRef, rateRef };
+}
+
+function Waveform({ deck, selection, onSelection, tick }) {
+  const canvasRef = useRef(null);
+  const peaksRef = useRef(null);
+  const draggingRef = useRef(null);
+
+  useEffect(() => {
+    if(!deck.bufferRef.current) { peaksRef.current=null; return; }
+    const buf = deck.bufferRef.current;
+    const data = buf.getChannelData(0);
+    const W = 1200, step = Math.ceil(data.length/W), peaks = new Float32Array(W);
+    for(let i=0;i<W;i++){
+      let max=0; const s=i*step, e=Math.min(s+step, data.length);
+      for(let j=s;j<e;j++){ const v=Math.abs(data[j]); if(v>max) max=v; }
+      peaks[i]=max;
+    }
+    peaksRef.current = peaks;
+    draw();
+  }, [deck.name]);
+
+  const draw = () => {
+    const canvas = canvasRef.current; if(!canvas) return;
+    const ctx2d = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+    ctx2d.clearRect(0,0,W,H);
+    ctx2d.fillStyle = "var(--bg-input)" || "#0d2137";
+    ctx2d.fillStyle = "#0a1a2a"; ctx2d.fillRect(0,0,W,H);
+    const peaks = peaksRef.current;
+    if(peaks){
+      ctx2d.fillStyle = "#3a7bd5";
+      const mid = H/2;
+      for(let i=0;i<peaks.length;i++){
+        const x = (i/peaks.length)*W;
+        const h = Math.max(1, peaks[i]*mid);
+        ctx2d.fillRect(x, mid-h, W/peaks.length+0.5, h*2);
+      }
+    }
+    // selection
+    if(selection && deck.duration){
+      const x1 = (selection.start/deck.duration)*W, x2 = (selection.end/deck.duration)*W;
+      ctx2d.fillStyle = "rgba(255,193,7,0.25)";
+      ctx2d.fillRect(x1,0,x2-x1,H);
+      ctx2d.strokeStyle = "#ffc107"; ctx2d.lineWidth=2;
+      ctx2d.beginPath(); ctx2d.moveTo(x1,0); ctx2d.lineTo(x1,H); ctx2d.stroke();
+      ctx2d.beginPath(); ctx2d.moveTo(x2,0); ctx2d.lineTo(x2,H); ctx2d.stroke();
+    }
+    // playhead
+    if(deck.duration){
+      const t = deck.currentTime();
+      const x = (t/deck.duration)*W;
+      ctx2d.strokeStyle = "#fff"; ctx2d.lineWidth=1.5;
+      ctx2d.beginPath(); ctx2d.moveTo(x,0); ctx2d.lineTo(x,H); ctx2d.stroke();
+    }
+  };
+
+  useEffect(() => { draw(); }, [tick, selection]);
+
+  const xToTime = (clientX) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (clientX-rect.left)/rect.width));
+    return frac * (deck.duration||0);
+  };
+
+  const onDown = (e) => {
+    if(!deck.duration) return;
+    const t = xToTime(e.touches? e.touches[0].clientX : e.clientX);
+    draggingRef.current = t;
+    onSelection({start:t, end:t});
+  };
+  const onMove = (e) => {
+    if(draggingRef.current==null) return;
+    const t = xToTime(e.touches? e.touches[0].clientX : e.clientX);
+    const start = Math.min(draggingRef.current, t), end = Math.max(draggingRef.current, t);
+    onSelection({start, end});
+  };
+  const onUp = () => { draggingRef.current = null; };
+
+  return (
+    <canvas ref={canvasRef} width={1200} height={110}
+      style={{width:"100%",height:110,borderRadius:10,cursor:"crosshair",display:"block",touchAction:"none"}}
+      onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
+      onTouchStart={onDown} onTouchMove={onMove} onTouchEnd={onUp}
+    />
+  );
+}
+
+const DJ_DEFAULT_PADS = Array.from({length:16},(_,i)=>({
+  id:i, label:`PAD ${i+1}`, type:"empty", url:null, action:null, color:null
+}));
+
+function DJPage() {
+  const [presets, savePresets] = useKV("dj_pad_presets", [{id:"a", name:"Preset A", pads: DJ_DEFAULT_PADS}]);
+  const [activePresetId, setActivePresetId] = useState(presets[0]?.id || "a");
+  const [tab, setTab] = useState("mixer"); // mixer | efeitos
+  const [editMode, setEditMode] = useState(false);
+  const [selection, setSelection] = useState(null);
+  const [tick, setTick] = useState(0);
+  const [freesoundKey, setFreesoundKey] = useKV("dj_freesound_key", "");
+  const [fsQuery, setFsQuery] = useState("");
+  const [fsResults, setFsResults] = useState([]);
+  const [fsLoading, setFsLoading] = useState(false);
+  const [clipboardClip, setClipboardClip] = useState(null); // {url,label} pending to paste onto a pad
+  const [pendingPad, setPendingPad] = useState(null); // pad being edited in modal
+  const fileInputRef = useRef(null);
+  const effectInputRef = useRef(null);
+  const deck = useDeck();
+
+  const activePreset = presets.find(p=>p.id===activePresetId) || presets[0];
+  const pads = activePreset?.pads || DJ_DEFAULT_PADS;
+
+  // animation tick for waveform/playhead
+  useEffect(()=>{
+    let raf;
+    const loop = ()=>{ setTick(t=>t+1); raf=requestAnimationFrame(loop); };
+    raf=requestAnimationFrame(loop);
+    return ()=>cancelAnimationFrame(raf);
+  },[]);
+
+  const updatePads = (newPads) => {
+    savePresets(prev => prev.map(p => p.id===activePresetId ? {...p, pads:newPads} : p));
+  };
+
+  const addPreset = () => {
+    const name = prompt("Nome do novo preset de pads:");
+    if(!name) return;
+    const id = "p"+Date.now();
+    savePresets(prev => [...prev, {id, name, pads: DJ_DEFAULT_PADS.map(p=>({...p}))}]);
+    setActivePresetId(id);
+  };
+  const renamePreset = () => {
+    const name = prompt("Renomear preset:", activePreset.name);
+    if(!name) return;
+    savePresets(prev => prev.map(p=>p.id===activePresetId?{...p,name}:p));
+  };
+  const deletePreset = () => {
+    if(presets.length<=1) return alert("Precisa manter pelo menos 1 preset.");
+    if(!confirm(`Apagar "${activePreset.name}"?`)) return;
+    savePresets(prev => prev.filter(p=>p.id!==activePresetId));
+    setActivePresetId(presets.find(p=>p.id!==activePresetId)?.id);
+  };
+
+  const onUploadTrack = async (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const ab = await file.arrayBuffer();
+    await deck.load(ab, file.name);
+    setSelection(null);
+  };
+
+  const onCopySelection = () => {
+    if(!selection || selection.end<=selection.start) return alert("Selecione um trecho na waveform primeiro.");
+    const blob = deck.exportRegion(selection.start, selection.end);
+    const url = URL.createObjectURL(blob);
+    setClipboardClip({url, label:`Trecho ${selection.start.toFixed(1)}s–${selection.end.toFixed(1)}s`});
+  };
+
+  const assignClipToPad = (padId, url, label) => {
+    const newPads = pads.map(p => p.id===padId ? {...p, type:"sound", url, label: label||p.label} : p);
+    updatePads(newPads);
+    setClipboardClip(null);
+  };
+
+  const triggerPad = (pad) => {
+    if(pad.type==="sound" && pad.url){
+      const a = new Audio(pad.url); a.play().catch(()=>{});
+      return;
+    }
+    if(pad.type==="control"){
+      if(pad.action==="loop_toggle") deck.setLoop(selection ? {start:selection.start,end:selection.end} : null);
+      if(pad.action==="transpose_down") deck.setRate(Math.max(0.25, (deck.rateRef.current||1) - 0.1));
+      if(pad.action==="transpose_up") deck.setRate((deck.rateRef.current||1) + 0.1);
+      if(pad.action==="octave_down") deck.setRate(0.5);
+      if(pad.action==="octave_up") deck.setRate(2);
+      if(pad.action==="normal_speed") deck.setRate(1);
+      return;
+    }
+    if(clipboardClip){ assignClipToPad(pad.id, clipboardClip.url, clipboardClip.label); return; }
+    setPendingPad(pad);
+  };
+
+  const searchFreesound = async () => {
+    if(!freesoundKey) return alert("Cole sua API key gratuita do freesound.org acima primeiro.");
+    if(!fsQuery.trim()) return;
+    setFsLoading(true);
+    try {
+      const r = await fetch(`https://freesound.org/apiv2/search/text/?query=${encodeURIComponent(fsQuery)}&fields=id,name,previews&token=${encodeURIComponent(freesoundKey)}`);
+      const data = await r.json();
+      setFsResults(data.results||[]);
+    } catch { alert("Erro ao buscar no Freesound."); }
+    setFsLoading(false);
+  };
+
+  const onUploadEffect = async (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const url = URL.createObjectURL(file);
+    setClipboardClip({url, label: file.name.replace(/\.[^.]+$/,"")});
+  };
+
+  const fmtT = (s) => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
+
+  const sideBtn = (icon, label, onClick, active) => (
+    <button onClick={onClick} title={label}
+      style={{width:52,height:44,borderRadius:10,border:"1px solid var(--border)",
+        background: active?"var(--accent)":"var(--bg-input)", color: active?"#fff":"var(--text-1)",
+        display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+      <Icon path={I[icon]} size={18}/>
+    </button>
+  );
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14,height:"100%"}}>
+      {/* ABAS DE PRESETS / SEÇÃO */}
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:6,background:"var(--bg-sub)",padding:4,borderRadius:10}}>
+          <button onClick={()=>setTab("mixer")} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:tab==="mixer"?"var(--accent)":"transparent",color:tab==="mixer"?"#fff":"var(--text-2)"}}>🎛 Mixer</button>
+          <button onClick={()=>setTab("efeitos")} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:tab==="efeitos"?"var(--accent)":"transparent",color:tab==="efeitos"?"#fff":"var(--text-2)"}}>🔊 Efeitos Sonoros</button>
+        </div>
+        {tab==="mixer" && (
+          <div style={{display:"flex",gap:6,alignItems:"center",marginLeft:"auto",flexWrap:"wrap"}}>
+            {presets.map(p=>(
+              <button key={p.id} onClick={()=>setActivePresetId(p.id)}
+                style={{padding:"6px 12px",borderRadius:20,border:`1px solid ${p.id===activePresetId?"var(--accent)":"var(--border)"}`,
+                  background:p.id===activePresetId?"var(--accent)":"transparent",color:p.id===activePresetId?"#fff":"var(--text-2)",
+                  fontSize:12,fontWeight:600,cursor:"pointer"}}>{p.name}</button>
+            ))}
+            <button onClick={addPreset} title="Novo preset" style={{width:28,height:28,borderRadius:"50%",border:"1px solid var(--border)",background:"transparent",color:"var(--text-2)",cursor:"pointer"}}><Icon path={I.plus} size={14}/></button>
+            <button onClick={renamePreset} title="Renomear" style={{width:28,height:28,borderRadius:"50%",border:"1px solid var(--border)",background:"transparent",color:"var(--text-2)",cursor:"pointer"}}><Icon path={I.edit} size={13}/></button>
+            <button onClick={deletePreset} title="Apagar" style={{width:28,height:28,borderRadius:"50%",border:"1px solid var(--border)",background:"transparent",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={13}/></button>
+            <button onClick={()=>setEditMode(v=>!v)} style={{padding:"6px 12px",borderRadius:20,border:"1px solid var(--border)",background:editMode?"var(--accent)":"transparent",color:editMode?"#fff":"var(--text-2)",fontSize:12,fontWeight:600,cursor:"pointer"}}>{editMode?"Concluir edição":"Editar pads"}</button>
+          </div>
+        )}
+      </div>
+
+      {tab==="mixer" ? (
+        <div style={{display:"flex",gap:14,flex:1,minHeight:0,flexWrap:"wrap"}}>
+          {/* GRID DE PADS */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,flex:"1 1 480px",alignContent:"start"}}>
+            {pads.map(pad=>(
+              <button key={pad.id} onClick={()=>editMode? setPendingPad(pad) : triggerPad(pad)}
+                style={{aspectRatio:"1.3",borderRadius:10,border:`1px solid ${pad.type!=="empty"?"var(--accent)":"var(--border)"}`,
+                  background: pad.type==="sound" ? "linear-gradient(135deg,#3a7bd5,#2a5aa5)" : pad.type==="control" ? "var(--bg-input)" : "var(--bg-sub)",
+                  color:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+                  padding:6,gap:2, boxShadow: pad.type!=="empty" ? "0 2px 8px rgba(0,0,0,.25)" : "none"}}>
+                <span style={{fontSize:11,fontWeight:800,opacity:.7}}>PAD{pad.id+1}</span>
+                <span style={{fontSize:12,fontWeight:700,textAlign:"center",lineHeight:1.15}}>{pad.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* BOTOES LATERAIS */}
+          <div style={{display:"flex",flexDirection:"column",gap:8,flex:"0 0 60px"}}>
+            {sideBtn("play","Play",()=>deck.play(deck.currentTime()),deck.isPlaying)}
+            {sideBtn("pause","Pause",()=>deck.pause())}
+            {sideBtn("stop","Stop",()=>deck.stop())}
+            {sideBtn("refresh","Loop seleção",()=>deck.setLoop(selection?{start:selection.start,end:selection.end}:null))}
+            {sideBtn("scissors","Copiar trecho",onCopySelection)}
+            {sideBtn("shift","Reset velocidade",()=>deck.setRate(1))}
+            {sideBtn("record","Gravar (em breve)",()=>alert("Gravação da mixagem final: próxima etapa."))}
+          </div>
+        </div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{fontSize:12,color:"var(--text-3)",lineHeight:1.5}}>
+            Efeitos sonoros próprios (upload) ou buscados via Freesound.org (biblioteca gratuita, licença Creative Commons). Cole sua API key gratuita (freesound.org/apiv2/apply/) para habilitar a busca.
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <input style={inp} placeholder="Freesound API key" value={freesoundKey} onChange={e=>setFreesoundKey(e.target.value)}/>
+            <input style={{...inp,flex:1,minWidth:160}} placeholder="Buscar efeito (ex: airhorn, applause, buzina)" value={fsQuery} onChange={e=>setFsQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&searchFreesound()}/>
+            <button onClick={searchFreesound} style={btn()}>{fsLoading?"Buscando...":"Buscar"}</button>
+            <button onClick={()=>effectInputRef.current.click()} style={btn("var(--bg-input)")}>📤 Upload próprio</button>
+            <input ref={effectInputRef} type="file" accept="audio/*" style={{display:"none"}} onChange={onUploadEffect}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
+            {fsResults.map(r=>(
+              <div key={r.id} style={{border:"1px solid var(--border)",borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:6}}>
+                <span style={{fontSize:12,fontWeight:600}}>{r.name}</span>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>new Audio(r.previews["preview-hq-mp3"]).play()} style={{...btn("var(--bg-input)"),padding:"5px 10px",fontSize:11}}>▶ Ouvir</button>
+                  <button onClick={()=>setClipboardClip({url:r.previews["preview-hq-mp3"], label:r.name})} style={{...btn(),padding:"5px 10px",fontSize:11}}>Usar</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* AREA INFERIOR: WAVEFORM */}
+      <div style={{background:"var(--bg-sub)",borderRadius:14,padding:14,display:"flex",flexDirection:"column",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <button onClick={()=>fileInputRef.current.click()} style={btn("var(--bg-input)")}>
+            <span style={{display:"flex",alignItems:"center",gap:6}}><Icon path={I.upload} size={14}/> Carregar música</span>
+          </button>
+          <input ref={fileInputRef} type="file" accept="audio/*" style={{display:"none"}} onChange={onUploadTrack}/>
+          <span style={{fontSize:12,color:"var(--text-2)",fontWeight:600}}>{deck.name||"Nenhuma faixa carregada"}</span>
+          <span style={{fontSize:12,color:"var(--text-3)",marginLeft:"auto"}}>{fmtT(deck.currentTime())} / {fmtT(deck.duration||0)}</span>
+        </div>
+        <Waveform deck={deck} selection={selection} onSelection={setSelection} tick={tick}/>
+        {selection && <div style={{fontSize:11,color:"var(--text-3)"}}>Seleção: {selection.start.toFixed(2)}s → {selection.end.toFixed(2)}s ({(selection.end-selection.start).toFixed(2)}s) — use "Copiar trecho" pra virar um pad, ou "Loop seleção" pra repetir ao vivo.</div>}
+      </div>
+
+      {clipboardClip && (
+        <div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",background:"var(--accent)",color:"#fff",padding:"10px 18px",borderRadius:30,fontSize:13,fontWeight:600,display:"flex",gap:10,alignItems:"center",zIndex:50,boxShadow:"0 4px 20px rgba(0,0,0,.3)"}}>
+          🎵 {clipboardClip.label} — toque em um pad pra colar
+          <button onClick={()=>setClipboardClip(null)} style={{background:"rgba(255,255,255,.2)",border:"none",borderRadius:20,color:"#fff",padding:"3px 10px",cursor:"pointer",fontSize:12}}>cancelar</button>
+        </div>
+      )}
+
+      {pendingPad && (
+        <Modal title={`Editar ${pendingPad.label}`} onClose={()=>setPendingPad(null)}>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <input style={inp} placeholder="Nome do pad" defaultValue={pendingPad.label}
+              onBlur={e=>updatePads(pads.map(p=>p.id===pendingPad.id?{...p,label:e.target.value}:p))}/>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {["loop_toggle","transpose_down","transpose_up","octave_down","octave_up","normal_speed"].map(a=>(
+                <button key={a} onClick={()=>{ updatePads(pads.map(p=>p.id===pendingPad.id?{...p,type:"control",action:a,url:null}:p)); setPendingPad(null); }}
+                  style={{...btn("var(--bg-input)"),fontSize:11,padding:"6px 10px"}}>{a.replace("_"," ")}</button>
+              ))}
+              <button onClick={()=>{ updatePads(pads.map(p=>p.id===pendingPad.id?{...p,type:"empty",url:null,action:null}:p)); setPendingPad(null); }}
+                style={{...btn("var(--bg-input)"),fontSize:11,padding:"6px 10px"}}>limpar pad</button>
+            </div>
+            <div style={{fontSize:11,color:"var(--text-3)"}}>Dica: pra colocar um som/efeito no pad, feche este modal, copie um trecho da waveform ou use um efeito da aba "Efeitos Sonoros" e toque no pad.</div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [page, setPage] = useState("home");
   const [viewMode, setViewMode] = useState(()=>localStorage.getItem("view_mode")||"auto");
@@ -4257,6 +4689,7 @@ export default function App() {
       case "whiteboard": return <WhiteboardPage/>;
       case "bat":          return <BatPage/>;
       case "letreiro":      return <LetreirPage/>;
+      case "dj":         return <DJPage/>;
       case "projects":   return <ProjectsPage/>;
       default:           return <HomePage onNavigate={setPage}/>;
     }
