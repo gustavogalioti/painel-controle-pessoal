@@ -4410,6 +4410,12 @@ function DJPage() {
   const [fsQuery, setFsQuery] = useState("");
   const [fsResults, setFsResults] = useState([]);
   const [fsLoading, setFsLoading] = useState(false);
+  const [jamendoKey, setJamendoKey] = useKV("dj_jamendo_client_id", "");
+  const [jmQuery, setJmQuery] = useState("");
+  const [jmResults, setJmResults] = useState([]);
+  const [jmLoading, setJmLoading] = useState(false);
+  const [jmLoadingId, setJmLoadingId] = useState(null);
+  const [streamOnly, setStreamOnly] = useState(null); // {url,label} quando CORS bloqueia decode
   const [clipboardClip, setClipboardClip] = useState(null); // {url,label} pending to paste onto a pad
   const [pendingPad, setPendingPad] = useState(null); // pad being edited in modal
   const fileInputRef = useRef(null);
@@ -4496,8 +4502,35 @@ function DJPage() {
     setPendingPad(pad);
   };
 
-  const searchFreesound = async () => {
-    if(!freesoundKey) return alert("Cole sua API key gratuita do freesound.org acima primeiro.");
+  const searchJamendo = async () => {
+    if(!jamendoKey) return alert("Cole seu Client ID gratuito do Jamendo acima primeiro.");
+    if(!jmQuery.trim()) return;
+    setJmLoading(true);
+    try {
+      const r = await fetch(`https://api.jamendo.com/v3.0/tracks/?client_id=${encodeURIComponent(jamendoKey)}&format=json&limit=12&namesearch=${encodeURIComponent(jmQuery)}&include=musicinfo&audioformat=mp32`);
+      const data = await r.json();
+      setJmResults(data.results||[]);
+    } catch { alert("Erro ao buscar no Jamendo. Confira o Client ID."); }
+    setJmLoading(false);
+  };
+
+  const loadJamendoTrack = async (track) => {
+    setJmLoadingId(track.id); setStreamOnly(null);
+    try {
+      const r = await fetch(track.audio);
+      if(!r.ok) throw new Error("fetch-failed");
+      const ab = await r.arrayBuffer();
+      await deck.load(ab, `${track.artist_name} - ${track.name}`);
+      setSelection(null); setTab("mixer");
+    } catch {
+      // CORS ou bloqueio: cai pro modo streaming simples (toca, mas sem waveform/edicao)
+      setStreamOnly({url: track.audio, label: `${track.artist_name} - ${track.name}`});
+      setTab("mixer");
+    }
+    setJmLoadingId(null);
+  };
+
+  const searchFreesound = async () => {    if(!freesoundKey) return alert("Cole sua API key gratuita do freesound.org acima primeiro.");
     if(!fsQuery.trim()) return;
     setFsLoading(true);
     try {
@@ -4532,6 +4565,7 @@ function DJPage() {
       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
         <div style={{display:"flex",gap:6,background:"var(--bg-sub)",padding:4,borderRadius:10}}>
           <button onClick={()=>setTab("mixer")} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:tab==="mixer"?"var(--accent)":"transparent",color:tab==="mixer"?"#fff":"var(--text-2)"}}>🎛 Mixer</button>
+          <button onClick={()=>setTab("buscar")} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:tab==="buscar"?"var(--accent)":"transparent",color:tab==="buscar"?"#fff":"var(--text-2)"}}>🔎 Buscar Música</button>
           <button onClick={()=>setTab("efeitos")} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:tab==="efeitos"?"var(--accent)":"transparent",color:tab==="efeitos"?"#fff":"var(--text-2)"}}>🔊 Efeitos Sonoros</button>
         </div>
         {tab==="mixer" && (
@@ -4578,6 +4612,32 @@ function DJPage() {
             {sideBtn("record","Gravar (em breve)",()=>alert("Gravação da mixagem final: próxima etapa."))}
           </div>
         </div>
+      ) : tab==="buscar" ? (
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{fontSize:12,color:"var(--text-3)",lineHeight:1.5}}>
+            Catálogo Jamendo: milhares de faixas completas com licença Creative Commons, streaming gratuito e legal. Pegue seu Client ID grátis em <b>devportal.jamendo.com</b> (cadastro instantâneo) e cole abaixo.
+          </div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <input style={inp} placeholder="Jamendo Client ID" value={jamendoKey} onChange={e=>setJamendoKey(e.target.value)}/>
+            <input style={{...inp,flex:1,minWidth:160}} placeholder="Buscar faixa, artista ou estilo (ex: lofi, rock, samba)" value={jmQuery} onChange={e=>setJmQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&searchJamendo()}/>
+            <button onClick={searchJamendo} style={btn()}>{jmLoading?"Buscando...":"Buscar"}</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
+            {jmResults.map(t=>(
+              <div key={t.id} style={{border:"1px solid var(--border)",borderRadius:10,padding:10,display:"flex",gap:10,alignItems:"center"}}>
+                {t.image && <img src={t.image} alt="" style={{width:44,height:44,borderRadius:8,objectFit:"cover",flexShrink:0}}/>}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.name}</div>
+                  <div style={{fontSize:11,color:"var(--text-3)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.artist_name}</div>
+                  <div style={{display:"flex",gap:6,marginTop:6}}>
+                    <button onClick={()=>new Audio(t.audio).play()} style={{...btn("var(--bg-input)"),padding:"5px 10px",fontSize:11}}>▶ Ouvir</button>
+                    <button onClick={()=>loadJamendoTrack(t)} style={{...btn(),padding:"5px 10px",fontSize:11}}>{jmLoadingId===t.id?"Carregando...":"Carregar no deck"}</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       ) : (
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{fontSize:12,color:"var(--text-3)",lineHeight:1.5}}>
@@ -4614,6 +4674,12 @@ function DJPage() {
           <span style={{fontSize:12,color:"var(--text-2)",fontWeight:600}}>{deck.name||"Nenhuma faixa carregada"}</span>
           <span style={{fontSize:12,color:"var(--text-3)",marginLeft:"auto"}}>{fmtT(deck.currentTime())} / {fmtT(deck.duration||0)}</span>
         </div>
+        {streamOnly && (
+          <div style={{background:"var(--bg-input)",borderRadius:8,padding:8,display:"flex",flexDirection:"column",gap:6}}>
+            <span style={{fontSize:11,color:"var(--text-3)"}}>🌐 Streaming direto (sem CORS pra edição de waveform): <b>{streamOnly.label}</b></span>
+            <audio src={streamOnly.url} controls style={{width:"100%"}}/>
+          </div>
+        )}
         <Waveform deck={deck} selection={selection} onSelection={setSelection} tick={tick}/>
         {selection && <div style={{fontSize:11,color:"var(--text-3)"}}>Seleção: {selection.start.toFixed(2)}s → {selection.end.toFixed(2)}s ({(selection.end-selection.start).toFixed(2)}s) — use "Copiar trecho" pra virar um pad, ou "Loop seleção" pra repetir ao vivo.</div>}
       </div>
