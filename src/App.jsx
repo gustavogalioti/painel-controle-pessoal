@@ -4416,6 +4416,12 @@ function DJPage() {
   const [jmLoading, setJmLoading] = useState(false);
   const [jmLoadingId, setJmLoadingId] = useState(null);
   const [streamOnly, setStreamOnly] = useState(null); // {url,label} quando CORS bloqueia decode
+  const [library, setLibrary] = useState([]);
+  const [libSearch, setLibSearch] = useState("");
+  const [libLoading, setLibLoading] = useState(false);
+  const [libUploading, setLibUploading] = useState(false);
+  const [libPickerOpen, setLibPickerOpen] = useState(false); // abre picker dentro do modal do pad
+  const libraryInputRef = useRef(null);
   const [clipboardClip, setClipboardClip] = useState(null); // {url,label} pending to paste onto a pad
   const [pendingPad, setPendingPad] = useState(null); // pad being edited in modal
   const fileInputRef = useRef(null);
@@ -4530,7 +4536,73 @@ function DJPage() {
     setJmLoadingId(null);
   };
 
-  const searchFreesound = async () => {    if(!freesoundKey) return alert("Cole sua API key gratuita do freesound.org acima primeiro.");
+  const loadLibrary = async () => {
+    setLibLoading(true);
+    try {
+      const r = await fetch(`/api/db?table=music`);
+      const data = await r.json();
+      setLibrary(data || []);
+    } catch { alert("Erro ao carregar a biblioteca."); }
+    setLibLoading(false);
+  };
+  useEffect(() => { if(tab==="biblioteca") loadLibrary(); }, [tab]);
+
+  const uploadToLibrary = async (file) => {
+    if(file.size > 9*1024*1024 && !confirm(`"${file.name}" tem ${(file.size/1024/1024).toFixed(1)}MB. Arquivos grandes podem falhar no upload (limite do servidor). Enviar mesmo assim?`)) return;
+    setLibUploading(true);
+    try {
+      const dataUrl = await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); });
+      const base64 = dataUrl.split(",")[1];
+      const id = Date.now();
+      const r = await fetch(`/api/db?table=music`, { method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ id, name: file.name.replace(/\.[^.]+$/,""), artist:"", file_data: base64, file_name: file.name, file_size: file.size, mime_type: file.type||"audio/mpeg", date: new Date().toISOString() }) });
+      if(!r.ok) throw new Error();
+      await loadLibrary();
+    } catch { alert("Falha ao subir o arquivo — pode ter passado do limite do servidor."); }
+    setLibUploading(false);
+  };
+
+  const fetchLibraryAudioUrl = async (track) => {
+    const r = await fetch(`/api/db?table=music&id=${track.id}`);
+    const full = await r.json();
+    if(!full || !full.file_data) throw new Error("sem dados");
+    return `data:${full.mime_type||"audio/mpeg"};base64,${full.file_data}`;
+  };
+
+  const playLibraryTrack = async (track) => {
+    try { const url = await fetchLibraryAudioUrl(track); new Audio(url).play(); }
+    catch { alert("Erro ao tocar a faixa."); }
+  };
+
+  const loadLibraryTrackToDeck = async (track) => {
+    setJmLoadingId("lib-"+track.id);
+    try {
+      const url = await fetchLibraryAudioUrl(track);
+      const ab = await (await fetch(url)).arrayBuffer();
+      await deck.load(ab, `${track.name}`);
+      setSelection(null); setTab("mixer");
+    } catch { alert("Erro ao carregar a faixa no deck."); }
+    setJmLoadingId(null);
+  };
+
+  const deleteFromLibrary = async (id) => {
+    if(!confirm("Apagar essa faixa da biblioteca?")) return;
+    try { await fetch(`/api/db?table=music&id=${id}`, {method:"DELETE"}); setLibrary(prev=>prev.filter(t=>t.id!==id)); } catch {}
+  };
+
+  const assignLibraryTrackToPad = async (track) => {
+    if(!pendingPad) return;
+    try {
+      const url = await fetchLibraryAudioUrl(track);
+      updatePads(pads.map(p => p.id===pendingPad.id ? {...p, type:"sound", url, label: track.name} : p));
+      setLibPickerOpen(false); setPendingPad(null);
+    } catch { alert("Erro ao carregar a faixa da biblioteca."); }
+  };
+
+  const filteredLibrary = library.filter(t => (t.name+" "+(t.artist||"")).toLowerCase().includes(libSearch.toLowerCase()));
+
+  const searchFreesound = async () => {
+    if(!freesoundKey) return alert("Cole sua API key gratuita do freesound.org acima primeiro.");
     if(!fsQuery.trim()) return;
     setFsLoading(true);
     try {
@@ -4566,6 +4638,7 @@ function DJPage() {
         <div style={{display:"flex",gap:6,background:"var(--bg-sub)",padding:4,borderRadius:10}}>
           <button onClick={()=>setTab("mixer")} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:tab==="mixer"?"var(--accent)":"transparent",color:tab==="mixer"?"#fff":"var(--text-2)"}}>🎛 Mixer</button>
           <button onClick={()=>setTab("buscar")} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:tab==="buscar"?"var(--accent)":"transparent",color:tab==="buscar"?"#fff":"var(--text-2)"}}>🔎 Buscar Música</button>
+          <button onClick={()=>setTab("biblioteca")} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:tab==="biblioteca"?"var(--accent)":"transparent",color:tab==="biblioteca"?"#fff":"var(--text-2)"}}>📚 Biblioteca</button>
           <button onClick={()=>setTab("efeitos")} style={{padding:"7px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:13,background:tab==="efeitos"?"var(--accent)":"transparent",color:tab==="efeitos"?"#fff":"var(--text-2)"}}>🔊 Efeitos Sonoros</button>
         </div>
         {tab==="mixer" && (
@@ -4638,6 +4711,37 @@ function DJPage() {
             ))}
           </div>
         </div>
+      ) : tab==="biblioteca" ? (
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{fontSize:12,color:"var(--text-3)",lineHeight:1.5}}>
+            Suas próprias músicas, enviadas do celular/computador. Ficam salvas no banco e disponíveis em qualquer dispositivo.
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{position:"relative",flex:1,minWidth:180}}>
+              <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",opacity:.5}}><Icon path={I.search} size={15}/></span>
+              <input style={{...inp,width:"100%",paddingLeft:32}} placeholder="Pesquisar na biblioteca..." value={libSearch} onChange={e=>setLibSearch(e.target.value)}/>
+            </div>
+            <button onClick={()=>libraryInputRef.current.click()} style={btn()}>{libUploading?"Enviando...":"📤 Subir MP3"}</button>
+            <input ref={libraryInputRef} type="file" accept="audio/*" multiple style={{display:"none"}}
+              onChange={async e=>{ const files=[...e.target.files]; for(const f of files) await uploadToLibrary(f); e.target.value=""; }}/>
+          </div>
+          {libLoading ? <div style={{fontSize:12,color:"var(--text-3)"}}>Carregando...</div> : (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
+              {filteredLibrary.length===0 && <div style={{fontSize:12,color:"var(--text-3)"}}>Nenhuma música na biblioteca ainda.</div>}
+              {filteredLibrary.map(t=>(
+                <div key={t.id} style={{border:"1px solid var(--border)",borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:6}}>
+                  <div style={{fontSize:12,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.name}</div>
+                  <div style={{fontSize:11,color:"var(--text-3)"}}>{(t.file_size/1024/1024).toFixed(1)}MB</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <button onClick={()=>playLibraryTrack(t)} style={{...btn("var(--bg-input)"),padding:"5px 10px",fontSize:11}}>▶ Ouvir</button>
+                    <button onClick={()=>loadLibraryTrackToDeck(t)} style={{...btn(),padding:"5px 10px",fontSize:11}}>{jmLoadingId==="lib-"+t.id?"Carregando...":"Carregar no deck"}</button>
+                    <button onClick={()=>deleteFromLibrary(t.id)} style={{...btn("var(--bg-input)"),padding:"5px 10px",fontSize:11,color:"#e57373"}}>🗑</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       ) : (
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{fontSize:12,color:"var(--text-3)",lineHeight:1.5}}>
@@ -4692,7 +4796,7 @@ function DJPage() {
       )}
 
       {pendingPad && (
-        <Modal title={`Editar ${pendingPad.label}`} onClose={()=>setPendingPad(null)}>
+        <Modal title={`Editar ${pendingPad.label}`} onClose={()=>{ setPendingPad(null); setLibPickerOpen(false); }}>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <input style={inp} placeholder="Nome do pad" defaultValue={pendingPad.label}
               onBlur={e=>updatePads(pads.map(p=>p.id===pendingPad.id?{...p,label:e.target.value}:p))}/>
@@ -4704,6 +4808,21 @@ function DJPage() {
               <button onClick={()=>{ updatePads(pads.map(p=>p.id===pendingPad.id?{...p,type:"empty",url:null,action:null}:p)); setPendingPad(null); }}
                 style={{...btn("var(--bg-input)"),fontSize:11,padding:"6px 10px"}}>limpar pad</button>
             </div>
+            <button onClick={()=>{ setLibPickerOpen(true); loadLibrary(); }} style={{...btn(),fontSize:12,alignSelf:"flex-start"}}>🎵 Adicionar música da biblioteca</button>
+            {libPickerOpen && (
+              <div style={{border:"1px solid var(--border)",borderRadius:10,padding:10,display:"flex",flexDirection:"column",gap:8,maxHeight:260,overflow:"auto"}}>
+                <div style={{position:"relative"}}>
+                  <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",opacity:.5}}><Icon path={I.search} size={14}/></span>
+                  <input style={{...inp,width:"100%",paddingLeft:30}} placeholder="Pesquisar..." value={libSearch} onChange={e=>setLibSearch(e.target.value)}/>
+                </div>
+                {libLoading && <span style={{fontSize:11,color:"var(--text-3)"}}>Carregando...</span>}
+                {!libLoading && filteredLibrary.length===0 && <span style={{fontSize:11,color:"var(--text-3)"}}>Nenhuma música encontrada. Suba na aba Biblioteca primeiro.</span>}
+                {filteredLibrary.map(t=>(
+                  <button key={t.id} onClick={()=>assignLibraryTrackToPad(t)}
+                    style={{...btn("var(--bg-input)"),fontSize:12,textAlign:"left",justifyContent:"flex-start"}}>{t.name}</button>
+                ))}
+              </div>
+            )}
             <div style={{fontSize:11,color:"var(--text-3)"}}>Dica: pra colocar um som/efeito no pad, feche este modal, copie um trecho da waveform ou use um efeito da aba "Efeitos Sonoros" e toque no pad.</div>
           </div>
         </Modal>
