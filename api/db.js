@@ -8,7 +8,7 @@ const CORS = {
   "Content-Type": "application/json",
 };
 
-const VALID = ["diary","ideas","reminders","tasks","bills","events","curiosities","documents"];
+const VALID = ["diary","ideas","reminders","tasks","bills","events","curiosities","documents","music"];
 
 async function initTables(sql) {
   await sql`CREATE TABLE IF NOT EXISTS diary      (id BIGINT PRIMARY KEY, text TEXT NOT NULL, mood VARCHAR(10) DEFAULT '🙂', date TEXT)`;
@@ -19,6 +19,7 @@ async function initTables(sql) {
   await sql`CREATE TABLE IF NOT EXISTS events     (id BIGINT PRIMARY KEY, title TEXT NOT NULL, date TEXT, time TEXT DEFAULT '', local TEXT DEFAULT '', cat VARCHAR(50), notes TEXT DEFAULT '')`;
   await sql`CREATE TABLE IF NOT EXISTS curiosities(id BIGINT PRIMARY KEY, title TEXT NOT NULL, content TEXT DEFAULT '', link TEXT DEFAULT '', image_url TEXT DEFAULT '', tag TEXT DEFAULT '', updates JSONB DEFAULT '[]', created TEXT)`;
   await sql`CREATE TABLE IF NOT EXISTS documents  (id BIGINT PRIMARY KEY, name TEXT NOT NULL, cat VARCHAR(50) DEFAULT 'Pessoal', tags JSONB DEFAULT '[]', notes TEXT DEFAULT '', file_data TEXT DEFAULT '', file_name TEXT DEFAULT '', file_size INT DEFAULT 0, file_type TEXT DEFAULT '', date TEXT)`;
+  await sql`CREATE TABLE IF NOT EXISTS music_library (id BIGINT PRIMARY KEY, name TEXT NOT NULL, artist TEXT DEFAULT '', file_data TEXT NOT NULL, file_name TEXT DEFAULT '', file_size INT DEFAULT 0, mime_type TEXT DEFAULT 'audio/mpeg', date TEXT)`;
   // Generic key-value sync table — used by Whiteboard, DayBoard, Letreiro, DJ Studio
   await sql`CREATE TABLE IF NOT EXISTS sync_kv    (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT)`;
 }
@@ -58,6 +59,30 @@ export default async function handler(req) {
       if (req.method === "DELETE") {
         const key = searchParams.get("key");
         await sql`DELETE FROM sync_kv WHERE key=${key}`;
+        return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+      }
+    }
+
+    // ── music_library: lista leve (sem áudio) ou item completo por id ────────
+    if (table === "music") {
+      const id = searchParams.get("id");
+      if (req.method === "GET") {
+        if (id) {
+          const rows = await sql`SELECT * FROM music_library WHERE id=${id}`;
+          return new Response(JSON.stringify(rows[0] || null), { headers: CORS });
+        }
+        const rows = await sql`SELECT id, name, artist, file_name, file_size, mime_type, date FROM music_library ORDER BY id DESC`;
+        return new Response(JSON.stringify(rows), { headers: CORS });
+      }
+      if (req.method === "POST") {
+        const { id: mid, name, artist, file_data, file_name, file_size, mime_type, date } = await req.json();
+        await sql`INSERT INTO music_library (id,name,artist,file_data,file_name,file_size,mime_type,date)
+                  VALUES (${mid},${name},${artist||''},${file_data},${file_name||''},${file_size||0},${mime_type||'audio/mpeg'},${date})
+                  ON CONFLICT (id) DO NOTHING`;
+        return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+      }
+      if (req.method === "DELETE") {
+        await sql`DELETE FROM music_library WHERE id=${id}`;
         return new Response(JSON.stringify({ ok: true }), { headers: CORS });
       }
     }
