@@ -2455,12 +2455,25 @@ function AgendaPage() {
 
   const fetchGoogleEvents = async () => {
     try {
-      const timeMin = new Date(Date.now()-60*86400000).toISOString();
-      const timeMax = new Date(Date.now()+365*86400000).toISOString();
+      const minDate = new Date(Date.now()-60*86400000);
+      const maxDate = new Date(Date.now()+365*86400000);
+      const timeMin = minDate.toISOString();
+      const timeMax = maxDate.toISOString();
       const r = await fetch(`/api/google-calendar?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`);
       if (!r.ok) { setGoogleEvents([]); return; }
       const items = await r.json();
-      setGoogleEvents(Array.isArray(items) ? items.map(fromGoogleEvent) : []);
+      const parsed = Array.isArray(items) ? items.map(fromGoogleEvent) : [];
+      setGoogleEvents(parsed);
+
+      // If a local event was linked to a Google event that no longer exists
+      // (deleted directly in Google Calendar, on any device), drop the local copy too.
+      const liveIds = new Set(parsed.map(g=>g.googleId));
+      const minStr = toDateStr(minDate), maxStr = toDateStr(maxDate);
+      setEvents(prev => prev.filter(e => {
+        if (!e.googleId) return true;               // never synced — keep
+        if (e.date < minStr || e.date > maxStr) return true; // outside the fetched window — can't verify, keep
+        return liveIds.has(e.googleId);              // drop if Google no longer has it
+      }));
     } catch { setGoogleEvents([]); }
   };
 
@@ -2486,7 +2499,9 @@ function AgendaPage() {
 
   const sortFn = (a,b)=>new Date(a.date+"T"+(a.time||"00:00"))-new Date(b.date+"T"+(b.time||"00:00"));
 
-  const allEvents = [...events, ...googleEvents];
+  const linkedGoogleIds = new Set(events.filter(e=>e.googleId).map(e=>e.googleId));
+  const dedupedGoogleEvents = googleEvents.filter(g=>!linkedGoogleIds.has(g.googleId));
+  const allEvents = [...events, ...dedupedGoogleEvents];
   const eventsByDate = {};
   allEvents.forEach(e => { (eventsByDate[e.date] = eventsByDate[e.date]||[]).push(e); });
   Object.values(eventsByDate).forEach(list=>list.sort(sortFn));
