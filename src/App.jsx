@@ -4961,7 +4961,13 @@ function DJPage() {
 }
 
 export default function App() {
-  const [page, setPage] = useState("home");
+  const [page, setPageRaw] = useState(()=>{
+    try { return localStorage.getItem("current_page") || "home"; } catch { return "home"; }
+  });
+  const setPage = (p) => {
+    setPageRaw(p);
+    try { localStorage.setItem("current_page", p); } catch {}
+  };
   const [viewMode, setViewMode] = useState(()=>localStorage.getItem("view_mode")||"auto");
   const market = useMarketData();
 
