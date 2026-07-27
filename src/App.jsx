@@ -3493,7 +3493,6 @@ const TILE_DEFS = [
   { id:"weather",   color:"var(--tile-weather)",icon:null,       label:"Clima",                 sub:"" },
   { id:"market",    color:"var(--tile-market)", icon:"trend",    label:"Mercado & Indicadores", sub:"Bolsas, câmbio, cripto, notícias" },
   { id:"whiteboard",color:"var(--tile-white)",  icon:"edit",     label:"Whiteboard",            sub:"Lousa digital" },
-  { id:"bat",       color:"#1a3a2a",            icon:"terminal", label:".BAT / Scripts",        sub:"Automações e comandos" },
   { id:"letreiro",  color:"#1a0a2a",            icon:"marquee",  label:"Letreiro",              sub:"Mensagem em tela cheia" },
   { id:"dj",        color:"#2a0a3a",            icon:"disc",     label:"DJ Mix",                sub:"Pads, mixagem e efeitos" },
 ];
