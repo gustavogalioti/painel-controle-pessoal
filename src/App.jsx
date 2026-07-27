@@ -2382,6 +2382,59 @@ function buildMonthGrid(year, month) {
   return cells;
 }
 
+function toGoogleEvent(form) {
+  if (form.time) {
+    const start = new Date(`${form.date}T${form.time}:00`);
+    const end = new Date(start.getTime() + 60*60*1000);
+    const toISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}T${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:00`;
+    return {
+      summary: form.title, location: form.local||undefined, description: form.notes||undefined,
+      start: { dateTime: toISO(start), timeZone: "America/Sao_Paulo" },
+      end:   { dateTime: toISO(end),   timeZone: "America/Sao_Paulo" },
+    };
+  }
+  const d = new Date(form.date+"T12:00:00"); d.setDate(d.getDate()+1);
+  return {
+    summary: form.title, location: form.local||undefined, description: form.notes||undefined,
+    start: { date: form.date }, end: { date: toDateStr(d) },
+  };
+}
+
+function fromGoogleEvent(g) {
+  const isAllDay = !!g.start?.date;
+  return {
+    id: "g_"+g.id,
+    googleId: g.id,
+    title: g.summary || "(Sem título)",
+    date: isAllDay ? g.start.date : g.start.dateTime.slice(0,10),
+    time: isAllDay ? "" : g.start.dateTime.slice(11,16),
+    local: g.location || "",
+    notes: g.description || "",
+    cat: "Google",
+    source: "google",
+    htmlLink: g.htmlLink,
+  };
+}
+
+function AgendaEventCard({ e, onClick }) {
+  return (
+    <div onClick={onClick}
+      style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",
+        display:"flex",gap:12,alignItems:"flex-start",marginBottom:8,cursor:"pointer"}}>
+      <div style={{width:4,borderRadius:4,background: e.source==="google"?"#4285F4":"var(--accent)",alignSelf:"stretch",flexShrink:0}}/>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:6}}>
+          {e.title}
+          {e.source==="google" && <span style={{fontSize:9,fontWeight:700,color:"#4285F4",border:"1px solid #4285F4",borderRadius:6,padding:"1px 5px"}}>G</span>}
+        </div>
+        <div style={{fontSize:12,color:"var(--text-3)",marginTop:2}}>
+          {e.time&&`⏰ ${e.time}`}{e.local&&` · 📍 ${e.local}`}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AgendaPage() {
   const [events, setEvents] = useKV("events_v1",[]);
   const [modal, setModal] = useState(false);
@@ -2396,13 +2449,46 @@ function AgendaPage() {
   const [dayFilter, setDayFilter] = useState(null);
   const [showPast, setShowPast] = useState(false);
 
+  const [googleConnected, setGoogleConnected] = useState(null); // null=loading
+  const [googleEvents, setGoogleEvents] = useState([]);
+  const [googleSyncing, setGoogleSyncing] = useState(false);
+
+  const fetchGoogleEvents = async () => {
+    try {
+      const timeMin = new Date(Date.now()-60*86400000).toISOString();
+      const timeMax = new Date(Date.now()+365*86400000).toISOString();
+      const r = await fetch(`/api/google-calendar?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`);
+      if (!r.ok) { setGoogleEvents([]); return; }
+      const items = await r.json();
+      setGoogleEvents(Array.isArray(items) ? items.map(fromGoogleEvent) : []);
+    } catch { setGoogleEvents([]); }
+  };
+
+  useEffect(()=>{
+    (async () => {
+      try {
+        const r = await fetch("/api/google-calendar?action=status");
+        const d = await r.json();
+        setGoogleConnected(!!d.connected);
+        if (d.connected) fetchGoogleEvents();
+      } catch { setGoogleConnected(false); }
+    })();
+  },[]);
+
+  const connectGoogle = () => { window.location.href = "/api/google-auth"; };
+  const disconnectGoogle = async () => {
+    await fetch("/api/google-calendar?action=disconnect", { method:"DELETE" });
+    setGoogleConnected(false); setGoogleEvents([]);
+  };
+
   const cats = ["Pessoal","Médico","Reunião","Viagem","Aniversário","Outros"];
-  const catColors = {Pessoal:"var(--accent)",Médico:"var(--red)",Reunião:"var(--purple)",Viagem:"var(--green)",Aniversário:"var(--yellow)",Outros:"var(--text-3)"};
+  const catColors = {Pessoal:"var(--accent)",Médico:"var(--red)",Reunião:"var(--purple)",Viagem:"var(--green)",Aniversário:"var(--yellow)",Outros:"var(--text-3)",Google:"#4285F4"};
 
   const sortFn = (a,b)=>new Date(a.date+"T"+(a.time||"00:00"))-new Date(b.date+"T"+(b.time||"00:00"));
 
+  const allEvents = [...events, ...googleEvents];
   const eventsByDate = {};
-  events.forEach(e => { (eventsByDate[e.date] = eventsByDate[e.date]||[]).push(e); });
+  allEvents.forEach(e => { (eventsByDate[e.date] = eventsByDate[e.date]||[]).push(e); });
   Object.values(eventsByDate).forEach(list=>list.sort(sortFn));
 
   const openNew = (dateStr) => {
@@ -2411,18 +2497,48 @@ function AgendaPage() {
     setModal(true);
   };
   const openEdit = (e) => {
+    if (e.source==="google") return;
     setEditId(e.id);
     setForm({title:e.title,date:e.date,time:e.time||"",local:e.local||"",cat:e.cat||"Pessoal",notes:e.notes||""});
     setDetailId(null);
     setModal(true);
   };
-  const save = () => {
+  const save = async () => {
     if(!form.title.trim()||!form.date) return;
-    if (editId) setEvents(prev => prev.map(e=>e.id===editId?{...e,...form}:e).sort(sortFn));
-    else setEvents(prev => [...prev,{id:Date.now(),...form}].sort(sortFn));
+    setGoogleSyncing(true);
+    let googleId = editId ? events.find(e=>e.id===editId)?.googleId : null;
+    if (googleConnected) {
+      try {
+        const gBody = toGoogleEvent(form);
+        if (googleId) {
+          await fetch(`/api/google-calendar?id=${encodeURIComponent(googleId)}`, {
+            method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(gBody),
+          });
+        } else {
+          const r = await fetch(`/api/google-calendar`, {
+            method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(gBody),
+          });
+          const d = await r.json();
+          googleId = d.id || null;
+        }
+        fetchGoogleEvents();
+      } catch {}
+    }
+    setGoogleSyncing(false);
+    if (editId) setEvents(prev => prev.map(e=>e.id===editId?{...e,...form,googleId}:e).sort(sortFn));
+    else setEvents(prev => [...prev,{id:Date.now(),...form,googleId}].sort(sortFn));
     setModal(false); setEditId(null);
   };
-  const del = (id) => { setEvents(prev=>prev.filter(e=>e.id!==id)); setDetailId(null); };
+  const del = async (id) => {
+    const ev = events.find(e=>e.id===id);
+    if (googleConnected && ev?.googleId) {
+      try {
+        await fetch(`/api/google-calendar?id=${encodeURIComponent(ev.googleId)}`, { method:"DELETE" });
+        fetchGoogleEvents();
+      } catch {}
+    }
+    setEvents(prev=>prev.filter(e=>e.id!==id)); setDetailId(null);
+  };
 
   const cells = buildMonthGrid(viewYear, viewMonth);
   const monthLabel = new Date(viewYear,viewMonth,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"});
@@ -2435,11 +2551,30 @@ function AgendaPage() {
     display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)" };
 
   const sortedDates = Object.keys(eventsByDate).sort();
-  const detailEvent = events.find(e=>e.id===detailId);
+  const detailEvent = allEvents.find(e=>e.id===detailId);
 
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <div>
+          {googleConnected===true && (
+            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"var(--text-3)"}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:"var(--green)",display:"inline-block"}}/>
+              Google Agenda conectado{googleSyncing?" · sincronizando...":""}
+              <button onClick={disconnectGoogle}
+                style={{background:"none",border:"none",color:"var(--text-3)",textDecoration:"underline",cursor:"pointer",fontSize:12,padding:0}}>
+                Desconectar
+              </button>
+            </div>
+          )}
+          {googleConnected===false && (
+            <button onClick={connectGoogle}
+              style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:20,padding:"8px 16px",
+                color:"var(--text-2)",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+              <Icon path={I.link} size={13}/> Conectar Google Agenda
+            </button>
+          )}
+        </div>
         <button onClick={()=>openNew()} style={{...btn(),display:"flex",alignItems:"center",gap:6}}>
           <Icon path={I.plus} size={14}/> Novo Compromisso
         </button>
@@ -2494,17 +2629,7 @@ function AgendaPage() {
               </div>
               {(eventsByDate[dayFilter]||[]).length===0 && <Empty text="Nenhum compromisso neste dia."/>}
               {(eventsByDate[dayFilter]||[]).map(e=>(
-                <div key={e.id} onClick={()=>setDetailId(e.id)}
-                  style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",
-                    display:"flex",gap:12,alignItems:"flex-start",marginBottom:8,cursor:"pointer"}}>
-                  <div style={{width:4,borderRadius:4,background:catColors[e.cat]||"var(--accent)",alignSelf:"stretch",flexShrink:0}}/>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:700,fontSize:14}}>{e.title}</div>
-                    <div style={{fontSize:12,color:"var(--text-3)",marginTop:2}}>
-                      {e.time&&`⏰ ${e.time}`}{e.local&&` · 📍 ${e.local}`}
-                    </div>
-                  </div>
-                </div>
+                <AgendaEventCard key={e.id} e={e} onClick={()=>setDetailId(e.id)}/>
               ))}
             </div>
           ) : (
@@ -2516,17 +2641,7 @@ function AgendaPage() {
                     {new Date(ds+"T12:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}{ds===todayStr?" · Hoje":""}
                   </div>
                   {eventsByDate[ds].map(e=>(
-                    <div key={e.id} onClick={()=>setDetailId(e.id)}
-                      style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",
-                        display:"flex",gap:12,alignItems:"flex-start",marginBottom:8,cursor:"pointer"}}>
-                      <div style={{width:4,borderRadius:4,background:catColors[e.cat]||"var(--accent)",alignSelf:"stretch",flexShrink:0}}/>
-                      <div style={{flex:1}}>
-                        <div style={{fontWeight:700,fontSize:14}}>{e.title}</div>
-                        <div style={{fontSize:12,color:"var(--text-3)",marginTop:2}}>
-                          {e.time&&`⏰ ${e.time}`}{e.local&&` · 📍 ${e.local}`}
-                        </div>
-                      </div>
-                    </div>
+                    <AgendaEventCard key={e.id} e={e} onClick={()=>setDetailId(e.id)}/>
                   ))}
                 </div>
               ))}
@@ -2546,17 +2661,7 @@ function AgendaPage() {
                         {new Date(ds+"T12:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}
                       </div>
                       {eventsByDate[ds].map(e=>(
-                        <div key={e.id} onClick={()=>setDetailId(e.id)}
-                          style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,padding:"12px 16px",
-                            display:"flex",gap:12,alignItems:"flex-start",marginBottom:8,cursor:"pointer"}}>
-                          <div style={{width:4,borderRadius:4,background:catColors[e.cat]||"var(--accent)",alignSelf:"stretch",flexShrink:0}}/>
-                          <div style={{flex:1}}>
-                            <div style={{fontWeight:700,fontSize:14}}>{e.title}</div>
-                            <div style={{fontSize:12,color:"var(--text-3)",marginTop:2}}>
-                              {e.time&&`⏰ ${e.time}`}{e.local&&` · 📍 ${e.local}`}
-                            </div>
-                          </div>
-                        </div>
+                        <AgendaEventCard key={e.id} e={e} onClick={()=>setDetailId(e.id)}/>
                       ))}
                     </div>
                   ))}
@@ -2593,14 +2698,23 @@ function AgendaPage() {
             {detailEvent.notes && <div style={{fontSize:13,color:"var(--text-1)",marginTop:6,lineHeight:1.5}}>{detailEvent.notes}</div>}
           </div>
           <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>openEdit(detailEvent)}
-              style={{...btn(),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              <Icon path={I.edit} size={13}/> Editar
-            </button>
-            <button onClick={()=>del(detailEvent.id)}
-              style={{...btn("var(--red)"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-              <Icon path={I.trash} size={13}/> Excluir
-            </button>
+            {detailEvent.source==="google" ? (
+              <a href={detailEvent.htmlLink} target="_blank" rel="noopener noreferrer"
+                style={{...btn("#4285F4"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,textDecoration:"none"}}>
+                <Icon path={I.link} size={13}/> Abrir no Google Agenda
+              </a>
+            ) : (
+              <>
+                <button onClick={()=>openEdit(detailEvent)}
+                  style={{...btn(),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                  <Icon path={I.edit} size={13}/> Editar
+                </button>
+                <button onClick={()=>del(detailEvent.id)}
+                  style={{...btn("var(--red)"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                  <Icon path={I.trash} size={13}/> Excluir
+                </button>
+              </>
+            )}
           </div>
         </Modal>
       )}
@@ -4835,6 +4949,15 @@ export default function App() {
   const [page, setPage] = useState("home");
   const [viewMode, setViewMode] = useState(()=>localStorage.getItem("view_mode")||"auto");
   const market = useMarketData();
+
+  // After returning from the Google Calendar OAuth flow, jump straight to Agenda
+  useEffect(()=>{
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("google")) {
+      setPage("events");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  },[]);
 
   // Apply viewport meta based on mode
   useEffect(()=>{
