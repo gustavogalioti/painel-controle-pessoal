@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 const Icon = ({ path, size = 18, color = "currentColor" }) => (
@@ -223,7 +224,7 @@ const inp = { width:"100%",background:"var(--bg-input)",border:"1px solid var(--
 const btn = (c="var(--accent)") => ({ background:c,border:"none",borderRadius:10,padding:"10px 20px",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit" });
 
 function Modal({ title, onClose, children, wide }) {
-  return (
+  return createPortal(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",backdropFilter:"blur(8px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
       <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:20,width:"100%",maxWidth:wide?760:520,maxHeight:"85vh",overflow:"auto",animation:"fadeIn .2s ease"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"20px 24px",borderBottom:"1px solid var(--border)"}}>
@@ -232,7 +233,8 @@ function Modal({ title, onClose, children, wide }) {
         </div>
         <div style={{padding:24}}>{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
