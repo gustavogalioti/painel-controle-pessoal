@@ -160,6 +160,22 @@ input, textarea, select { color-scheme:light; }
   cursor: pointer;
   z-index: 5;
 }
+.tile-delete-btn {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.4);
+  border: 1px solid rgba(255,255,255,0.45);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 6;
+}
 
 /* Responsive diary grid */
 .diary-grid {

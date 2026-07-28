@@ -3612,6 +3612,52 @@ function BedrockPage() {
 }
 
 // ─── PROFESSIONAL PAGE ────────────────────────────────────────────────────────
+// ─── CUSTOM TILES (user-added shortcut tiles) ─────────────────────────────────
+const TILE_ICON_CHOICES = ["monitor","link","trend","book","checkSq","card","calendar","list","terminal","marquee","folder","edit","image","bell"];
+const TILE_COLOR_PALETTE = ["#1a3a5c","#3a1a5c","#1a5c3a","#5c3a1a","#5c1a3a","#1a4a5c","#4a1a5c","#2a5c1a","#5c4a1a","#1a1a5c"];
+function nextTileColor(count){ return TILE_COLOR_PALETTE[count % TILE_COLOR_PALETTE.length]; }
+
+function CustomTileModal({ onSave, onClose }) {
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
+  const [icon, setIcon] = useState(TILE_ICON_CHOICES[0]);
+
+  const save = () => {
+    if (!title.trim() || !url.trim()) return;
+    let finalUrl = url.trim();
+    if (!/^https?:\/\//i.test(finalUrl)) finalUrl = "https://"+finalUrl;
+    onSave({ title: title.trim(), url: finalUrl, icon });
+  };
+
+  return (
+    <Modal title="Novo Tile" onClose={onClose}>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div>
+          <label style={{fontSize:12,color:"var(--text-3)",display:"block",marginBottom:6}}>Título</label>
+          <input style={inp} placeholder="Ex: Meu Site" value={title} onChange={e=>setTitle(e.target.value)}/>
+        </div>
+        <div>
+          <label style={{fontSize:12,color:"var(--text-3)",display:"block",marginBottom:6}}>Link</label>
+          <input style={inp} placeholder="https://..." value={url} onChange={e=>setUrl(e.target.value)}/>
+        </div>
+        <div>
+          <label style={{fontSize:12,color:"var(--text-3)",display:"block",marginBottom:8}}>Emblema</label>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8}}>
+            {TILE_ICON_CHOICES.map(ic=>(
+              <button key={ic} onClick={()=>setIcon(ic)}
+                style={{aspectRatio:"1/1",borderRadius:10,background: icon===ic?"var(--accent)":"var(--bg-input)",
+                  border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <Icon path={I[ic]} size={18} color={icon===ic?"#fff":"var(--text-2)"}/>
+              </button>
+            ))}
+          </div>
+        </div>
+        <button onClick={save} style={btn()}>Adicionar</button>
+      </div>
+    </Modal>
+  );
+}
+
 const TILE_DEFS = [
   { id:"diary",     color:"var(--tile-diary)",  icon:"book",     label:"Diário",               sub:"Registros, ideias, lembretes" },
   { id:"tasks",     color:"var(--tile-tasks)",  icon:"checkSq",  label:"Tarefas",               sub:"Cards editáveis" },
@@ -3629,7 +3675,7 @@ const DEFAULT_ORDER = TILE_DEFS.map(t=>t.id);
 const DEFAULT_SIZES = { diary:"wide", market:"wide" };
 const SIZE_CYCLE = ["normal","wide","tall","large"];
 
-function TileFrame({ tileRef, children, color, size, editMode, isDragging, onPointerDown, onResize, onClick }) {
+function TileFrame({ tileRef, children, color, size, editMode, isDragging, onPointerDown, onResize, onClick, onDelete }) {
   const sizeClass = size==="wide" ? " wide" : size==="tall" ? " tall" : size==="large" ? " large" : "";
   return (
     <div ref={tileRef}
@@ -3637,6 +3683,13 @@ function TileFrame({ tileRef, children, color, size, editMode, isDragging, onPoi
       style={{background:color, touchAction: editMode?"none":"auto", cursor: editMode?(isDragging?"grabbing":"grab"):"pointer"}}
       onMouseDown={onPointerDown} onTouchStart={onPointerDown} onClick={onClick}>
       {children}
+      {onDelete && (
+        <button className="tile-delete-btn"
+          onClick={e=>{e.stopPropagation();onDelete();}}
+          onTouchEnd={e=>{e.stopPropagation();e.preventDefault();onDelete();}}>
+          <Icon path={I.x} size={12} color="#fff"/>
+        </button>
+      )}
       {editMode && onResize && (
         <button className="tile-resize-btn"
           onClick={e=>{e.stopPropagation();onResize();}}
@@ -3746,11 +3799,19 @@ function BackgroundModal({ current, onSave, onClose }) {
 function HomePage({ onNavigate }) {
   const [layout, setLayout] = useKV("home_layout_v1", { order: DEFAULT_ORDER, sizes: DEFAULT_SIZES });
   const [bg, setBg] = useKV("home_bg_v1", { type:"default" });
+  const [customTiles, setCustomTiles] = useKV("custom_tiles_home_v1", []);
   const [editMode, setEditMode] = useState(false);
   const [showBgModal, setShowBgModal] = useState(false);
+  const [showAddTile, setShowAddTile] = useState(false);
   const [dragId, setDragId] = useState(null);
   const tileRefs = useRef({});
   const drag = useRef(null);
+
+  const addCustomTile = (t) => {
+    setCustomTiles(prev => [...prev, { id:"custom_"+Date.now(), ...t, color: nextTileColor(prev.length) }]);
+    setShowAddTile(false);
+  };
+  const deleteCustomTile = (id) => setCustomTiles(prev => prev.filter(t=>t.id!==id));
 
   const order = (layout.order && layout.order.length) ? layout.order.filter(id=>TILE_DEFS.some(t=>t.id===id)) : DEFAULT_ORDER;
   const fullOrder = [...order, ...DEFAULT_ORDER.filter(id=>!order.includes(id))];
@@ -3860,12 +3921,25 @@ function HomePage({ onNavigate }) {
             ? <WeatherTile key={id} {...commonProps}/>
             : <MenuTile key={id} {...commonProps} color={def.color} icon={def.icon} label={def.label} sub={def.sub}/>;
         })}
+        {customTiles.map(t=>(
+          <MenuTile key={t.id} color={t.color} icon={t.icon} label={t.title} sub=""
+            editMode={editMode}
+            onDelete={editMode ? ()=>deleteCustomTile(t.id) : undefined}
+            onClick={editMode ? undefined : ()=>window.open(t.url,"_blank","noopener,noreferrer")}/>
+        ))}
+        <div className="tile" onClick={()=>setShowAddTile(true)}
+          style={{background:"transparent",border:"2px dashed var(--border-2)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <Icon path={I.plus} size={30} color="var(--text-3)"/>
+        </div>
       </div>
 
       {showBgModal && (
         <BackgroundModal current={bg}
           onSave={(v)=>{ setBg(v); setShowBgModal(false); }}
           onClose={()=>setShowBgModal(false)}/>
+      )}
+      {showAddTile && (
+        <CustomTileModal onSave={addCustomTile} onClose={()=>setShowAddTile(false)}/>
       )}
     </div>
   );
@@ -3891,11 +3965,20 @@ const OTHER_PROJECT_DEFS = [
 
 function ProjectsPage() {
   const [tab, setTab] = useState("projects");
+  const [customTiles, setCustomTiles] = useKV("custom_tiles_projects_v1", []);
+  const [showAddTile, setShowAddTile] = useState(false);
   const tabs = [
     {id:"projects", label:"🗂 Projetos"},
     {id:"others",   label:"🤝 Projetos de Outros"},
     {id:"ideas",    label:"💡 Ideias/Atualizações"},
   ];
+
+  const addCustomTile = (t) => {
+    setCustomTiles(prev => [...prev, { id:"custom_"+Date.now(), ...t, color: nextTileColor(prev.length) }]);
+    setShowAddTile(false);
+  };
+  const deleteCustomTile = (id) => setCustomTiles(prev => prev.filter(t=>t.id!==id));
+
   return (
     <div style={{padding:"20px"}}>
       <div style={{display:"flex",gap:8,marginBottom:24,flexWrap:"wrap"}}>
@@ -3916,6 +3999,15 @@ function ProjectsPage() {
             <MenuTile key={p.id} color={p.color} icon={p.icon} label={p.label} sub={p.sub}
               onClick={()=>window.open(p.url,"_blank","noopener,noreferrer")}/>
           ))}
+          {customTiles.map(t=>(
+            <MenuTile key={t.id} color={t.color} icon={t.icon} label={t.title} sub=""
+              onDelete={()=>deleteCustomTile(t.id)}
+              onClick={()=>window.open(t.url,"_blank","noopener,noreferrer")}/>
+          ))}
+          <div className="tile" onClick={()=>setShowAddTile(true)}
+            style={{background:"transparent",border:"2px dashed var(--border-2)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <Icon path={I.plus} size={30} color="var(--text-3)"/>
+          </div>
         </div>
       )}
       {tab==="others" && (
@@ -3928,6 +4020,10 @@ function ProjectsPage() {
       )}
       {tab==="ideas" && (
         <IdeasCards storageKey="project_ideas_v1"/>
+      )}
+
+      {showAddTile && (
+        <CustomTileModal onSave={addCustomTile} onClose={()=>setShowAddTile(false)}/>
       )}
     </div>
   );
