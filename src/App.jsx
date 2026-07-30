@@ -3854,7 +3854,8 @@ function HomePage({ onNavigate }) {
       const overId = findTileAt(point.clientX, point.clientY);
       if (overId && overId !== d.id) {
         setLayout(prev => {
-          const ord = (prev.order && prev.order.length) ? [...prev.order] : [...allTileIds];
+          const prevOrder = (prev.order && prev.order.length) ? prev.order : [];
+          const ord = [...prevOrder, ...allTileIds.filter(id=>!prevOrder.includes(id))];
           const from = ord.indexOf(d.id), to = ord.indexOf(overId);
           if (from===-1||to===-1) return prev;
           ord.splice(from,1); ord.splice(to,0,d.id);
