@@ -35,6 +35,7 @@ const I = {
   image:   "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3 M21 15l-5-5L5 21",
   lock:    "M5 11a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z M7 9V6a5 5 0 0 1 10 0v3",
   search:  "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35",
+  bulb:    "M9 18h6 M10 22h4 M12 2a7 7 0 0 0-4 12.6c.6.5 1 1.2 1 2.4h6c0-1.2.4-1.9 1-2.4A7 7 0 0 0 12 2z",
   play:    "M7 4l13 8-13 8V4z",
   pause:   "M6 4h4v16H6z M14 4h4v16h-4z",
   stop:    "M5 5h14v14H5z",
@@ -1572,7 +1573,6 @@ function DiaryPage() {
     {id:"dia",       label:"📌 Dia",       color:"#e67e22"},
     {id:"diary",     label:"📓 Diário",    color:"var(--accent)"},
     {id:"temas",     label:"📋 Temas",     color:"#0891b2"},
-    {id:"ideas",     label:"💡 Ideias",    color:"var(--purple)"},
     {id:"reminders", label:"🔔 Lembretes", color:"var(--yellow)"},
   ];
   return (
@@ -1589,11 +1589,15 @@ function DiaryPage() {
         {active==="dia"       && <DayBoardPage/>}
         {active==="diary"     && <NoteColumn storageKey="diary" title="Diário" placeholder="O que está em sua mente hoje?" accent="var(--accent)" emoji="📓"/>}
         {active==="temas"     && <TemasPage/>}
-        {active==="ideas"     && <IdeasCards/>}
         {active==="reminders" && <RemindersCards/>}
       </div>
     </div>
   );
+}
+
+// ─── IDEIAS PAGE ──────────────────────────────────────────────────────────────
+function IdeasPage() {
+  return <IdeasCards/>;
 }
 
 // ─── TASKS PAGE ───────────────────────────────────────────────────────────────
@@ -3661,7 +3665,8 @@ function CustomTileModal({ onSave, onClose }) {
 }
 
 const TILE_DEFS = [
-  { id:"diary",     color:"var(--tile-diary)",  icon:"book",     label:"Diário",               sub:"Registros, ideias, lembretes" },
+  { id:"diary",     color:"var(--tile-diary)",  icon:"book",     label:"Diário",               sub:"Registros e lembretes" },
+  { id:"ideas",     color:"var(--purple)",      icon:"bulb",     label:"Ideias",                sub:"Anotações rápidas" },
   { id:"tasks",     color:"var(--tile-tasks)",  icon:"checkSq",  label:"Tarefas",               sub:"Cards editáveis" },
   { id:"docs",      color:"var(--tile-docs)",   icon:"folder",   label:"Documentos",            sub:"Arquivos e anexos" },
   { id:"bills",     color:"var(--tile-bills)",  icon:"card",     label:"Contas",                sub:"Vencimentos e pagamentos" },
@@ -4359,6 +4364,7 @@ const PAGE_META = {
   home:       {label:"Menu",                emoji:""},
   projects:   {label:"Projetos",            emoji:"🗂"},
   diary:      {label:"Diário",              emoji:"📓"},
+  ideas:      {label:"Ideias",              emoji:"💡"},
   tasks:      {label:"Tarefas",             emoji:"✅"},
   docs:       {label:"Documentos",          emoji:"📁"},
   bills:      {label:"Contas",              emoji:"💳"},
@@ -5116,6 +5122,7 @@ export default function App() {
   const renderPage = () => {
     switch(page) {
       case "diary":      return <DiaryPage/>;
+      case "ideas":      return <IdeasPage/>;
       case "tasks":      return <TasksPage/>;
       case "docs":       return <DocsPage/>;
       case "bills":      return <BillsPage/>;
