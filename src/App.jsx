@@ -3820,8 +3820,9 @@ function HomePage({ onNavigate }) {
   };
   const deleteCustomTile = (id) => setCustomTiles(prev => prev.filter(t=>t.id!==id));
 
-  const order = (layout.order && layout.order.length) ? layout.order.filter(id=>TILE_DEFS.some(t=>t.id===id)) : DEFAULT_ORDER;
-  const fullOrder = [...order, ...DEFAULT_ORDER.filter(id=>!order.includes(id))];
+  const allTileIds = [...DEFAULT_ORDER, ...customTiles.map(t=>t.id)];
+  const order = (layout.order && layout.order.length) ? layout.order.filter(id=>allTileIds.includes(id)) : allTileIds;
+  const fullOrder = [...order, ...allTileIds.filter(id=>!order.includes(id))];
   const sizes = layout.sizes || {};
 
   const findTileAt = (x,y) => {
@@ -3853,7 +3854,7 @@ function HomePage({ onNavigate }) {
       const overId = findTileAt(point.clientX, point.clientY);
       if (overId && overId !== d.id) {
         setLayout(prev => {
-          const ord = (prev.order && prev.order.length) ? [...prev.order] : [...DEFAULT_ORDER];
+          const ord = (prev.order && prev.order.length) ? [...prev.order] : [...allTileIds];
           const from = ord.indexOf(d.id), to = ord.indexOf(overId);
           if (from===-1||to===-1) return prev;
           ord.splice(from,1); ord.splice(to,0,d.id);
@@ -3915,25 +3916,21 @@ function HomePage({ onNavigate }) {
       <div className="tiles-grid">
         {fullOrder.map(id => {
           const def = TILE_DEFS.find(t=>t.id===id);
-          if (!def) return null;
+          const custom = !def ? customTiles.find(t=>t.id===id) : null;
+          if (!def && !custom) return null;
           const size = sizes[id] || DEFAULT_SIZES[id] || "normal";
           const commonProps = {
             tileRef: el=>tileRefs.current[id]=el, size, editMode,
             isDragging: dragId===id,
             onPointerDown: (e)=>onTilePointerDown(e,id),
             onResize: editMode ? ()=>cycleSize(id) : undefined,
-            onClick: editMode ? undefined : ()=>onNavigate(id),
+            onClick: editMode ? undefined : (def ? ()=>onNavigate(id) : ()=>window.open(custom.url,"_blank","noopener,noreferrer")),
+            onDelete: (custom && editMode) ? ()=>deleteCustomTile(id) : undefined,
           };
-          return id==="weather"
-            ? <WeatherTile key={id} {...commonProps}/>
-            : <MenuTile key={id} {...commonProps} color={def.color} icon={def.icon} label={def.label} sub={def.sub}/>;
+          if (def && id==="weather") return <WeatherTile key={id} {...commonProps}/>;
+          const t = def || custom;
+          return <MenuTile key={id} {...commonProps} color={t.color} icon={t.icon} label={def?def.label:custom.title} sub={def?def.sub:""}/>;
         })}
-        {customTiles.map(t=>(
-          <MenuTile key={t.id} color={t.color} icon={t.icon} label={t.title} sub=""
-            editMode={editMode}
-            onDelete={editMode ? ()=>deleteCustomTile(t.id) : undefined}
-            onClick={editMode ? undefined : ()=>window.open(t.url,"_blank","noopener,noreferrer")}/>
-        ))}
         <div className="tile" onClick={()=>setShowAddTile(true)}
           style={{background:"transparent",border:"2px dashed var(--border-2)",display:"flex",alignItems:"center",justifyContent:"center"}}>
           <Icon path={I.plus} size={30} color="var(--text-3)"/>
