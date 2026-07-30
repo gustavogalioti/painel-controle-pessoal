@@ -2136,6 +2136,171 @@ function DadosTab() {
   );
 }
 
+// ─── RASCUNHO & IMAGENS PAGE ───────────────────────────────────────────────────
+function RascunhoCard({ item, onEdit, onDelete }) {
+  const [img, setImg] = useState(null);
+  const [loading, setLoading] = useState(item.hasImage);
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (item.hasImage) {
+      KV.get("rascunho_img_"+item.id).then(d => { if(!cancelled){ setImg(d); setLoading(false); } });
+    } else {
+      setLoading(false);
+    }
+    return () => { cancelled = true; };
+  }, [item.id, item.hasImage]);
+
+  const download = async (e) => {
+    e.stopPropagation();
+    setDownloading(true);
+    try {
+      const data = img || await KV.get("rascunho_img_"+item.id);
+      if (!data) { alert("Imagem não encontrada na nuvem."); setDownloading(false); return; }
+      const a = document.createElement("a");
+      a.href = data; a.download = item.imgName || item.title;
+      a.click();
+    } catch { alert("Erro ao baixar imagem."); }
+    setDownloading(false);
+  };
+
+  return (
+    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden",position:"relative"}}>
+      <div style={{aspectRatio:"4/3",background:"var(--bg-input)",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+        {item.hasImage
+          ? (loading
+              ? <span style={{fontSize:11,color:"var(--text-3)"}}>Carregando...</span>
+              : img
+                ? <img src={img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                : <Icon path={I.image} size={28} color="var(--text-3)"/>)
+          : <Icon path={I.image} size={28} color="var(--text-3)"/>}
+      </div>
+      <div style={{padding:14}}>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{item.title}</div>
+        {item.notes && (
+          <div style={{fontSize:11,color:"var(--text-3)",marginBottom:6,lineHeight:1.4,
+            display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{item.notes}</div>
+        )}
+        {item.tags?.length>0 && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
+            {item.tags.map(t=><span key={t} style={{fontSize:9,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 7px",fontWeight:600}}>{t}</span>)}
+          </div>
+        )}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
+          <span style={{fontSize:10,color:"var(--text-3)"}}>{item.date}</span>
+          {item.hasImage && (
+            <button onClick={download} disabled={downloading}
+              style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:6,padding:"3px 8px",
+                color:"var(--accent)",fontSize:10,cursor:downloading?"wait":"pointer",fontWeight:600}}>
+              {downloading?"⏳...":"⬇ Baixar"}
+            </button>
+          )}
+        </div>
+      </div>
+      <div style={{position:"absolute",top:10,right:10,display:"flex",gap:4}}>
+        <button onClick={(e)=>{e.stopPropagation();onEdit();}}
+          style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:6,padding:"3px 8px",color:"var(--accent)",fontSize:10,cursor:"pointer"}}>✏️</button>
+        <button onClick={(e)=>{e.stopPropagation();onDelete();}}
+          style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={13}/></button>
+      </div>
+    </div>
+  );
+}
+
+function RascunhosPage() {
+  const [items, setItems, synced] = useKV("rascunhos_v1", []);
+  const [modal, setModal] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({title:"",tags:"",notes:""});
+  const [imgData, setImgData] = useState(null);
+  const [imgName, setImgName] = useState("");
+  const [tagFilter, setTagFilter] = useState("Todos");
+  const fileRef = useRef(null);
+
+  const allTags = Array.from(new Set(items.flatMap(i=>i.tags||[]))).sort();
+
+  const handleImg = e => {
+    const file = e.target.files[0]; if(!file) return;
+    setImgName(file.name);
+    const reader = new FileReader();
+    reader.onload = ev => setImgData({name:file.name,size:file.size,type:file.type,data:ev.target.result});
+    reader.readAsDataURL(file);
+  };
+
+  const openNew = () => { setEditingId(null); setForm({title:"",tags:"",notes:""}); setImgData(null); setImgName(""); setModal(true); };
+  const openEdit = (item) => {
+    setEditingId(item.id);
+    setForm({title:item.title, tags:(item.tags||[]).join(", "), notes:item.notes||""});
+    setImgData(null); setImgName(item.imgName||"");
+    setModal(true);
+  };
+
+  const save = async () => {
+    if (!form.title.trim()) return;
+    const tags = form.tags.split(",").map(t=>t.trim()).filter(Boolean);
+    if (editingId) {
+      if (imgData?.data) await KV.set("rascunho_img_"+editingId, imgData.data);
+      setItems(prev => prev.map(i=>i.id===editingId?{...i,...form,tags,
+        hasImage:!!(imgData||i.hasImage), imgName:imgData?.name||i.imgName, imgType:imgData?.type||i.imgType, imgSize:imgData?.size||i.imgSize}:i));
+    } else {
+      const id = Date.now();
+      if (imgData?.data) await KV.set("rascunho_img_"+id, imgData.data);
+      setItems(prev => [{id,date:now(),...form,tags,
+        hasImage:!!imgData?.data, imgName:imgData?.name||"", imgType:imgData?.type||"", imgSize:imgData?.size||0}, ...prev]);
+    }
+    setModal(false); setEditingId(null); setImgData(null); setImgName("");
+    setForm({title:"",tags:"",notes:""});
+  };
+
+  const del = (id) => { setItems(prev=>prev.filter(i=>i.id!==id)); KV.del("rascunho_img_"+id); };
+
+  const filtered = tagFilter==="Todos" ? items : items.filter(i=>(i.tags||[]).includes(tagFilter));
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {["Todos",...allTags].map(t=>(
+            <button key={t} onClick={()=>setTagFilter(t)}
+              style={{background:tagFilter===t?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"6px 14px",
+                color:tagFilter===t?"#fff":"var(--text-2)",fontSize:12,cursor:"pointer",fontWeight:600}}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{fontSize:10,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"syncing..."}</span>
+          <button onClick={openNew} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Adicionar</button>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14}}>
+        {filtered.map(item=><RascunhoCard key={item.id} item={item} onEdit={()=>openEdit(item)} onDelete={()=>del(item.id)}/>)}
+      </div>
+      {filtered.length===0 && <Empty text="Nenhum card encontrado."/>}
+
+      {modal && (
+        <Modal title={editingId?"Editar Card":"Novo Card"} onClose={()=>{setModal(false);setEditingId(null);setImgData(null);setImgName("");}}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div onClick={()=>fileRef.current?.click()}
+              style={{border:"2px dashed var(--border)",borderRadius:12,padding:20,textAlign:"center",cursor:"pointer",
+                backgroundImage:imgData?`url(${imgData.data})`:"none",backgroundSize:"cover",backgroundPosition:"center",
+                minHeight:120,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {!imgData && <div style={{fontSize:13,color:"var(--text-3)"}}>{imgName || "Clique para anexar uma imagem"}</div>}
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleImg}/>
+            <input style={inp} placeholder="Título" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/>
+            <input style={inp} placeholder="Tags (separadas por vírgula)" value={form.tags} onChange={e=>setForm({...form,tags:e.target.value})}/>
+            <textarea style={{...inp,resize:"vertical"}} rows={3} placeholder="Descrição" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
+            <button onClick={save} style={btn()}>Salvar</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function DocsPage() {
   const [pageTab, setPageTab] = useState("documentos");
   const [docs, setDocs, synced] = useKV("docs_v1",[]);
@@ -3669,6 +3834,7 @@ const TILE_DEFS = [
   { id:"ideas",     color:"var(--purple)",      icon:"bulb",     label:"Ideias",                sub:"Anotações rápidas" },
   { id:"tasks",     color:"var(--tile-tasks)",  icon:"checkSq",  label:"Tarefas",               sub:"Cards editáveis" },
   { id:"docs",      color:"var(--tile-docs)",   icon:"folder",   label:"Documentos",            sub:"Arquivos e anexos" },
+  { id:"rascunhos", color:"#0a3a3a",            icon:"image",    label:"Rascunho & Imagens",    sub:"Cards com tags e imagens" },
   { id:"bills",     color:"var(--tile-bills)",  icon:"card",     label:"Contas",                sub:"Vencimentos e pagamentos" },
   { id:"events",    color:"var(--tile-events)", icon:"calendar", label:"Agenda",                sub:"Calendário e compromissos" },
   { id:"lists",     color:"var(--tile-lists)",  icon:"list",     label:"Listas",                sub:"Checklists e anotações" },
@@ -4365,6 +4531,7 @@ const PAGE_META = {
   ideas:      {label:"Ideias",              emoji:"💡"},
   tasks:      {label:"Tarefas",             emoji:"✅"},
   docs:       {label:"Documentos",          emoji:"📁"},
+  rascunhos:  {label:"Rascunho & Imagens",  emoji:"🖼"},
   bills:      {label:"Contas",              emoji:"💳"},
   events:     {label:"Agenda",              emoji:"📅"},
   lists:      {label:"Listas",              emoji:"📋"},
@@ -5123,6 +5290,7 @@ export default function App() {
       case "ideas":      return <IdeasPage/>;
       case "tasks":      return <TasksPage/>;
       case "docs":       return <DocsPage/>;
+      case "rascunhos":  return <RascunhosPage/>;
       case "bills":      return <BillsPage/>;
       case "events":     return <AgendaPage/>;
       case "lists":      return <ListsPage/>;
