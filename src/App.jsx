@@ -2137,7 +2137,50 @@ function DadosTab() {
 }
 
 // ─── RASCUNHO & IMAGENS PAGE ───────────────────────────────────────────────────
-function RascunhoCard({ item, onEdit, onDelete }) {
+function RascunhoCard({ item, onOpen }) {
+  const [img, setImg] = useState(null);
+  const [loading, setLoading] = useState(item.hasImage);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (item.hasImage) {
+      KV.get("rascunho_img_"+item.id).then(d => { if(!cancelled){ setImg(d); setLoading(false); } });
+    } else {
+      setLoading(false);
+    }
+    return () => { cancelled = true; };
+  }, [item.id, item.hasImage]);
+
+  return (
+    <div onClick={onOpen}
+      style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden",cursor:"pointer"}}>
+      {item.hasImage && (
+        <div style={{aspectRatio:"4/3",background:"var(--bg-input)",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+          {loading
+            ? <span style={{fontSize:11,color:"var(--text-3)"}}>Carregando...</span>
+            : img
+              ? <img src={img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+              : <Icon path={I.image} size={28} color="var(--text-3)"/>}
+        </div>
+      )}
+      <div style={{padding:14}}>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{item.title}</div>
+        {item.notes && (
+          <div style={{fontSize:11,color:"var(--text-3)",marginBottom:6,lineHeight:1.4,
+            display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{item.notes}</div>
+        )}
+        {item.tags?.length>0 && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
+            {item.tags.map(t=><span key={t} style={{fontSize:9,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 7px",fontWeight:600}}>{t}</span>)}
+          </div>
+        )}
+        <div style={{fontSize:10,color:"var(--text-3)",marginTop:8}}>{item.date}</div>
+      </div>
+    </div>
+  );
+}
+
+function RascunhoDetailModal({ item, onClose, onEdit, onDelete }) {
   const [img, setImg] = useState(null);
   const [loading, setLoading] = useState(item.hasImage);
   const [downloading, setDownloading] = useState(false);
@@ -2152,8 +2195,7 @@ function RascunhoCard({ item, onEdit, onDelete }) {
     return () => { cancelled = true; };
   }, [item.id, item.hasImage]);
 
-  const download = async (e) => {
-    e.stopPropagation();
+  const download = async () => {
     setDownloading(true);
     try {
       const data = img || await KV.get("rascunho_img_"+item.id);
@@ -2166,45 +2208,36 @@ function RascunhoCard({ item, onEdit, onDelete }) {
   };
 
   return (
-    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden",position:"relative"}}>
-      <div style={{aspectRatio:"4/3",background:"var(--bg-input)",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
-        {item.hasImage
-          ? (loading
-              ? <span style={{fontSize:11,color:"var(--text-3)"}}>Carregando...</span>
-              : img
-                ? <img src={img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                : <Icon path={I.image} size={28} color="var(--text-3)"/>)
-          : <Icon path={I.image} size={28} color="var(--text-3)"/>}
-      </div>
-      <div style={{padding:14}}>
-        <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{item.title}</div>
-        {item.notes && (
-          <div style={{fontSize:11,color:"var(--text-3)",marginBottom:6,lineHeight:1.4,
-            display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{item.notes}</div>
+    <Modal title={item.title} onClose={onClose}>
+      <div style={{display:"flex",flexDirection:"column",gap:14,marginBottom:20}}>
+        {item.hasImage && (
+          loading
+            ? <div style={{fontSize:12,color:"var(--text-3)"}}>Carregando imagem...</div>
+            : img && <img src={img} alt="" style={{maxWidth:"100%",borderRadius:10}}/>
         )}
+        {item.notes && <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{item.notes}</div>}
         {item.tags?.length>0 && (
-          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
-            {item.tags.map(t=><span key={t} style={{fontSize:9,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 7px",fontWeight:600}}>{t}</span>)}
+          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+            {item.tags.map(t=><span key={t} style={{fontSize:10,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 8px",fontWeight:600}}>{t}</span>)}
           </div>
         )}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8}}>
-          <span style={{fontSize:10,color:"var(--text-3)"}}>{item.date}</span>
-          {item.hasImage && (
-            <button onClick={download} disabled={downloading}
-              style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:6,padding:"3px 8px",
-                color:"var(--accent)",fontSize:10,cursor:downloading?"wait":"pointer",fontWeight:600}}>
-              {downloading?"⏳...":"⬇ Baixar"}
-            </button>
-          )}
-        </div>
+        <div style={{fontSize:10,color:"var(--text-3)"}}>{item.date}</div>
       </div>
-      <div style={{position:"absolute",top:10,right:10,display:"flex",gap:4}}>
-        <button onClick={(e)=>{e.stopPropagation();onEdit();}}
-          style={{background:"var(--accent-dim)",border:"1px solid var(--accent-bdr)",borderRadius:6,padding:"3px 8px",color:"var(--accent)",fontSize:10,cursor:"pointer"}}>✏️</button>
-        <button onClick={(e)=>{e.stopPropagation();onDelete();}}
-          style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={13}/></button>
+      <div style={{display:"flex",gap:10}}>
+        {item.hasImage && (
+          <button onClick={download} disabled={downloading}
+            style={{...btn("var(--bg-input)"),color:"var(--text-2)",flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:downloading?"wait":"pointer"}}>
+            {downloading?"Baixando...":"⬇ Baixar imagem"}
+          </button>
+        )}
+        <button onClick={onEdit} style={{...btn(),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <Icon path={I.edit} size={13}/> Editar
+        </button>
+        <button onClick={onDelete} style={{...btn("var(--red)"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+          <Icon path={I.trash} size={13}/> Excluir
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -2212,6 +2245,7 @@ function RascunhosPage() {
   const [items, setItems, synced] = useKV("rascunhos_v1", []);
   const [modal, setModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [detailId, setDetailId] = useState(null);
   const [form, setForm] = useState({title:"",tags:"",notes:""});
   const [imgData, setImgData] = useState(null);
   const [imgName, setImgName] = useState("");
@@ -2233,6 +2267,7 @@ function RascunhosPage() {
     setEditingId(item.id);
     setForm({title:item.title, tags:(item.tags||[]).join(", "), notes:item.notes||""});
     setImgData(null); setImgName(item.imgName||"");
+    setDetailId(null);
     setModal(true);
   };
 
@@ -2253,9 +2288,10 @@ function RascunhosPage() {
     setForm({title:"",tags:"",notes:""});
   };
 
-  const del = (id) => { setItems(prev=>prev.filter(i=>i.id!==id)); KV.del("rascunho_img_"+id); };
+  const del = (id) => { setItems(prev=>prev.filter(i=>i.id!==id)); KV.del("rascunho_img_"+id); setDetailId(null); };
 
   const filtered = tagFilter==="Todos" ? items : items.filter(i=>(i.tags||[]).includes(tagFilter));
+  const detailItem = items.find(i=>i.id===detailId);
 
   return (
     <div>
@@ -2276,7 +2312,7 @@ function RascunhosPage() {
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14}}>
-        {filtered.map(item=><RascunhoCard key={item.id} item={item} onEdit={()=>openEdit(item)} onDelete={()=>del(item.id)}/>)}
+        {filtered.map(item=><RascunhoCard key={item.id} item={item} onOpen={()=>setDetailId(item.id)}/>)}
       </div>
       {filtered.length===0 && <Empty text="Nenhum card encontrado."/>}
 
@@ -2296,6 +2332,11 @@ function RascunhosPage() {
             <button onClick={save} style={btn()}>Salvar</button>
           </div>
         </Modal>
+      )}
+
+      {detailItem && (
+        <RascunhoDetailModal item={detailItem} onClose={()=>setDetailId(null)}
+          onEdit={()=>openEdit(detailItem)} onDelete={()=>del(detailItem.id)}/>
       )}
     </div>
   );
