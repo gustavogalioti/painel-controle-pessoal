@@ -129,6 +129,33 @@ async function getAgendaHojeReply(sql) {
   }
 }
 
+async function getTasksPendingReply(sql) {
+  try {
+    const rows = await sql`SELECT text, prio FROM tasks WHERE done=false OR done IS NULL ORDER BY id DESC`;
+    if (!rows.length) return "Suas tarefas estão todas em dia! Nenhuma pendente 🐾✅";
+    const altas = rows.filter(r => r.prio === "alta").length;
+    const lista = rows.slice(0, 5).map(r => `• ${r.text}${r.prio === "alta" ? " 🔴" : ""}`).join("\n");
+    const extra = rows.length > 5 ? `\n...e mais ${rows.length - 5} 🐾` : "";
+    return `Você tem ${rows.length} tarefa(s) pendente(s)${altas ? `, ${altas} de prioridade alta` : ""}:\n${lista}${extra}`;
+  } catch (e) {
+    return "Fui contar suas tarefas mas perdi as contas na pata 😹 tenta de novo?";
+  }
+}
+
+async function getBillsPendingReply(sql) {
+  try {
+    const rows = await sql`SELECT name, value, due_day FROM bills WHERE paid=false OR paid IS NULL ORDER BY due_day ASC`;
+    if (!rows.length) return "Nenhuma conta pendente! Tudo pago 🐾💰";
+    const total = rows.reduce((s, r) => s + Number(r.value || 0), 0);
+    const totalFmt = total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    const lista = rows.slice(0, 5).map(r => `• ${r.name} — ${Number(r.value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}${r.due_day ? ` (dia ${r.due_day})` : ""}`).join("\n");
+    const extra = rows.length > 5 ? `\n...e mais ${rows.length - 5} 🐾` : "";
+    return `Você tem ${rows.length} conta(s) pendente(s), totalizando ${totalFmt}:\n${lista}${extra}`;
+  } catch (e) {
+    return "Fui olhar suas contas mas a calculadora escorregou da pata 😹 tenta de novo?";
+  }
+}
+
 // ---------- Seed padrão (personalidade do Pedro do Painel) ----------
 async function ensureSeed(sql) {
   const existing = await sql`SELECT id FROM panel_pedro_intents LIMIT 1`;
@@ -153,6 +180,10 @@ async function ensureSeed(sql) {
       keywords: ["agenda", "compromisso", "compromissos", "o que tenho hoje", "meus compromissos", "agenda de hoje", "compromissos hoje"] },
     { name: "weather", category: "Clima", is_external: 1, external_type: "weather",
       keywords: ["tempo", "clima", "vai chover", "previsao", "previsão"] },
+    { name: "tarefas_pendentes", category: "Tarefas", is_external: 1, external_type: "tasks_pending",
+      keywords: ["tarefas pendentes", "minhas tarefas", "o que tenho pra fazer", "tarefas", "pendencias", "pendências"] },
+    { name: "contas_pendentes", category: "Contas", is_external: 1, external_type: "bills_pending",
+      keywords: ["contas pendentes", "contas a pagar", "quanto tenho de conta", "minhas contas", "contas"] },
     { name: "fallback", category: "Fallback",
       responses: ["Hmm, ainda não sei responder isso, mas tô aprendendo! 🐱", "Não captei direito, pode reformular? 🐾", "Essa eu ainda não conheço, mas vou lembrar disso! 🐱"] },
   ];
@@ -228,6 +259,8 @@ export default async function handler(req) {
         let reply;
         if (matched.external_type === "weather") reply = await getWeatherReply(message);
         else if (matched.external_type === "agenda_today") reply = await getAgendaHojeReply(sql);
+        else if (matched.external_type === "tasks_pending") reply = await getTasksPendingReply(sql);
+        else if (matched.external_type === "bills_pending") reply = await getBillsPendingReply(sql);
         else reply = "Essa informação ainda não tá pronta aqui, mas em breve! 🐱";
         return new Response(JSON.stringify({ reply, intent: matched.name }), { headers: CORS });
       }
@@ -235,6 +268,102 @@ export default async function handler(req) {
       const responses = await sql`SELECT content FROM panel_pedro_responses WHERE intent_id=${matched.id} AND active=1`;
       const reply = pickRandom(responses.map(r => r.content)) || "🐾";
       return new Response(JSON.stringify({ reply, intent: matched.name }), { headers: CORS });
+    }
+
+    // ============ ADMIN — GERENCIAR O CÉREBRO DO PEDRO ============
+    // App pessoal (sem multiusuário), então sem checagem extra de auth aqui —
+    // mesma exposição que as demais rotas /api/db já têm hoje.
+
+    if (action === "admin_intents" && req.method === "GET") {
+      const intents = await sql`SELECT * FROM panel_pedro_intents ORDER BY category`;
+      const kwCounts = await sql`SELECT intent_id, COUNT(*) as c FROM panel_pedro_keywords GROUP BY intent_id`;
+      const rspCounts = await sql`SELECT intent_id, COUNT(*) as c FROM panel_pedro_responses GROUP BY intent_id`;
+      const result = intents.map(i => ({
+        ...i,
+        keyword_count: parseInt(kwCounts.find(k => k.intent_id === i.id)?.c || 0),
+        response_count: parseInt(rspCounts.find(r => r.intent_id === i.id)?.c || 0),
+      }));
+      return new Response(JSON.stringify({ intents: result }), { headers: CORS });
+    }
+
+    if (action === "admin_intent_create" && req.method === "POST") {
+      const { name, category, is_external, external_type } = await req.json();
+      if (!name || !category) return new Response(JSON.stringify({ error: "name e category são obrigatórios" }), { status: 400, headers: CORS });
+      const id = crypto.randomUUID();
+      await sql`INSERT INTO panel_pedro_intents (id, name, category, is_external, external_type, active)
+                VALUES (${id}, ${name.trim().toLowerCase().replace(/\s+/g, "_")}, ${category}, ${is_external ? 1 : 0}, ${external_type || null}, 1)`;
+      return new Response(JSON.stringify({ ok: true, id }), { headers: CORS });
+    }
+
+    if (action === "admin_intent_toggle" && req.method === "POST") {
+      const { id, active } = await req.json();
+      await sql`UPDATE panel_pedro_intents SET active=${active ? 1 : 0} WHERE id=${id}`;
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+    }
+
+    if (action === "admin_intent_delete" && req.method === "POST") {
+      const { id } = await req.json();
+      await sql`DELETE FROM panel_pedro_keywords WHERE intent_id=${id}`;
+      await sql`DELETE FROM panel_pedro_responses WHERE intent_id=${id}`;
+      await sql`DELETE FROM panel_pedro_intents WHERE id=${id}`;
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+    }
+
+    if (action === "admin_keywords" && req.method === "GET") {
+      const intentId = searchParams.get("intent_id");
+      const keywords = await sql`SELECT * FROM panel_pedro_keywords WHERE intent_id=${intentId} ORDER BY keyword`;
+      return new Response(JSON.stringify({ keywords }), { headers: CORS });
+    }
+
+    if (action === "admin_keyword_add" && req.method === "POST") {
+      const { intent_id, keyword } = await req.json();
+      if (!keyword || !keyword.trim()) return new Response(JSON.stringify({ error: "keyword obrigatória" }), { status: 400, headers: CORS });
+      const id = crypto.randomUUID();
+      await sql`INSERT INTO panel_pedro_keywords (id, intent_id, keyword) VALUES (${id}, ${intent_id}, ${normalize(keyword)})`;
+      return new Response(JSON.stringify({ ok: true, id }), { headers: CORS });
+    }
+
+    if (action === "admin_keyword_delete" && req.method === "POST") {
+      const { id } = await req.json();
+      await sql`DELETE FROM panel_pedro_keywords WHERE id=${id}`;
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+    }
+
+    if (action === "admin_responses" && req.method === "GET") {
+      const intentId = searchParams.get("intent_id");
+      const responses = await sql`SELECT * FROM panel_pedro_responses WHERE intent_id=${intentId} ORDER BY created_at`;
+      return new Response(JSON.stringify({ responses }), { headers: CORS });
+    }
+
+    if (action === "admin_response_add" && req.method === "POST") {
+      const { intent_id, content } = await req.json();
+      if (!content || !content.trim()) return new Response(JSON.stringify({ error: "content obrigatório" }), { status: 400, headers: CORS });
+      const id = crypto.randomUUID();
+      await sql`INSERT INTO panel_pedro_responses (id, intent_id, content, active) VALUES (${id}, ${intent_id}, ${content.trim()}, 1)`;
+      return new Response(JSON.stringify({ ok: true, id }), { headers: CORS });
+    }
+
+    if (action === "admin_response_toggle" && req.method === "POST") {
+      const { id, active } = await req.json();
+      await sql`UPDATE panel_pedro_responses SET active=${active ? 1 : 0} WHERE id=${id}`;
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+    }
+
+    if (action === "admin_response_delete" && req.method === "POST") {
+      const { id } = await req.json();
+      await sql`DELETE FROM panel_pedro_responses WHERE id=${id}`;
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+    }
+
+    if (action === "admin_unmatched" && req.method === "GET") {
+      const logs = await sql`SELECT * FROM panel_pedro_unmatched_log ORDER BY created_at DESC LIMIT 100`;
+      return new Response(JSON.stringify({ logs }), { headers: CORS });
+    }
+
+    if (action === "admin_unmatched_delete" && req.method === "POST") {
+      const { id } = await req.json();
+      await sql`DELETE FROM panel_pedro_unmatched_log WHERE id=${id}`;
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
     }
 
     return new Response(JSON.stringify({ error: "Ação inválida" }), { status: 400, headers: CORS });

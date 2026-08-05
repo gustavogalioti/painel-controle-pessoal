@@ -5273,6 +5273,170 @@ function DJPage() {
 // ─── PEDRO — assistente IA do Painel (independente do Pedro do Daily) ───────
 const pedroTodayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 
+function PedroAdminModal({ onClose }) {
+  const [tab, setTab] = useState("intents");
+  const [intents, setIntents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState(null);
+  const [detail, setDetail] = useState({ keywords: [], responses: [] });
+  const [newKw, setNewKw] = useState("");
+  const [newRsp, setNewRsp] = useState("");
+  const [unmatched, setUnmatched] = useState([]);
+  const [newIntentName, setNewIntentName] = useState("");
+  const [newIntentCat, setNewIntentCat] = useState("");
+
+  const jpost = (action, body) => fetch(`/api/pedro?action=${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+  const loadIntents = async () => {
+    try { const d = await fetch("/api/pedro?action=admin_intents").then(r => r.json()); setIntents(d.intents || []); } catch {}
+    setLoading(false);
+  };
+  const loadUnmatched = async () => {
+    try { const d = await fetch("/api/pedro?action=admin_unmatched").then(r => r.json()); setUnmatched(d.logs || []); } catch {}
+  };
+  useEffect(() => { loadIntents(); loadUnmatched(); }, []);
+
+  const loadDetail = async (intentId) => {
+    try {
+      const [kd, rd] = await Promise.all([
+        fetch(`/api/pedro?action=admin_keywords&intent_id=${intentId}`).then(r => r.json()),
+        fetch(`/api/pedro?action=admin_responses&intent_id=${intentId}`).then(r => r.json()),
+      ]);
+      setDetail({ keywords: kd.keywords || [], responses: rd.responses || [] });
+    } catch {}
+  };
+
+  const toggleExpand = (intent) => {
+    if (expandedId === intent.id) { setExpandedId(null); return; }
+    setExpandedId(intent.id);
+    loadDetail(intent.id);
+  };
+
+  const addKeyword = async (intentId) => {
+    if (!newKw.trim()) return;
+    await jpost("admin_keyword_add", { intent_id: intentId, keyword: newKw });
+    setNewKw(""); loadDetail(intentId); loadIntents();
+  };
+  const delKeyword = async (id, intentId) => { await jpost("admin_keyword_delete", { id }); loadDetail(intentId); loadIntents(); };
+  const addResponse = async (intentId) => {
+    if (!newRsp.trim()) return;
+    await jpost("admin_response_add", { intent_id: intentId, content: newRsp });
+    setNewRsp(""); loadDetail(intentId); loadIntents();
+  };
+  const delResponse = async (id, intentId) => { await jpost("admin_response_delete", { id }); loadDetail(intentId); loadIntents(); };
+  const toggleResponse = async (id, active, intentId) => { await jpost("admin_response_toggle", { id, active: active ? 0 : 1 }); loadDetail(intentId); };
+  const toggleIntent = async (intent) => { await jpost("admin_intent_toggle", { id: intent.id, active: intent.active ? 0 : 1 }); loadIntents(); };
+  const deleteIntent = async (id) => {
+    if (!confirm("Apagar este intent e todas suas keywords/respostas?")) return;
+    await jpost("admin_intent_delete", { id }); setExpandedId(null); loadIntents();
+  };
+  const createIntent = async () => {
+    if (!newIntentName.trim() || !newIntentCat.trim()) return;
+    await jpost("admin_intent_create", { name: newIntentName, category: newIntentCat });
+    setNewIntentName(""); setNewIntentCat(""); loadIntents();
+  };
+  const deleteUnmatched = async (id) => { await jpost("admin_unmatched_delete", { id }); loadUnmatched(); };
+
+  return (
+    <Modal title="🐾 Cérebro do Pedro" onClose={onClose} wide>
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        <button onClick={() => setTab("intents")} style={btn(tab === "intents" ? "var(--accent)" : "var(--bg-sub)")}>Intents</button>
+        <button onClick={() => setTab("unmatched")} style={btn(tab === "unmatched" ? "var(--accent)" : "var(--bg-sub)")}>Não reconhecidas ({unmatched.length})</button>
+      </div>
+
+      {tab === "intents" && (
+        <>
+          <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+            <input placeholder="Nome do intent" value={newIntentName} onChange={e => setNewIntentName(e.target.value)} style={{...inp,flex:1,minWidth:140}}/>
+            <input placeholder="Categoria" value={newIntentCat} onChange={e => setNewIntentCat(e.target.value)} style={{...inp,flex:1,minWidth:120}}/>
+            <button onClick={createIntent} style={btn()}><Icon path={I.plus} size={16}/></button>
+          </div>
+          {loading ? <div style={{color:"var(--text-3)",fontSize:13}}>Carregando...</div> : (
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {intents.map(intent => (
+                <div key={intent.id} style={{border:"1px solid var(--border)",borderRadius:10,overflow:"hidden"}}>
+                  <div onClick={() => toggleExpand(intent)} style={{padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",background: intent.active ? "transparent" : "rgba(255,0,0,0.05)"}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:13}}>{intent.name}</div>
+                      <div style={{fontSize:11,color:"var(--text-3)"}}>{intent.category} · {intent.keyword_count} keywords · {intent.response_count} respostas{intent.is_external ? " · externo" : ""}</div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}} onClick={e => e.stopPropagation()}>
+                      <label style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text-3)"}}>
+                        <input type="checkbox" checked={!!intent.active} onChange={() => toggleIntent(intent)}/> ativo
+                      </label>
+                      {intent.name !== "fallback" && (
+                        <button onClick={() => deleteIntent(intent.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
+                      )}
+                    </div>
+                  </div>
+                  {expandedId === intent.id && (
+                    <div style={{padding:14,borderTop:"1px solid var(--border)",background:"var(--bg-sub)",display:"flex",flexDirection:"column",gap:14}}>
+                      {!intent.is_external && (
+                        <div>
+                          <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",marginBottom:6,textTransform:"uppercase"}}>Palavras-chave</div>
+                          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                            {detail.keywords.map(k => (
+                              <span key={k.id} style={{display:"flex",alignItems:"center",gap:4,background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:8,padding:"3px 8px",fontSize:12}}>
+                                {k.keyword}
+                                <button onClick={() => delKeyword(k.id, intent.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",padding:0,display:"flex"}}><Icon path={I.x} size={11}/></button>
+                              </span>
+                            ))}
+                          </div>
+                          <div style={{display:"flex",gap:6}}>
+                            <input value={newKw} onChange={e => setNewKw(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addKeyword(intent.id); }} placeholder="nova palavra-chave" style={{...inp,fontSize:12,padding:"6px 10px"}}/>
+                            <button onClick={() => addKeyword(intent.id)} style={btn()}><Icon path={I.plus} size={14}/></button>
+                          </div>
+                        </div>
+                      )}
+                      <div>
+                        <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",marginBottom:6,textTransform:"uppercase"}}>
+                          {intent.is_external ? "Conector externo — sem respostas fixas" : "Respostas"}
+                        </div>
+                        {!intent.is_external && (
+                          <>
+                            <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:8}}>
+                              {detail.responses.map(r => (
+                                <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",opacity: r.active ? 1 : 0.5}}>
+                                  <span style={{flex:1,fontSize:12}}>{r.content}</span>
+                                  <button onClick={() => toggleResponse(r.id, r.active, intent.id)} title={r.active ? "Desativar" : "Ativar"} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.check} size={13}/></button>
+                                  <button onClick={() => delResponse(r.id, intent.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={13}/></button>
+                                </div>
+                              ))}
+                            </div>
+                            <div style={{display:"flex",gap:6}}>
+                              <input value={newRsp} onChange={e => setNewRsp(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addResponse(intent.id); }} placeholder="nova resposta" style={{...inp,fontSize:12,padding:"6px 10px"}}/>
+                              <button onClick={() => addResponse(intent.id)} style={btn()}><Icon path={I.plus} size={14}/></button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === "unmatched" && (
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {unmatched.length === 0 && <div style={{color:"var(--text-3)",fontSize:13}}>Nenhuma mensagem sem resposta registrada 🐾</div>}
+          {unmatched.map(u => (
+            <div key={u.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--bg-sub)",border:"1px solid var(--border)",borderRadius:8,padding:"8px 12px"}}>
+              <div>
+                <div style={{fontSize:13}}>{u.message}</div>
+                <div style={{fontSize:10,color:"var(--text-3)"}}>{new Date(u.created_at).toLocaleString("pt-BR")}</div>
+              </div>
+              <button onClick={() => deleteUnmatched(u.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function PedroWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useKV("pedro_chat_v1", []);
@@ -5281,6 +5445,7 @@ function PedroWidget() {
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [unread, setUnread] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
   const scrollRef = useRef(null);
   const greetedRef = useRef(false);
   const remindedRef = useRef(new Set(pState.remindedEventIds || []));
@@ -5365,7 +5530,10 @@ function PedroWidget() {
           boxShadow:"0 8px 32px rgba(0,0,0,0.4)",zIndex:1200,display:"flex",flexDirection:"column",overflow:"hidden",animation:"fadeIn .2s ease"}}>
           <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <span style={{fontWeight:700,fontSize:14}}>🐾 Pedro</span>
-            <button onClick={() => setOpen(false)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.x} size={18}/></button>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <button onClick={() => setAdminOpen(true)} title="Gerenciar cérebro do Pedro" style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",fontSize:15,lineHeight:1}}>⚙️</button>
+              <button onClick={() => setOpen(false)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.x} size={18}/></button>
+            </div>
           </div>
           <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
             {messages.length === 0 && <div style={{color:"var(--text-3)",fontSize:12,textAlign:"center",marginTop:20}}>Oi! Eu sou o Pedro 🐾 Manda um oi pra começar!</div>}
@@ -5386,6 +5554,7 @@ function PedroWidget() {
           </div>
         </div>
       )}
+      {adminOpen && <PedroAdminModal onClose={() => setAdminOpen(false)}/>}
     </>,
     document.body
   );
