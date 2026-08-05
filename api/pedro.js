@@ -381,6 +381,16 @@ async function getHumorRecenteReply(sql) {
   }
 }
 
+function getCurrentTimeReply() {
+  const time = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }).format(new Date());
+  return `Agora são ${time} 🕐🐾`;
+}
+
+function getCurrentDateReply() {
+  const date = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(new Date());
+  return `Hoje é ${date} 📅🐾`;
+}
+
 // ---------- Seed padrão (personalidade do Pedro do Painel) ----------
 async function ensureSeed(sql) {
   const DEFS = [
@@ -392,6 +402,8 @@ async function ensureSeed(sql) {
       responses: ["Poxa, sinto muito. Quer que eu te ajude a organizar alguma coisa pra aliviar? 🐾💛", "Dias assim acontecem. Respira fundo — eu tô aqui se precisar de algo 🧡", "Entendo. Se quiser eu dou uma olhada nas suas tarefas e vemos o que dá pra ajeitar 🐱"] },
     { name: "mood_neutral", category: "Humor", keywords: ["mais ou menos", "na media", "normal", "levando", "indo"],
       responses: ["Entendi, dia neutro! Vamos ver se consigo melhorar ele um pouco 🐾", "Ok! Se precisar de uma força em algo, é só falar 🧡"] },
+    { name: "pedro_como_esta", category: "Humor", keywords: ["voce esta bem", "você está bem", "como voce esta", "como você está", "e voce", "e você", "tudo bem com voce", "tudo bem com você", "voce esta bem?", "cadê você"],
+      responses: ["Tô numa boa, ronronando por aqui! 🐾😸 E você, tudo certo?", "Tô ótimo, sempre de olho no seu dia! 🐱 E aí, como tá indo?", "Tudo tranquilo por aqui, obrigado por perguntar! 🧡"] },
     { name: "thanks", category: "Cortesia", keywords: ["obrigado", "obrigada", "valeu", "vlw", "obg", "brigado"],
       responses: ["Disponha! Sempre por aqui 🐾", "Imagina! Pra isso eu tô aqui 🧡", "De nada! Qualquer coisa é só chamar 😸"] },
     { name: "bye", category: "Cortesia", keywords: ["tchau", "falou", "ate mais", "flw", "xau", "ate logo"],
@@ -412,6 +424,18 @@ async function ensureSeed(sql) {
       keywords: ["como fui essa semana", "meu humor recente", "como andei", "como tenho estado", "como venho estando", "meu humor"] },
     { name: "ajuda", category: "Ajuda", keywords: ["o que voce sabe fazer", "o que você sabe fazer", "me ajuda", "ajuda", "comandos", "o que voce faz"],
       responses: ["Consigo bem mais que bater papo! 🐾 Posso contar sua agenda, tarefas e contas pendentes, resumo do dia, humor recente do Diário e o clima. E também AGIR: \"cria tarefa: X\", \"concluí a tarefa X\", \"muda a tarefa X para Y\", \"apaga a tarefa X\", \"paguei a conta X\", \"cria compromisso X amanhã às 15h\", \"apaga o compromisso X\". Manda ver! 🐱"] },
+    { name: "current_time", category: "Conversa", is_external: 1, external_type: "current_time",
+      keywords: ["que horas sao", "que horas são", "que hora e", "que hora é", "horas agora", "hora atual", "que horas"] },
+    { name: "current_date", category: "Conversa", is_external: 1, external_type: "current_date",
+      keywords: ["que dia e hoje", "que dia é hoje", "data de hoje", "qual a data", "que dia e", "que dia é"] },
+    { name: "quem_e_pedro", category: "Conversa", keywords: ["quem e voce", "quem é você", "o que voce e", "o que você é", "voce e um gato", "você é um gato", "voce e real", "você é real", "quem e o pedro", "quem é o pedro"],
+      responses: ["Eu sou o Pedro! 🐱 Seu gato-assistente que vive aqui no painel, de olho na sua rotina 🐾", "Sou o Pedro, uma versão gato do seu copiloto pessoal 😻 fico aqui te ajudando com tarefas, agenda e companhia!"] },
+    { name: "idade_pedro", category: "Conversa", keywords: ["quantos anos voce tem", "quantos anos você tem", "sua idade"],
+      responses: ["Idade de gato eu não conto! Mas sou jovem de espírito 😹🐾", "Isso é segredo de gato 😼 mas prometo que sou experiente o suficiente pra te ajudar!"] },
+    { name: "pedro_dorme", category: "Conversa", keywords: ["voce dorme", "você dorme", "voce descansa", "você descansa", "voce cansa", "você cansa"],
+      responses: ["Gato que é gato dorme bastante! Mas fico sempre de olho na sua agenda mesmo cochilando 😻🐾", "Tiro uns cochilos, mas nunca desligo de verdade — pode chamar! 🐱"] },
+    { name: "riso", category: "Conversa", keywords: ["kkkk", "kkk", "haha", "hahaha", "rsrs", "hehe", "kkkkk"],
+      responses: ["kkkkk 😹", "Também achei engraçado! 😹🐾", "Hihi 🐱"] },
     { name: "fallback", category: "Fallback",
       responses: ["Hmm, ainda não sei responder isso, mas tô aprendendo! 🐱", "Não captei direito, pode reformular? 🐾", "Essa eu ainda não conheço, mas vou lembrar disso! 🐱"] },
   ];
@@ -527,6 +551,8 @@ export default async function handler(req) {
         else if (matched.external_type === "bills_pending") reply = await getBillsPendingReply(sql);
         else if (matched.external_type === "resumo_today") reply = await getResumoDiaReply(sql);
         else if (matched.external_type === "mood_recent") reply = await getHumorRecenteReply(sql);
+        else if (matched.external_type === "current_time") reply = getCurrentTimeReply();
+        else if (matched.external_type === "current_date") reply = getCurrentDateReply();
         else reply = "Essa informação ainda não tá pronta aqui, mas em breve! 🐱";
         return new Response(JSON.stringify({ reply, intent: matched.name }), { headers: CORS });
       }
