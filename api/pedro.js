@@ -104,6 +104,101 @@ function todayISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+async function setKvList(sql, key, list) {
+  const value = JSON.stringify(list);
+  const ts = new Date().toISOString();
+  await sql`INSERT INTO sync_kv (key, value, updated_at) VALUES (${key}, ${value}, ${ts})
+            ON CONFLICT (key) DO UPDATE SET value=${value}, updated_at=${ts}`;
+}
+
+// ---------- Comandos (Pedro age, não só responde) ----------
+function parseWhen(text) {
+  const t = text.toLowerCase();
+  const now = new Date();
+  let date = null;
+  if (/\bhoje\b/.test(t)) date = new Date(now);
+  else if (/\bamanh[aã]\b/.test(t)) { date = new Date(now); date.setDate(date.getDate() + 1); }
+  else {
+    const dm = t.match(/\b(?:dia\s+)?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+    if (dm) {
+      const d = parseInt(dm[1]), m = parseInt(dm[2]);
+      const y = dm[3] ? (dm[3].length === 2 ? 2000 + parseInt(dm[3]) : parseInt(dm[3])) : now.getFullYear();
+      date = new Date(y, m - 1, d);
+    }
+  }
+  let time = null;
+  const tm = t.match(/\b(?:as|às)\s+(\d{1,2})[:h](\d{2})?\b/) || t.match(/\b(\d{1,2})[:h](\d{2})\b/);
+  if (tm) {
+    const h = String(parseInt(tm[1])).padStart(2, "0");
+    const mi = String(tm[2] ? parseInt(tm[2]) : 0).padStart(2, "0");
+    time = `${h}:${mi}`;
+  }
+  return { date, time };
+}
+
+function stripWhen(text) {
+  return text
+    .replace(/\b(hoje|amanh[ãa])\b/gi, "")
+    .replace(/\b(?:dia\s+)?\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/gi, "")
+    .replace(/\b(?:as|às)\s+\d{1,2}[:h]\d{0,2}\b/gi, "")
+    .replace(/\b\d{1,2}[:h]\d{2}\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .replace(/^[,\-–\s]+|[,\-–\s]+$/g, "");
+}
+
+function matchCommand(message) {
+  const text = message.trim();
+  let m;
+  if ((m = text.match(/^(?:cria|criar|adiciona|adicionar|nova|novo)\s+tarefa[:\s]+(.+)/i))) return { type: "add_task", arg: m[1].trim() };
+  if ((m = text.match(/^marca(?:r)?\s+(?:a\s+)?tarefa\s+(.+?)\s+como\s+feita/i))) return { type: "complete_task", arg: m[1].trim() };
+  if ((m = text.match(/^(?:conclu[ií]|concluir|termina|terminei|finaliza|finalizei)\s+(?:a\s+tarefa\s+)?(.+)/i))) return { type: "complete_task", arg: m[1].trim() };
+  if ((m = text.match(/^marca(?:r)?\s+(?:a\s+)?conta\s+(.+?)\s+como\s+paga/i))) return { type: "pay_bill", arg: m[1].trim() };
+  if ((m = text.match(/^(?:paguei|pagar)\s+(?:a\s+)?conta\s+(.+)/i))) return { type: "pay_bill", arg: m[1].trim() };
+  if ((m = text.match(/^(?:cria|criar|marca|marcar|agenda|agendar)\s+(?:um\s+)?compromisso[:\s]+(.+)/i))) return { type: "add_event", arg: m[1].trim() };
+  return null;
+}
+
+async function cmdAddTask(sql, title) {
+  if (!title) return "Me fala o texto da tarefa! Tipo \"cria tarefa: comprar ração\" 🐾";
+  const tasks = await getKvList(sql, "tasks_v1");
+  const t = { id: Date.now(), text: title, prio: "normal", status: "todo", done: false, date: new Date().toISOString(), notes: [], updates: [] };
+  await setKvList(sql, "tasks_v1", [t, ...tasks]);
+  return `Anotado! ✅ Criei a tarefa "${title}" pra você 🐾`;
+}
+
+async function cmdCompleteTask(sql, query) {
+  const tasks = await getKvList(sql, "tasks_v1");
+  const nq = normalize(query);
+  const match = tasks.find(t => normalize(t.text).includes(nq) && (t.status || (t.done ? "done" : "todo")) !== "done");
+  if (!match) return `Não achei nenhuma tarefa pendente parecida com "${query}" 🐾 confere o nome?`;
+  const updated = tasks.map(t => t.id === match.id ? { ...t, status: "done", done: true } : t);
+  await setKvList(sql, "tasks_v1", updated);
+  return `Boa! Marquei "${match.text}" como concluída ✅🐾`;
+}
+
+async function cmdPayBill(sql, query) {
+  const bills = await getKvList(sql, "bills_v1");
+  const nq = normalize(query);
+  const match = bills.find(b => normalize(b.name).includes(nq) && !b.paid);
+  if (!match) return `Não achei nenhuma conta pendente parecida com "${query}" 🐾 confere o nome?`;
+  const updated = bills.map(b => b.id === match.id ? { ...b, paid: true } : b);
+  await setKvList(sql, "bills_v1", updated);
+  return `Marquei "${match.name}" como paga! 💰🐾`;
+}
+
+async function cmdAddEvent(sql, rawText) {
+  const { date, time } = parseWhen(rawText);
+  const title = stripWhen(rawText) || rawText;
+  if (!date) return `Pra criar o compromisso "${title}" preciso saber o dia — fala "hoje", "amanhã" ou "dia DD/MM" 🐾`;
+  const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const events = await getKvList(sql, "events_v1");
+  const ev = { id: Date.now(), title, date: dateStr, time: time || "", local: "", cat: "Pessoal", notes: "" };
+  await setKvList(sql, "events_v1", [ev, ...events]);
+  const [, m, d] = dateStr.split("-");
+  return `Criei o compromisso "${title}" pra ${d}/${m}${time ? ` às ${time}` : ""} 📅🐾`;
+}
+
 // ---------- Conectores externos ----------
 async function getWeatherReply(message, coords) {
   try {
@@ -250,6 +345,8 @@ async function ensureSeed(sql) {
       keywords: ["resumo do dia", "resumo do meu dia", "como ta meu dia", "como esta meu dia", "meu dia hoje", "resumo"] },
     { name: "humor_recente", category: "Humor", is_external: 1, external_type: "mood_recent",
       keywords: ["como fui essa semana", "meu humor recente", "como andei", "como tenho estado", "como venho estando", "meu humor"] },
+    { name: "ajuda", category: "Ajuda", keywords: ["o que voce sabe fazer", "o que você sabe fazer", "me ajuda", "ajuda", "comandos", "o que voce faz"],
+      responses: ["Consigo bem mais que bater papo! 🐾 Posso: contar sua agenda de hoje, listar tarefas e contas pendentes, dar um resumo do dia, comentar seu humor recente do Diário, avisar o clima — e também AGIR: \"cria tarefa: X\", \"concluí a tarefa X\", \"paguei a conta X\", \"cria compromisso X amanhã às 15h\". Manda ver! 🐱"] },
     { name: "fallback", category: "Fallback",
       responses: ["Hmm, ainda não sei responder isso, mas tô aprendendo! 🐱", "Não captei direito, pode reformular? 🐾", "Essa eu ainda não conheço, mas vou lembrar disso! 🐱"] },
   ];
@@ -311,6 +408,17 @@ export default async function handler(req) {
       const { message, coords } = await req.json();
       if (!message || !message.trim()) {
         return new Response(JSON.stringify({ error: "Mensagem vazia" }), { status: 400, headers: CORS });
+      }
+
+      // Comandos (criar/concluir tarefa, pagar conta, criar compromisso) têm prioridade sobre o chat comum
+      const cmd = matchCommand(message.trim());
+      if (cmd) {
+        let reply;
+        if (cmd.type === "add_task") reply = await cmdAddTask(sql, cmd.arg);
+        else if (cmd.type === "complete_task") reply = await cmdCompleteTask(sql, cmd.arg);
+        else if (cmd.type === "pay_bill") reply = await cmdPayBill(sql, cmd.arg);
+        else if (cmd.type === "add_event") reply = await cmdAddEvent(sql, cmd.arg);
+        return new Response(JSON.stringify({ reply, intent: cmd.type, action: cmd.type }), { headers: CORS });
       }
 
       const intents = await loadActiveIntents(sql);

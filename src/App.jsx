@@ -94,6 +94,12 @@ const KV = {
   },
 };
 
+// ── Pedro — barramento leve de eventos (páginas avisam, o widget reage) ──────
+const pedroNotify = (type, payload) => {
+  try { window.dispatchEvent(new CustomEvent("pedro:event", { detail: { type, payload } })); } catch {}
+};
+
+
 // useKV — like useState but synced to cloud + localStorage, with polling
 function useKV(key, def) {
   const [data, setData] = useState(() => {
@@ -1635,8 +1641,14 @@ function TasksPage() {
   };
 
   const setStatus = (id, status) => {
+    const prevTask = tasksRef.current.find(t => t.id===id);
     const n = tasksRef.current.map(t => t.id===id ? { ...t, status, done: status==="done" } : t);
     save(n);
+    if (status === "done" && prevTask?.status !== "done") {
+      pedroNotify("task_done", { text: prevTask?.text });
+      const stillPendingToday = n.some(x => x.status==="today");
+      if (prevTask?.status==="today" && !stillPendingToday) pedroNotify("all_today_done", {});
+    }
   };
 
   const del = (id) => { setTasks(p=>p.filter(t=>t.id!==id)); };
@@ -2521,6 +2533,7 @@ function BillsPage() {
   const toggle = id=>{
     const b=bills.find(b=>b.id===id);
     const n=bills.map(b=>b.id===id?{...b,paid:!b.paid}:b); setBills(n); DB.update("bills",{id,paid:!b.paid});
+    if (!b.paid) pedroNotify("bill_paid", { name: b.name });
   };
   const del = id=>{ setBills(p=>p.filter(b=>b.id!==id)); };
   const day = new Date().getDate();
@@ -2753,7 +2766,7 @@ function AgendaPage() {
     }
     setGoogleSyncing(false);
     if (editId) setEvents(prev => prev.map(e=>e.id===editId?{...e,...form,googleId}:e).sort(sortFn));
-    else setEvents(prev => [...prev,{id:Date.now(),...form,googleId}].sort(sortFn));
+    else { setEvents(prev => [...prev,{id:Date.now(),...form,googleId}].sort(sortFn)); pedroNotify("event_created", { title: form.title }); }
     setModal(false); setEditId(null);
   };
   const del = async (id) => {
@@ -5437,6 +5450,13 @@ function PedroAdminModal({ onClose }) {
   );
 }
 
+const PEDRO_REACTIONS = {
+  task_done: ["Boa! Mais uma riscada da lista 🐾✅", "Aeee, aquele gostinho de tarefa concluída! 😻", "Confirmado com a patinha! 🐾", "Manda mais! Tô contando aqui 🐱"],
+  all_today_done: ["UAU! Terminou tudo que era de hoje! Isso merece um agrado 🏆🐾", "Zerou a lista de hoje! Sensacional 😻", "Hoje foi produtivo demais! Orgulho de gato 🐾🎉"],
+  bill_paid: ["Conta paga é conta que não pesa mais 💰🐾", "Boa! Uma a menos na lista 🐱", "Certifiquei aqui com a patinha ✅💰"],
+  event_created: ["Compromisso anotado! Vou ficar de olho pra te lembrar 📅🐾", "Show, já tô de olho nesse compromisso! 🐱", "Marcado! Conte comigo pra te lembrar na hora certa 🐾"],
+};
+
 function PedroWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useKV("pedro_chat_v1", []);
@@ -5490,6 +5510,17 @@ function PedroWidget() {
     return () => clearInterval(id);
   }, [events]);
 
+  // Reage em tempo real a ações feitas nas páginas (tarefa concluída, conta paga, compromisso criado...)
+  useEffect(() => {
+    const onPedroEvent = (e) => {
+      const { type } = e.detail || {};
+      const pool = PEDRO_REACTIONS[type];
+      if (pool && pool.length) pushPedro(pool[Math.floor(Math.random() * pool.length)]);
+    };
+    window.addEventListener("pedro:event", onPedroEvent);
+    return () => window.removeEventListener("pedro:event", onPedroEvent);
+  }, []);
+
   useEffect(() => {
     if (open) {
       setUnread(false);
@@ -5538,7 +5569,7 @@ function PedroWidget() {
             </div>
           </div>
           <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
-            {messages.length === 0 && <div style={{color:"var(--text-3)",fontSize:12,textAlign:"center",marginTop:20}}>Oi! Eu sou o Pedro 🐾 Manda um oi pra começar!</div>}
+            {messages.length === 0 && <div style={{color:"var(--text-3)",fontSize:12,textAlign:"center",marginTop:20,lineHeight:1.6}}>Oi! Eu sou o Pedro 🐾<br/>Manda um oi, pergunta sua agenda, ou peça "cria tarefa: X" que eu já faço!</div>}
             {messages.map((m, i) => (
               <div key={i} style={{alignSelf: m.from === "pedro" ? "flex-start" : "flex-end",
                 background: m.from === "pedro" ? "var(--bg-sub)" : "var(--accent)",
