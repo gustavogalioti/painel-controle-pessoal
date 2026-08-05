@@ -5504,8 +5504,10 @@ function PedroWidget() {
     setInput("");
     setThinking(true);
     try {
+      const cachedCoords = loadCoordsCache();
+      const coords = cachedCoords ? { lat: cachedCoords.lat, lon: cachedCoords.lon } : null;
       const r = await fetch("/api/pedro?action=chat", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, coords }),
       });
       const d = await r.json();
       pushPedro(d.reply || "🐾");

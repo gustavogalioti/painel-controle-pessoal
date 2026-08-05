@@ -92,23 +92,41 @@ function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+// ---------- Helpers de leitura do sync_kv (fonte real dos dados do painel) ----------
+async function getKvList(sql, key) {
+  const rows = await sql`SELECT value FROM sync_kv WHERE key=${key}`;
+  if (!rows[0]) return [];
+  try { const v = JSON.parse(rows[0].value); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 // ---------- Conectores externos ----------
-async function getWeatherReply(message) {
+async function getWeatherReply(message, coords) {
   try {
+    let lat = coords?.lat, lon = coords?.lon, placeName = null;
     const m = normalize(message).match(/(?:em|de|no|na)\s+([a-z\s]+)$/);
     const city = m ? m[1].trim() : null;
-    if (!city) return "Me fala o nome da cidade que eu confiro o tempo pra você! Tipo \"vai chover em Jundiaí\" 🐾🌦️";
-    const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=pt`);
-    const geoData = await geoRes.json();
-    const place = geoData?.results?.[0];
-    if (!place) return "Não achei essa cidade aqui no mapa 🐾🗺️ Confere o nome?";
-    const wRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,precipitation&timezone=auto`);
+    if (city) {
+      const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=pt`);
+      const geoData = await geoRes.json();
+      const place = geoData?.results?.[0];
+      if (!place) return "Não achei essa cidade aqui no mapa 🐾🗺️ Confere o nome?";
+      lat = place.latitude; lon = place.longitude; placeName = place.name;
+    }
+    if (lat == null || lon == null) {
+      return "Me fala o nome da cidade que eu confiro o tempo pra você! Tipo \"vai chover em Jundiaí\" 🐾🌦️ (ou libera a localização na página Clima que eu passo a saber automático)";
+    }
+    const wRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,precipitation&timezone=auto`);
     const wData = await wRes.json();
     const cur = wData?.current;
     if (!cur) return "Consultei as nuvens mas elas não quiseram falar comigo agora 😹 tenta de novo?";
     const temp = Math.round(cur.temperature_2m);
     const chuva = cur.precipitation > 0 ? `e tem chuva rolando (${cur.precipitation}mm) ☔` : "sem chuva no momento ☀️";
-    return `Em ${place.name} agora tá ${temp}°C, ${chuva} 🐾`;
+    return `${placeName ? `Em ${placeName} agora` : "Aqui agora"} tá ${temp}°C, ${chuva} 🐾`;
   } catch (e) {
     return "Tentei checar o tempo mas escorreguei numa nuvem 😹 tenta de novo daqui a pouco?";
   }
@@ -116,11 +134,9 @@ async function getWeatherReply(message) {
 
 async function getAgendaHojeReply(sql) {
   try {
-    const rows = await sql`SELECT value FROM sync_kv WHERE key='events_v1'`;
-    const events = rows[0] ? JSON.parse(rows[0].value) : [];
-    const today = new Date();
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-    const hoje = (events || []).filter(e => e.date === todayStr).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+    const events = await getKvList(sql, "events_v1");
+    const todayStr = todayISO();
+    const hoje = events.filter(e => e.date === todayStr).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
     if (!hoje.length) return "Hoje sua agenda tá livre! Aproveita pra respirar um pouco 🐾😌";
     const lista = hoje.slice(0, 5).map(e => `• ${e.time ? e.time + " — " : ""}${e.title}`).join("\n");
     return `Hoje você tem:\n${lista}\n\nQuer que eu te avise antes de cada um? 🐾`;
@@ -131,12 +147,13 @@ async function getAgendaHojeReply(sql) {
 
 async function getTasksPendingReply(sql) {
   try {
-    const rows = await sql`SELECT text, prio FROM tasks WHERE done=false OR done IS NULL ORDER BY id DESC`;
-    if (!rows.length) return "Suas tarefas estão todas em dia! Nenhuma pendente 🐾✅";
-    const altas = rows.filter(r => r.prio === "alta").length;
-    const lista = rows.slice(0, 5).map(r => `• ${r.text}${r.prio === "alta" ? " 🔴" : ""}`).join("\n");
-    const extra = rows.length > 5 ? `\n...e mais ${rows.length - 5} 🐾` : "";
-    return `Você tem ${rows.length} tarefa(s) pendente(s)${altas ? `, ${altas} de prioridade alta` : ""}:\n${lista}${extra}`;
+    const tasks = await getKvList(sql, "tasks_v1");
+    const pending = tasks.filter(t => (t.status || (t.done ? "done" : "todo")) !== "done");
+    if (!pending.length) return "Suas tarefas estão todas em dia! Nenhuma pendente 🐾✅";
+    const altas = pending.filter(t => t.prio === "alta").length;
+    const lista = pending.slice(0, 5).map(t => `• ${t.text}${t.prio === "alta" ? " 🔴" : ""}`).join("\n");
+    const extra = pending.length > 5 ? `\n...e mais ${pending.length - 5} 🐾` : "";
+    return `Você tem ${pending.length} tarefa(s) pendente(s)${altas ? `, ${altas} de prioridade alta` : ""}:\n${lista}${extra}`;
   } catch (e) {
     return "Fui contar suas tarefas mas perdi as contas na pata 😹 tenta de novo?";
   }
@@ -144,23 +161,68 @@ async function getTasksPendingReply(sql) {
 
 async function getBillsPendingReply(sql) {
   try {
-    const rows = await sql`SELECT name, value, due_day FROM bills WHERE paid=false OR paid IS NULL ORDER BY due_day ASC`;
-    if (!rows.length) return "Nenhuma conta pendente! Tudo pago 🐾💰";
-    const total = rows.reduce((s, r) => s + Number(r.value || 0), 0);
+    const bills = await getKvList(sql, "bills_v1");
+    const pending = bills.filter(b => !b.paid);
+    if (!pending.length) return "Nenhuma conta pendente! Tudo pago 🐾💰";
+    const total = pending.reduce((s, b) => s + Number(b.value || 0), 0);
     const totalFmt = total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-    const lista = rows.slice(0, 5).map(r => `• ${r.name} — ${Number(r.value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}${r.due_day ? ` (dia ${r.due_day})` : ""}`).join("\n");
-    const extra = rows.length > 5 ? `\n...e mais ${rows.length - 5} 🐾` : "";
-    return `Você tem ${rows.length} conta(s) pendente(s), totalizando ${totalFmt}:\n${lista}${extra}`;
+    const sorted = [...pending].sort((a, b) => (+a.dueDay || 99) - (+b.dueDay || 99));
+    const lista = sorted.slice(0, 5).map(b => `• ${b.name} — ${Number(b.value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}${b.dueDay ? ` (dia ${b.dueDay})` : ""}`).join("\n");
+    const extra = pending.length > 5 ? `\n...e mais ${pending.length - 5} 🐾` : "";
+    return `Você tem ${pending.length} conta(s) pendente(s), totalizando ${totalFmt}:\n${lista}${extra}`;
   } catch (e) {
     return "Fui olhar suas contas mas a calculadora escorregou da pata 😹 tenta de novo?";
   }
 }
 
+async function getResumoDiaReply(sql) {
+  try {
+    const todayStr = todayISO();
+    const [events, tasks, bills] = await Promise.all([
+      getKvList(sql, "events_v1"), getKvList(sql, "tasks_v1"), getKvList(sql, "bills_v1"),
+    ]);
+    const hojeEventos = events.filter(e => e.date === todayStr).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+    const pendTasks = tasks.filter(t => (t.status || (t.done ? "done" : "todo")) !== "done");
+    const hojeTasks = pendTasks.filter(t => t.status === "today");
+    const dia = new Date().getDate();
+    const contasVencendo = bills.filter(b => !b.paid && +b.dueDay >= dia && +b.dueDay <= dia + 5);
+
+    const partes = [];
+    partes.push(hojeEventos.length
+      ? `📅 Agenda: ${hojeEventos.length} compromisso(s) hoje — ${hojeEventos.slice(0,3).map(e=>`${e.time?e.time+" ":""}${e.title}`).join(", ")}`
+      : "📅 Agenda: livre hoje");
+    partes.push(hojeTasks.length
+      ? `✅ Tarefas de hoje: ${hojeTasks.length} (${pendTasks.length} pendentes no total)`
+      : `✅ Tarefas: ${pendTasks.length} pendente(s) no total, nenhuma marcada pra hoje`);
+    partes.push(contasVencendo.length
+      ? `💳 Contas vencendo nos próximos dias: ${contasVencendo.length}`
+      : "💳 Contas: nada vencendo nos próximos dias");
+
+    return `Aqui vai o resumo do seu dia 🐾\n\n${partes.join("\n")}\n\nQuer que eu detalhe algum desses pontos?`;
+  } catch (e) {
+    return "Tentei montar seu resumo mas me enrolei nos papéis 😹 tenta de novo?";
+  }
+}
+
+async function getHumorRecenteReply(sql) {
+  try {
+    const entries = await getKvList(sql, "diary_v1");
+    const seteDiasAtras = Date.now() - 7 * 86400000;
+    const recentes = entries.filter(e => new Date(e.date).getTime() >= seteDiasAtras);
+    if (!recentes.length) return "Ainda não tenho registros seus no Diário dos últimos dias 🐾 quando quiser desabafar, é só escrever lá!";
+    const bons = ["😄", "🙂", "🎉"], ruins = ["😔", "😤"];
+    const nBons = recentes.filter(e => bons.includes(e.mood)).length;
+    const nRuins = recentes.filter(e => ruins.includes(e.mood)).length;
+    if (nRuins > nBons) return `Reparei que nos últimos dias você andou mais para baixo por aqui (${nRuins} registro(s) mais difíceis). Tudo bem com você? Se quiser conversar ou organizar algo pra aliviar, tô aqui 💛🐾`;
+    if (nBons > nRuins) return `Pelo que anotou no Diário essa semana, você andou bem mais pra cima! 😻 ${nBons} registro(s) positivos. Segue assim! 🧡`;
+    return "Vendo seus registros da semana, foi meio equilibrado — nem tudo perfeito, nem tudo ruim. Como você diria que foi essa semana? 🐾";
+  } catch (e) {
+    return "Fui olhar seu Diário mas me distraí no caminho 😹 tenta de novo?";
+  }
+}
+
 // ---------- Seed padrão (personalidade do Pedro do Painel) ----------
 async function ensureSeed(sql) {
-  const existing = await sql`SELECT id FROM panel_pedro_intents LIMIT 1`;
-  if (existing.length) return;
-
   const DEFS = [
     { name: "greeting", category: "Saudação", keywords: ["oi", "ola", "opa", "eae", "e ai", "bom dia", "boa tarde", "boa noite", "salve"],
       responses: ["Oi! Que bom te ver por aqui 🐾", "Opa! Cheguei correndo pra te dar oi! 🐱", "Oi oi! Pronto pra organizar o dia? 🧡"] },
@@ -184,11 +246,18 @@ async function ensureSeed(sql) {
       keywords: ["tarefas pendentes", "minhas tarefas", "o que tenho pra fazer", "tarefas", "pendencias", "pendências"] },
     { name: "contas_pendentes", category: "Contas", is_external: 1, external_type: "bills_pending",
       keywords: ["contas pendentes", "contas a pagar", "quanto tenho de conta", "minhas contas", "contas"] },
+    { name: "resumo_dia", category: "Resumo", is_external: 1, external_type: "resumo_today",
+      keywords: ["resumo do dia", "resumo do meu dia", "como ta meu dia", "como esta meu dia", "meu dia hoje", "resumo"] },
+    { name: "humor_recente", category: "Humor", is_external: 1, external_type: "mood_recent",
+      keywords: ["como fui essa semana", "meu humor recente", "como andei", "como tenho estado", "como venho estando", "meu humor"] },
     { name: "fallback", category: "Fallback",
       responses: ["Hmm, ainda não sei responder isso, mas tô aprendendo! 🐱", "Não captei direito, pode reformular? 🐾", "Essa eu ainda não conheço, mas vou lembrar disso! 🐱"] },
   ];
 
+  const existingNames = new Set((await sql`SELECT name FROM panel_pedro_intents`).map(r => r.name));
+
   for (const d of DEFS) {
+    if (existingNames.has(d.name)) continue; // já existe (seed anterior ou editado pelo usuário) — não sobrescreve
     const intentId = crypto.randomUUID();
     await sql`INSERT INTO panel_pedro_intents (id, name, category, is_external, external_type, active)
               VALUES (${intentId}, ${d.name}, ${d.category}, ${d.is_external || 0}, ${d.external_type || null}, 1)
@@ -239,7 +308,7 @@ export default async function handler(req) {
     const action = searchParams.get("action");
 
     if (action === "chat" && req.method === "POST") {
-      const { message } = await req.json();
+      const { message, coords } = await req.json();
       if (!message || !message.trim()) {
         return new Response(JSON.stringify({ error: "Mensagem vazia" }), { status: 400, headers: CORS });
       }
@@ -257,10 +326,12 @@ export default async function handler(req) {
 
       if (matched.is_external) {
         let reply;
-        if (matched.external_type === "weather") reply = await getWeatherReply(message);
+        if (matched.external_type === "weather") reply = await getWeatherReply(message, coords);
         else if (matched.external_type === "agenda_today") reply = await getAgendaHojeReply(sql);
         else if (matched.external_type === "tasks_pending") reply = await getTasksPendingReply(sql);
         else if (matched.external_type === "bills_pending") reply = await getBillsPendingReply(sql);
+        else if (matched.external_type === "resumo_today") reply = await getResumoDiaReply(sql);
+        else if (matched.external_type === "mood_recent") reply = await getHumorRecenteReply(sql);
         else reply = "Essa informação ainda não tá pronta aqui, mas em breve! 🐱";
         return new Response(JSON.stringify({ reply, intent: matched.name }), { headers: CORS });
       }
