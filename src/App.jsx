@@ -5460,15 +5460,18 @@ const PEDRO_REACTIONS = {
 function PedroWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useKV("pedro_chat_v1", []);
-  const [pState, setPState] = useKV("pedro_state_v1", { lastGreetedDate: null, remindedEventIds: [] });
+  const [pState, setPState] = useKV("pedro_state_v1", { lastGreetedDate: null, remindedEventIds: [], lastEveningCheckDate: null });
   const [events] = useKV("events_v1", []);
+  const [tasks] = useKV("tasks_v1", []);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [unread, setUnread] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const scrollRef = useRef(null);
   const greetedRef = useRef(false);
+  const eveningCheckedRef = useRef(false);
   const remindedRef = useRef(new Set(pState.remindedEventIds || []));
+  const pendingRef = useRef(null); // clarificação pendente: { type, newText?, prio? }
 
   const pushPedro = (text) => {
     setMessages(prev => [...prev, { from: "pedro", text, at: Date.now() }].slice(-60));
@@ -5510,6 +5513,25 @@ function PedroWidget() {
     return () => clearInterval(id);
   }, [events]);
 
+  // Check-in no fim do dia — se ainda sobrou tarefa "De Hoje" não concluída
+  useEffect(() => {
+    const check = () => {
+      if (eveningCheckedRef.current) return;
+      const now = new Date();
+      if (now.getHours() < 20) return;
+      const today = pedroTodayStr();
+      if (pState.lastEveningCheckDate === today) { eveningCheckedRef.current = true; return; }
+      const pendentesHoje = (tasks || []).filter(t => t.status === "today");
+      if (pendentesHoje.length === 0) return; // nada pendente marcado pra hoje — não incomoda
+      eveningCheckedRef.current = true;
+      pushPedro(`Já é fim de dia e ainda restam ${pendentesHoje.length} tarefa(s) de hoje: ${pendentesHoje.slice(0,3).map(t=>t.text).join(", ")}. Precisa de ajuda ou deixamos pra amanhã? 🐾🌙`);
+      setPState(prev => ({ ...prev, lastEveningCheckDate: today }));
+    };
+    check();
+    const id = setInterval(check, 5 * 60000);
+    return () => clearInterval(id);
+  }, [tasks, pState.lastEveningCheckDate]);
+
   // Reage em tempo real a ações feitas nas páginas (tarefa concluída, conta paga, compromisso criado...)
   useEffect(() => {
     const onPedroEvent = (e) => {
@@ -5537,13 +5559,20 @@ function PedroWidget() {
     try {
       const cachedCoords = loadCoordsCache();
       const coords = cachedCoords ? { lat: cachedCoords.lat, lon: cachedCoords.lon } : null;
+      const pending = pendingRef.current;
       const r = await fetch("/api/pedro?action=chat", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, coords }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, coords, pending }),
       });
       const d = await r.json();
       pushPedro(d.reply || "🐾");
+      if (d.needsClarification) {
+        pendingRef.current = { type: d.needsClarification, ...(d.pendingExtra || {}) };
+      } else {
+        pendingRef.current = null;
+      }
     } catch {
       pushPedro("Escorreguei em algum lugar por aqui... tenta de novo? 😹");
+      pendingRef.current = null;
     }
     setThinking(false);
   };
