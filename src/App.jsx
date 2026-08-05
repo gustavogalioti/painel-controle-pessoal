@@ -5457,25 +5457,40 @@ const PEDRO_REACTIONS = {
   event_created: ["Compromisso anotado! Vou ficar de olho pra te lembrar 📅🐾", "Show, já tô de olho nesse compromisso! 🐱", "Marcado! Conte comigo pra te lembrar na hora certa 🐾"],
 };
 
-function PedroWidget() {
+function PedroWidget({ page }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useKV("pedro_chat_v1", []);
-  const [pState, setPState] = useKV("pedro_state_v1", { lastGreetedDate: null, remindedEventIds: [], lastEveningCheckDate: null });
+  const [pState, setPState] = useKV("pedro_state_v1", { lastGreetedDate: null, remindedEventIds: [], lastEveningCheckDate: null, lastBillsOverdueCheckDate: null, notifPermAsked: false });
   const [events] = useKV("events_v1", []);
   const [tasks] = useKV("tasks_v1", []);
+  const [bills] = useKV("bills_v1", []);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [unread, setUnread] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [notifPerm, setNotifPerm] = useState(() => (typeof Notification !== "undefined" ? Notification.permission : "unsupported"));
   const scrollRef = useRef(null);
   const greetedRef = useRef(false);
   const eveningCheckedRef = useRef(false);
+  const billsCheckedRef = useRef(false);
   const remindedRef = useRef(new Set(pState.remindedEventIds || []));
   const pendingRef = useRef(null); // clarificação pendente: { type, newText?, prio? }
+
+  const notifyOS = (text) => {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    if (!document.hidden) return; // só notifica fora do app — dentro, o balão do chat já basta
+    try { new Notification("Pedro 🐾", { body: text, icon: "/radioactive-icon.png", tag: "pedro-painel" }); } catch {}
+  };
+
+  const requestNotifPerm = () => {
+    if (typeof Notification === "undefined") return;
+    Notification.requestPermission().then(setNotifPerm);
+  };
 
   const pushPedro = (text) => {
     setMessages(prev => [...prev, { from: "pedro", text, at: Date.now() }].slice(-60));
     setUnread(true);
+    notifyOS(text);
   };
 
   // Saudação diária — primeira vez que abre o painel no dia
@@ -5531,6 +5546,22 @@ function PedroWidget() {
     const id = setInterval(check, 5 * 60000);
     return () => clearInterval(id);
   }, [tasks, pState.lastEveningCheckDate]);
+
+  // Comentário contextual — ao abrir a página de Contas, se houver conta vencida, avisa (1x por dia)
+  useEffect(() => {
+    if (page !== "bills" || billsCheckedRef.current) return;
+    const today = pedroTodayStr();
+    if (pState.lastBillsOverdueCheckDate === today) { billsCheckedRef.current = true; return; }
+    const dia = new Date().getDate();
+    const vencidas = (bills || []).filter(b => !b.paid && +b.dueDay < dia);
+    if (!vencidas.length) return;
+    billsCheckedRef.current = true;
+    const t = setTimeout(() => {
+      pushPedro(`Reparei que ${vencidas.length > 1 ? "essas contas já venceram" : `"${vencidas[0].name}" já venceu`}: ${vencidas.slice(0,3).map(b=>b.name).join(", ")}. Quer que eu marque como paga alguma delas? 🐾💳`);
+      setPState(prev => ({ ...prev, lastBillsOverdueCheckDate: today }));
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [page, bills, pState.lastBillsOverdueCheckDate]);
 
   // Reage em tempo real a ações feitas nas páginas (tarefa concluída, conta paga, compromisso criado...)
   useEffect(() => {
@@ -5593,6 +5624,9 @@ function PedroWidget() {
           <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <span style={{fontWeight:700,fontSize:14}}>🐾 Pedro</span>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
+              {notifPerm === "default" && (
+                <button onClick={requestNotifPerm} title="Ativar notificações do Pedro fora do app" style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",fontSize:15,lineHeight:1}}>🔔</button>
+              )}
               <button onClick={() => setAdminOpen(true)} title="Gerenciar cérebro do Pedro" style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",fontSize:15,lineHeight:1}}>⚙️</button>
               <button onClick={() => setOpen(false)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.x} size={18}/></button>
             </div>
@@ -5764,7 +5798,7 @@ export default function App() {
         <span style={{fontSize:10,color:"var(--border)"}}>{new Date().toLocaleDateString("pt-BR")}</span>
       </footer>
 
-      <PedroWidget/>
+      <PedroWidget page={page}/>
     </div>
   );
 }
