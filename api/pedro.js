@@ -469,6 +469,22 @@ export default async function handler(req) {
     const { searchParams } = new URL(req.url);
     const action = searchParams.get("action");
 
+    if (action === "push_subscribe" && req.method === "POST") {
+      const { subscription } = await req.json();
+      if (!subscription?.endpoint) return new Response(JSON.stringify({ error: "subscription inválida" }), { status: 400, headers: CORS });
+      const subs = await getKvList(sql, "pedro_push_subs");
+      const filtered = subs.filter(s => s.endpoint !== subscription.endpoint);
+      await setKvList(sql, "pedro_push_subs", [...filtered, subscription]);
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+    }
+
+    if (action === "push_unsubscribe" && req.method === "POST") {
+      const { endpoint } = await req.json();
+      const subs = await getKvList(sql, "pedro_push_subs");
+      await setKvList(sql, "pedro_push_subs", subs.filter(s => s.endpoint !== endpoint));
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+    }
+
     if (action === "chat" && req.method === "POST") {
       const { message, coords, pending } = await req.json();
       if (!message || !message.trim()) {

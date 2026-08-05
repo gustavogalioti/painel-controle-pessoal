@@ -1,0 +1,13 @@
+{
+  "name": "Painel de Controle Pessoal",
+  "short_name": "Painel",
+  "description": "Painel de Controle Pessoal com Pedro, o assistente IA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "icons": [
+    { "src": "/radioactive-icon.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/radioactive-icon.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

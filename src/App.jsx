@@ -5286,6 +5286,17 @@ function DJPage() {
 // ─── PEDRO — assistente IA do Painel (independente do Pedro do Daily) ───────
 const pedroTodayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 
+// Chave pública VAPID (é seguro expor no client — a privada fica só no servidor)
+const VAPID_PUBLIC_KEY = "BKahJboZrxGOHO9eiJ3Xd0yCllKiltvv14ZnhTsA9aQNRhQb6lLK16SmStsZrwDnAL5bixW1PUSIaT7QPnAY0wM";
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
 function PedroAdminModal({ onClose }) {
   const [tab, setTab] = useState("intents");
   const [intents, setIntents] = useState([]);
@@ -5482,9 +5493,36 @@ function PedroWidget({ page }) {
     try { new Notification("Pedro 🐾", { body: text, icon: "/radioactive-icon.png", tag: "pedro-painel" }); } catch {}
   };
 
-  const requestNotifPerm = () => {
+  const subscribePush = async () => {
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+      }
+      await fetch("/api/pedro?action=push_subscribe", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscription: sub }),
+      });
+    } catch (e) { console.error("Pedro push subscribe:", e); }
+  };
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").then(() => {
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") subscribePush();
+      }).catch(() => {});
+    }
+  }, []);
+
+  const requestNotifPerm = async () => {
     if (typeof Notification === "undefined") return;
-    Notification.requestPermission().then(setNotifPerm);
+    const perm = await Notification.requestPermission();
+    setNotifPerm(perm);
+    if (perm === "granted") subscribePush();
   };
 
   const pushPedro = (text) => {
