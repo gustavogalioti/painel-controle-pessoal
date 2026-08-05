@@ -5270,6 +5270,127 @@ function DJPage() {
   );
 }
 
+// ─── PEDRO — assistente IA do Painel (independente do Pedro do Daily) ───────
+const pedroTodayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+
+function PedroWidget() {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useKV("pedro_chat_v1", []);
+  const [pState, setPState] = useKV("pedro_state_v1", { lastGreetedDate: null, remindedEventIds: [] });
+  const [events] = useKV("events_v1", []);
+  const [input, setInput] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const [unread, setUnread] = useState(false);
+  const scrollRef = useRef(null);
+  const greetedRef = useRef(false);
+  const remindedRef = useRef(new Set(pState.remindedEventIds || []));
+
+  const pushPedro = (text) => {
+    setMessages(prev => [...prev, { from: "pedro", text, at: Date.now() }].slice(-60));
+    setUnread(true);
+  };
+
+  // Saudação diária — primeira vez que abre o painel no dia
+  useEffect(() => {
+    if (greetedRef.current) return;
+    const today = pedroTodayStr();
+    if (pState.lastGreetedDate === today) { greetedRef.current = true; return; }
+    greetedRef.current = true;
+    const t = setTimeout(() => {
+      pushPedro("Bom dia! 🐾 Como você está hoje?");
+      setPState(prev => ({ ...prev, lastGreetedDate: today }));
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [pState.lastGreetedDate]);
+
+  // Lembretes proativos de compromissos próximos (AGENDA)
+  useEffect(() => {
+    const check = () => {
+      const now = new Date();
+      const todayStr = pedroTodayStr();
+      (events || []).forEach(ev => {
+        if (ev.date !== todayStr || !ev.time || remindedRef.current.has(ev.id)) return;
+        const [h, m] = ev.time.split(":").map(Number);
+        const evDate = new Date(); evDate.setHours(h || 0, m || 0, 0, 0);
+        const diffMin = (evDate - now) / 60000;
+        if (diffMin > 0 && diffMin <= 20) {
+          remindedRef.current.add(ev.id);
+          pushPedro(`⏰ Daqui a pouco (${ev.time}) você tem "${ev.title}"${ev.local ? ` em ${ev.local}` : ""}. Já está tudo certo ou precisa de ajuda com algo? 🐾`);
+          setPState(prev => ({ ...prev, remindedEventIds: [...new Set([...(prev.remindedEventIds || []), ev.id])] }));
+        }
+      });
+    };
+    check();
+    const id = setInterval(check, 60000);
+    return () => clearInterval(id);
+  }, [events]);
+
+  useEffect(() => {
+    if (open) {
+      setUnread(false);
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, [open, messages]);
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text) return;
+    setMessages(prev => [...prev, { from: "user", text, at: Date.now() }]);
+    setInput("");
+    setThinking(true);
+    try {
+      const r = await fetch("/api/pedro?action=chat", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text }),
+      });
+      const d = await r.json();
+      pushPedro(d.reply || "🐾");
+    } catch {
+      pushPedro("Escorreguei em algum lugar por aqui... tenta de novo? 😹");
+    }
+    setThinking(false);
+  };
+
+  return createPortal(
+    <>
+      <button onClick={() => setOpen(o => !o)} title="Falar com o Pedro"
+        style={{position:"fixed",right:20,bottom:20,width:56,height:56,borderRadius:"50%",background:"var(--accent)",
+          border:"none",boxShadow:"0 4px 16px rgba(0,0,0,0.35)",cursor:"pointer",zIndex:1200,
+          display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>
+        🐾
+        {unread && !open && <span style={{position:"absolute",top:2,right:2,width:12,height:12,borderRadius:"50%",background:"#ff4d4f",border:"2px solid var(--bg-card)"}}/>}
+      </button>
+      {open && (
+        <div style={{position:"fixed",right:20,bottom:86,width:320,maxWidth:"calc(100vw - 40px)",height:420,
+          maxHeight:"calc(100vh - 140px)",background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,
+          boxShadow:"0 8px 32px rgba(0,0,0,0.4)",zIndex:1200,display:"flex",flexDirection:"column",overflow:"hidden",animation:"fadeIn .2s ease"}}>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+            <span style={{fontWeight:700,fontSize:14}}>🐾 Pedro</span>
+            <button onClick={() => setOpen(false)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.x} size={18}/></button>
+          </div>
+          <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
+            {messages.length === 0 && <div style={{color:"var(--text-3)",fontSize:12,textAlign:"center",marginTop:20}}>Oi! Eu sou o Pedro 🐾 Manda um oi pra começar!</div>}
+            {messages.map((m, i) => (
+              <div key={i} style={{alignSelf: m.from === "pedro" ? "flex-start" : "flex-end",
+                background: m.from === "pedro" ? "var(--bg-sub)" : "var(--accent)",
+                color: m.from === "pedro" ? "var(--text-1)" : "#fff",
+                borderRadius:12,padding:"8px 12px",fontSize:13,maxWidth:"85%",whiteSpace:"pre-wrap"}}>
+                {m.text}
+              </div>
+            ))}
+            {thinking && <div style={{alignSelf:"flex-start",color:"var(--text-3)",fontSize:12}}>Pedro está digitando...</div>}
+          </div>
+          <div style={{padding:10,borderTop:"1px solid var(--border)",display:"flex",gap:8,flexShrink:0}}>
+            <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") send(); }}
+              placeholder="Fala com o Pedro..." style={{...inp, fontSize:13, padding:"8px 12px"}}/>
+            <button onClick={send} style={btn()}><Icon path={I.next} size={16}/></button>
+          </div>
+        </div>
+      )}
+    </>,
+    document.body
+  );
+}
+
 export default function App() {
   const [page, setPageRaw] = useState(()=>{
     try { return localStorage.getItem("current_page") || "home"; } catch { return "home"; }
@@ -5411,6 +5532,8 @@ export default function App() {
         <span style={{fontSize:10,color:"var(--border)",letterSpacing:1}}>PAINEL DE CONTROLE PESSOAL · v3.0</span>
         <span style={{fontSize:10,color:"var(--border)"}}>{new Date().toLocaleDateString("pt-BR")}</span>
       </footer>
+
+      <PedroWidget/>
     </div>
   );
 }
