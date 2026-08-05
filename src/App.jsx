@@ -5490,7 +5490,7 @@ function PedroWidget({ page }) {
   const notifyOS = (text) => {
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
     if (!document.hidden) return; // só notifica fora do app — dentro, o balão do chat já basta
-    try { new Notification("Pedro 🐾", { body: text, icon: "/radioactive-icon.png", tag: "pedro-painel" }); } catch {}
+    try { new Notification("Pedro 🐾", { body: text, icon: "/pedro-avatar.jpg", tag: "pedro-painel" }); } catch {}
   };
 
   const subscribePush = async () => {
@@ -5651,8 +5651,8 @@ function PedroWidget({ page }) {
       <button onClick={() => setOpen(o => !o)} title="Falar com o Pedro"
         style={{position:"fixed",right:20,bottom:20,width:56,height:56,borderRadius:"50%",background:"var(--accent)",
           border:"none",boxShadow:"0 4px 16px rgba(0,0,0,0.35)",cursor:"pointer",zIndex:1200,
-          display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>
-        🐾
+          display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:0}}>
+        <img src="/pedro-avatar.jpg" alt="Pedro" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
         {unread && !open && <span style={{position:"absolute",top:2,right:2,width:12,height:12,borderRadius:"50%",background:"#ff4d4f",border:"2px solid var(--bg-card)"}}/>}
       </button>
       {open && (
@@ -5660,7 +5660,10 @@ function PedroWidget({ page }) {
           maxHeight:"calc(100vh - 140px)",background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,
           boxShadow:"0 8px 32px rgba(0,0,0,0.4)",zIndex:1200,display:"flex",flexDirection:"column",overflow:"hidden",animation:"fadeIn .2s ease"}}>
           <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-            <span style={{fontWeight:700,fontSize:14}}>🐾 Pedro</span>
+            <span style={{fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:8}}>
+              <img src="/pedro-avatar.jpg" alt="Pedro" style={{width:22,height:22,borderRadius:"50%",objectFit:"cover"}}/>
+              Pedro
+            </span>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               {notifPerm === "default" && (
                 <button onClick={requestNotifPerm} title="Ativar notificações do Pedro fora do app" style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",fontSize:15,lineHeight:1}}>🔔</button>

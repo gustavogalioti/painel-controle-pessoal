@@ -8,8 +8,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || "Pedro 🐾", {
       body: data.body || "",
-      icon: "/radioactive-icon.png",
-      badge: "/radioactive-icon.png",
+      icon: "/pedro-avatar.jpg",
+      badge: "/pedro-avatar.jpg",
       tag: data.tag || "pedro-painel",
       renotify: true,
     })
