@@ -5622,6 +5622,7 @@ function PedroWidget({ page }) {
   const send = async () => {
     const text = input.trim();
     if (!text) return;
+    const historyForRequest = messages.slice(-12).map(m => ({ from: m.from, text: m.text }));
     setMessages(prev => [...prev, { from: "user", text, at: Date.now() }]);
     setInput("");
     setThinking(true);
@@ -5630,7 +5631,7 @@ function PedroWidget({ page }) {
       const coords = cachedCoords ? { lat: cachedCoords.lat, lon: cachedCoords.lon } : null;
       const pending = pendingRef.current;
       const r = await fetch("/api/pedro?action=chat", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, coords, pending }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, coords, pending, history: historyForRequest }),
       });
       const d = await r.json();
       pushPedro(d.reply || "🐾");

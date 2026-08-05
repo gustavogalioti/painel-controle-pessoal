@@ -251,6 +251,15 @@ async function cmdDeleteEvent(sql, query) {
   return { reply: `Cancelei "${match.title}" da sua agenda 🗑️📅` };
 }
 
+async function cmdAddEventStructured(sql, { title, date, time, local }) {
+  if (!title || !date) return { reply: `Preciso do título e da data pra criar o compromisso 🐾` };
+  const events = await getKvList(sql, "events_v1");
+  const ev = { id: Date.now(), title, date, time: time || "", local: local || "", cat: "Pessoal", notes: "" };
+  await setKvList(sql, "events_v1", [ev, ...events]);
+  const [, m, d] = date.split("-");
+  return { reply: `Criei o compromisso "${title}" pra ${d}/${m}${time ? ` às ${time}` : ""}${local ? ` (${local})` : ""} 📅🐾` };
+}
+
 async function runCommand(sql, cmd) {
   if (cmd.type === "add_task") return cmdAddTask(sql, cmd.arg);
   if (cmd.type === "complete_task") return cmdCompleteTask(sql, cmd.arg);
@@ -483,6 +492,112 @@ async function loadActiveIntents(sql) {
   }));
 }
 
+// ---------- Groq (LLM real com tool calling) ----------
+const GROQ_MODEL = "openai/gpt-oss-120b";
+
+function brasiliaNow() {
+  const parts = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo", weekday: "long", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+  }).formatToParts(new Date());
+  const get = (t) => parts.find(p => p.type === t)?.value;
+  return { dateStr: `${get("year")}-${get("month")}-${get("day")}`, weekday: get("weekday"), time: `${get("hour")}:${get("minute")}` };
+}
+
+const PEDRO_TOOLS = [
+  { type: "function", function: { name: "get_agenda_today", description: "Lista os compromissos de hoje na AGENDA do usuário.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "get_weather", description: "Consulta o clima atual. Se a cidade não for informada, usa a localização salva do dispositivo do usuário.", parameters: { type: "object", properties: { city: { type: "string", description: "Nome da cidade, opcional" } } } } },
+  { type: "function", function: { name: "get_tasks_pending", description: "Lista as tarefas pendentes (não concluídas) do usuário.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "get_bills_pending", description: "Lista as contas pendentes (não pagas) do usuário, com valores e vencimentos.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "get_resumo_dia", description: "Retorna um resumo do dia do usuário: agenda, tarefas de hoje e contas vencendo.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "get_humor_recente", description: "Analisa o humor do usuário nos últimos 7 dias com base nos registros do Diário.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "get_current_time", description: "Retorna a hora atual em Brasília.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "get_current_date", description: "Retorna a data de hoje.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "add_task", description: "Cria uma nova tarefa pro usuário.", parameters: { type: "object", properties: { title: { type: "string", description: "Texto da tarefa" } }, required: ["title"] } } },
+  { type: "function", function: { name: "complete_task", description: "Marca uma tarefa pendente como concluída, buscando pelo texto aproximado.", parameters: { type: "object", properties: { query: { type: "string", description: "Trecho do texto da tarefa a concluir" } }, required: ["query"] } } },
+  { type: "function", function: { name: "rename_task", description: "Renomeia uma tarefa existente.", parameters: { type: "object", properties: { query: { type: "string" }, new_text: { type: "string" } }, required: ["query", "new_text"] } } },
+  { type: "function", function: { name: "set_task_priority", description: "Altera a prioridade de uma tarefa.", parameters: { type: "object", properties: { query: { type: "string" }, priority: { type: "string", enum: ["alta", "normal", "baixa"] } }, required: ["query", "priority"] } } },
+  { type: "function", function: { name: "delete_task", description: "Apaga uma tarefa existente.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "pay_bill", description: "Marca uma conta pendente como paga, buscando pelo nome aproximado.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "delete_bill", description: "Apaga uma conta existente.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "add_event", description: "Cria um novo compromisso na AGENDA. Calcule a data absoluta em AAAA-MM-DD a partir da data de hoje informada no contexto.", parameters: { type: "object", properties: { title: { type: "string" }, date: { type: "string", description: "Data no formato AAAA-MM-DD" }, time: { type: "string", description: "Horário HH:MM, opcional" }, local: { type: "string", description: "Local do compromisso, opcional" } }, required: ["title", "date"] } } },
+  { type: "function", function: { name: "delete_event", description: "Apaga/cancela um compromisso existente, buscando pelo título aproximado.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+];
+
+async function executeTool(sql, name, args, coords) {
+  try {
+    switch (name) {
+      case "get_agenda_today": return await getAgendaHojeReply(sql);
+      case "get_weather": return await getWeatherReply(args.city || "", coords);
+      case "get_tasks_pending": return await getTasksPendingReply(sql);
+      case "get_bills_pending": return await getBillsPendingReply(sql);
+      case "get_resumo_dia": return await getResumoDiaReply(sql);
+      case "get_humor_recente": return await getHumorRecenteReply(sql);
+      case "get_current_time": return getCurrentTimeReply();
+      case "get_current_date": return getCurrentDateReply();
+      case "add_task": return (await cmdAddTask(sql, args.title)).reply;
+      case "complete_task": return (await cmdCompleteTask(sql, args.query)).reply;
+      case "rename_task": return (await cmdRenameTask(sql, args.query, args.new_text)).reply;
+      case "set_task_priority": return (await cmdSetTaskPrio(sql, args.query, args.priority)).reply;
+      case "delete_task": return (await cmdDeleteTask(sql, args.query)).reply;
+      case "pay_bill": return (await cmdPayBill(sql, args.query)).reply;
+      case "delete_bill": return (await cmdDeleteBill(sql, args.query)).reply;
+      case "add_event": return (await cmdAddEventStructured(sql, args)).reply;
+      case "delete_event": return (await cmdDeleteEvent(sql, args.query)).reply;
+      default: return "Ferramenta desconhecida.";
+    }
+  } catch (e) {
+    return `Deu um erro tentando fazer isso: ${e.message}`;
+  }
+}
+
+async function callGroq(messages, tools) {
+  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
+    body: JSON.stringify({ model: GROQ_MODEL, messages, tools, tool_choice: "auto", temperature: 0.7, max_tokens: 600 }),
+  });
+  if (!r.ok) {
+    const errText = await r.text().catch(() => "");
+    throw new Error(`Groq API ${r.status}: ${errText.slice(0, 200)}`);
+  }
+  return r.json();
+}
+
+async function handleGroqChat(sql, userMessage, history, coords) {
+  const { dateStr, weekday, time } = brasiliaNow();
+  const systemPrompt = `Você é o Pedro, um gato-assistente que vive no Painel de Controle Pessoal do Gustavo, seu tutor. Você é caloroso, brincalhão e leal, com um jeitinho sutil de gato (sem exagerar), e realmente se importa com o dia do Gustavo.
+Hoje é ${weekday}, ${dateStr}, agora são ${time} (horário de Brasília).
+Responda sempre em português do Brasil, em frases curtas (1 a 3 frases, isso aparece num chat de celular). Use no máximo 1-2 emojis por mensagem (prefira 🐾 😻 😹 🧡).
+Você tem ferramentas reais que consultam e MODIFICAM os dados do painel (agenda, tarefas, contas). Use-as sempre que o pedido do usuário exigir dados reais ou uma ação — nunca invente informações que uma ferramenta poderia responder.
+Quando uma ferramenta devolver um texto com fatos (listas, valores, horários, nomes), preserve esses fatos exatamente — não altere números, datas ou nomes, mas pode reescrever a frase ao redor com seu próprio tom.
+Se o pedido não tiver ferramenta correspondente, apenas converse normalmente, de forma natural e breve.`;
+
+  const messages = [
+    { role: "system", content: systemPrompt },
+    ...history.slice(-12).map(m => ({ role: m.from === "pedro" ? "assistant" : "user", content: m.text })),
+    { role: "user", content: userMessage },
+  ];
+
+  let data = await callGroq(messages, PEDRO_TOOLS);
+  let choice = data.choices[0];
+  let loops = 0;
+
+  while (choice.message.tool_calls?.length && loops < 4) {
+    messages.push(choice.message);
+    for (const call of choice.message.tool_calls) {
+      let args = {};
+      try { args = JSON.parse(call.function.arguments || "{}"); } catch {}
+      const result = await executeTool(sql, call.function.name, args, coords);
+      messages.push({ role: "tool", tool_call_id: call.id, content: result });
+    }
+    data = await callGroq(messages, PEDRO_TOOLS);
+    choice = data.choices[0];
+    loops++;
+  }
+
+  return choice.message.content?.trim() || "🐾";
+}
+
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
@@ -510,9 +625,20 @@ export default async function handler(req) {
     }
 
     if (action === "chat" && req.method === "POST") {
-      const { message, coords, pending } = await req.json();
+      const { message, coords, pending, history } = await req.json();
       if (!message || !message.trim()) {
         return new Response(JSON.stringify({ error: "Mensagem vazia" }), { status: 400, headers: CORS });
+      }
+
+      // Groq (LLM real) é o caminho principal quando a chave está configurada
+      if (process.env.GROQ_API_KEY) {
+        try {
+          const reply = await handleGroqChat(sql, message.trim(), history || [], coords);
+          return new Response(JSON.stringify({ reply, engine: "groq" }), { headers: CORS });
+        } catch (e) {
+          console.error("Groq falhou, caindo pro sistema de keywords:", e.message);
+          // segue pro fallback abaixo em vez de quebrar a conversa
+        }
       }
 
       // Um novo comando explícito sempre tem prioridade sobre uma clarificação pendente
