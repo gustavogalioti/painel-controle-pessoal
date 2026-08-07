@@ -2518,70 +2518,283 @@ function DocsPage() {
 }
 
 // ─── BILLS PAGE ───────────────────────────────────────────────────────────────
-function BillsPage() {
-  const [bills, setBills, synced] = useKV("bills_v1",[]);
-  const [modal, setModal] = useState(false);
-  const [form, setForm]   = useState({name:"",value:"",dueDay:"",cat:"Fixo",recurrent:true});
-  const cats = ["Fixo","Variável","Cartão","Imposto","Assinatura"];
+// ─── FINANCE PAGE (Contas → Finanças) ──────────────────────────────────────────
+const FIN_CATS = ["Moradia","Transporte","Saúde","Lazer","Mercado","Educação","Assinatura","Salário","Investimento","Outro"];
+const FIN_TYPES = {
+  fixed:        { label:"Fixas",       tabLabel:"Fixas",       emoji:"🏠", singular:"Conta fixa",        color:"var(--tile-bills)" },
+  variable:     { label:"Gastos",      tabLabel:"Gastos",      emoji:"🛒", singular:"Gasto",             color:"var(--red)" },
+  card:         { label:"Cartões",     tabLabel:"Cartões",     emoji:"💳", singular:"Compra no cartão",  color:"var(--purple)" },
+  subscription: { label:"Assinaturas", tabLabel:"Assinaturas", emoji:"🔁", singular:"Assinatura",        color:"var(--accent)" },
+  income:       { label:"Receitas",    tabLabel:"Receitas",    emoji:"💰", singular:"Receita",           color:"var(--green)" },
+};
+const RECURRENT_TYPES = ["fixed","subscription","income"];
+const finToday   = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+const curMonth   = () => finToday().slice(0,7);
+const finPaid    = (e) => e.recurrent ? (e.paidMonths||[]).includes(curMonth()) : !!e.paid;
+const finOverdue = (e) => {
+  if (finPaid(e)) return false;
+  if (e.recurrent) return !!e.dueDay && +e.dueDay < new Date().getDate();
+  return !!e.date && e.date < finToday();
+};
+const finMonthValue = (e) => {
+  if (e.recurrent) return Number(e.value)||0;
+  return e.date && e.date.slice(0,7)===curMonth() ? (Number(e.value)||0) : 0;
+};
+const fmtDatePt = (d) => d ? d.split("-").reverse().join("/") : "";
 
-  const add = ()=>{
-    if(!form.name.trim()||!form.dueDay) return;
-    const b={id:Date.now(),...form,value:parseFloat(form.value)||0,paid:false};
-    const n=[...bills,b]; setBills(n); DB.insert("bills",{...b,due_day:b.dueDay});
-    setModal(false); setForm({name:"",value:"",dueDay:"",cat:"Fixo",recurrent:true});
+function emptyFinForm(type="fixed") {
+  return { type, name:"", value:"", category:FIN_CATS[0], recurrent:RECURRENT_TYPES.includes(type), dueDay:"", date:finToday(), cardId:"" };
+}
+
+function FinancePage() {
+  const [finance, setFinance]         = useKV("finance_v1", []);
+  const [cards, setCards]             = useKV("cards_v1", []);
+  const [oldBills, , oldBillsSynced]  = useKV("bills_v1", []);
+  const [migrated, setMigrated]       = useKV("finance_migrated_v1", false);
+  const financeSynced = true; // useKV already gates internal render; migration guarded below by oldBillsSynced
+
+  const [tab, setTab]         = useState("geral");
+  const [modal, setModal]     = useState(false);
+  const [cardModal, setCardModal] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm]       = useState(emptyFinForm("fixed"));
+  const [cardForm, setCardForm] = useState({name:"",limit:"",closingDay:"",dueDay:""});
+
+  // Migração única: bills_v1 (modelo antigo) → finance_v1 (modelo novo)
+  useEffect(() => {
+    if (migrated || !oldBillsSynced) return;
+    if ((finance||[]).length > 0) { setMigrated(true); return; }
+    if (!oldBills || oldBills.length === 0) { setMigrated(true); return; }
+    const month = curMonth();
+    const converted = oldBills.map(b => {
+      const recurrent = b.recurrent !== false;
+      return {
+        id: b.id, type: "fixed", name: b.name, value: Number(b.value)||0,
+        category: b.cat || "Outro", recurrent,
+        dueDay: recurrent ? (b.dueDay||null) : null,
+        date: recurrent ? null : finToday(),
+        paidMonths: recurrent && b.paid ? [month] : [],
+        paid: recurrent ? false : !!b.paid,
+        cardId: null, createdAt: b.id,
+      };
+    });
+    setFinance(converted);
+    setMigrated(true);
+  }, [migrated, oldBillsSynced, oldBills]);
+
+  const list = finance || [];
+
+  const togglePaid = (id) => {
+    const entry = list.find(e=>e.id===id);
+    if (!entry) return;
+    const wasPaid = finPaid(entry);
+    setFinance(prev => prev.map(e=>{
+      if (e.id!==id) return e;
+      if (e.recurrent) {
+        const m = curMonth();
+        const has = (e.paidMonths||[]).includes(m);
+        return { ...e, paidMonths: has ? (e.paidMonths||[]).filter(x=>x!==m) : [...(e.paidMonths||[]), m] };
+      }
+      return { ...e, paid: !e.paid };
+    }));
+    if (!wasPaid) pedroNotify("bill_paid", { name: entry.name });
   };
-  const toggle = id=>{
-    const b=bills.find(b=>b.id===id);
-    const n=bills.map(b=>b.id===id?{...b,paid:!b.paid}:b); setBills(n); DB.update("bills",{id,paid:!b.paid});
-    if (!b.paid) pedroNotify("bill_paid", { name: b.name });
+
+  const del = (id) => setFinance(prev => prev.filter(e=>e.id!==id));
+
+  const openAdd = (type) => { setEditing(null); setForm(emptyFinForm(type)); setModal(true); };
+  const openEdit = (e) => {
+    setEditing(e);
+    setForm({
+      type:e.type, name:e.name, value:String(e.value), category:e.category||FIN_CATS[0],
+      recurrent:!!e.recurrent, dueDay:e.dueDay?String(e.dueDay):"", date:e.date||finToday(), cardId:e.cardId||"",
+    });
+    setModal(true);
   };
-  const del = id=>{ setBills(p=>p.filter(b=>b.id!==id)); };
-  const day = new Date().getDate();
-  const upcoming = bills.filter(b=>!b.paid&&+b.dueDay>=day&&+b.dueDay<=day+5);
-  const total    = bills.filter(b=>!b.paid).reduce((s,b)=>s+b.value,0);
+  const closeModal = () => { setModal(false); setEditing(null); };
+
+  const saveEntry = () => {
+    if (!form.name.trim() || !form.value) return;
+    const recurrent = RECURRENT_TYPES.includes(form.type) ? form.recurrent : false;
+    const base = {
+      type: form.type, name: form.name.trim(), value: parseFloat(form.value)||0,
+      category: form.category, recurrent,
+      dueDay: recurrent ? (form.dueDay?parseInt(form.dueDay):null) : null,
+      date: recurrent ? null : (form.date||finToday()),
+      cardId: form.type==="card" ? (form.cardId||null) : null,
+    };
+    if (editing) {
+      setFinance(prev => prev.map(e=>e.id===editing.id ? {
+        ...e, ...base,
+        paidMonths: recurrent ? (editing.paidMonths||[]) : undefined,
+        paid: !recurrent ? !!editing.paid : undefined,
+      } : e));
+    } else {
+      setFinance(prev => [...prev, { id:Date.now(), ...base, paidMonths:[], paid:false, createdAt:Date.now() }]);
+      pedroNotify("finance_added", { name: base.name });
+    }
+    closeModal();
+  };
+
+  const saveCard = () => {
+    if (!cardForm.name.trim()) return;
+    setCards(prev => [...prev, { id:Date.now(), name:cardForm.name.trim(), limit:parseFloat(cardForm.limit)||0, closingDay:cardForm.closingDay?parseInt(cardForm.closingDay):null, dueDay:cardForm.dueDay?parseInt(cardForm.dueDay):null }]);
+    setCardForm({name:"",limit:"",closingDay:"",dueDay:""});
+    setCardModal(false);
+  };
+  const delCard = (id) => { setCards(prev=>prev.filter(c=>c.id!==id)); setFinance(prev=>prev.filter(e=>e.cardId!==id)); };
+
+  // ── Dashboard (Visão Geral) ──
+  const forType = (t) => list.filter(e=>e.type===t).reduce((s,e)=>s+finMonthValue(e),0);
+  const receitas = forType("income");
+  const despFixas = forType("fixed"), despAssin = forType("subscription"), despVar = forType("variable"), despCard = forType("card");
+  const despesaTotal = despFixas+despAssin+despVar+despCard;
+  const saldo = receitas-despesaTotal;
+  const pendentes = list.filter(e=>RECURRENT_TYPES.includes(e.type) && !finPaid(e)).sort((a,b)=>(+a.dueDay||99)-(+b.dueDay||99));
+  const vencidas = pendentes.filter(finOverdue);
+
+  const TABS = [
+    {id:"geral", label:"Visão Geral", emoji:"📊"},
+    ...Object.entries(FIN_TYPES).map(([id,t])=>({id, label:t.tabLabel, emoji:t.emoji})),
+  ];
+
+  const summaryCard = (label, value, color) => (
+    <div style={{flex:1,minWidth:120,background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px"}}>
+      <div style={{fontSize:11,color:"var(--text-3)",marginBottom:4}}>{label}</div>
+      <div style={{fontSize:18,fontWeight:700,color,fontFamily:"'DM Mono',monospace"}}>{fmtMoney(value)}</div>
+    </div>
+  );
+
+  const EntryRow = ({e}) => {
+    const paid = finPaid(e), overdue = finOverdue(e);
+    const card = e.cardId ? cards.find(c=>c.id===e.cardId) : null;
+    return (
+      <div style={{background:"var(--bg-card)",border:`1px solid ${overdue?"var(--red)":paid?"var(--border-2)":"var(--border)"}`,borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",gap:14,opacity:paid?0.55:1,marginBottom:10}}>
+        {RECURRENT_TYPES.includes(e.type) && (
+          <button onClick={()=>togglePaid(e.id)} style={{width:22,height:22,borderRadius:6,border:`2px solid ${paid?"var(--green)":"var(--border)"}`,background:paid?"var(--green)":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            {paid && <Icon path={I.check} size={12} color="#fff"/>}
+          </button>
+        )}
+        <div style={{flex:1}}>
+          <div style={{fontWeight:600,fontSize:14,textDecoration:paid?"line-through":"none"}}>{e.name}</div>
+          <div style={{fontSize:11,color:overdue?"var(--red)":"var(--text-3)"}}>
+            {e.category}{e.recurrent?` · Dia ${e.dueDay||"?"} · Recorrente`:` · ${fmtDatePt(e.date)}`}{card?` · ${card.name}`:""}{overdue?" · Atrasada":""}
+          </div>
+        </div>
+        <div style={{fontWeight:700,color:paid?"var(--green)":"var(--text-1)",fontSize:15,fontFamily:"'DM Mono',monospace"}}>{fmtMoney(e.value)}</div>
+        <button onClick={()=>openEdit(e)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.edit} size={14}/></button>
+        <button onClick={()=>del(e.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
+      </div>
+    );
+  };
 
   return (
     <div>
-      {upcoming.length>0&&(
-        <div style={{background:"rgba(240,192,64,0.07)",border:"1px solid rgba(240,192,64,0.25)",borderRadius:14,padding:16,marginBottom:20}}>
-          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,color:"var(--yellow)",fontWeight:700,fontSize:13}}>
-            <Icon path={I.bell} size={16} color="var(--yellow)"/> Vencem em breve ({upcoming.length})
-          </div>
-          {upcoming.map(b=><div key={b.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"4px 0"}}><span>{b.name}</span><span style={{color:"var(--yellow)"}}>Dia {b.dueDay} · {fmtMoney(b.value)}</span></div>)}
-        </div>
-      )}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-        <div style={{color:"var(--text-3)",fontSize:13}}>Total pendente: <span style={{color:"var(--red)",fontWeight:700}}>{fmtMoney(total)}</span></div>
-        <button onClick={()=>setModal(true)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Nova Conta</button>
-      </div>
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {bills.map(b=>(
-          <div key={b.id} style={{background:"var(--bg-card)",border:`1px solid ${b.paid?"var(--border-2)":"var(--border)"}`,borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",gap:14,opacity:b.paid?0.5:1}}>
-            <button onClick={()=>toggle(b.id)} style={{width:22,height:22,borderRadius:6,border:`2px solid ${b.paid?"var(--green)":"var(--border)"}`,background:b.paid?"var(--green)":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-              {b.paid&&<Icon path={I.check} size={12} color="#fff"/>}
-            </button>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:600,fontSize:14,textDecoration:b.paid?"line-through":"none"}}>{b.name}</div>
-              <div style={{fontSize:11,color:"var(--text-3)"}}>{b.cat} · Vence dia {b.dueDay}{b.recurrent?" · Recorrente":""}</div>
-            </div>
-            <div style={{fontWeight:700,color:b.paid?"var(--green)":"var(--text-1)",fontSize:15,fontFamily:"'DM Mono',monospace"}}>{fmtMoney(b.value)}</div>
-            <button onClick={()=>del(b.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
-          </div>
+      <div style={{display:"flex",gap:8,overflowX:"auto",marginBottom:20,paddingBottom:4}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{flexShrink:0,background:tab===t.id?"var(--accent)":"var(--bg-card)",border:`1px solid ${tab===t.id?"var(--accent)":"var(--border)"}`,borderRadius:10,padding:"8px 14px",color:tab===t.id?"#fff":"var(--text-2)",fontSize:13,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+            {t.emoji} {t.label}
+          </button>
         ))}
       </div>
-      {bills.length===0&&<Empty text="Nenhuma conta cadastrada."/>}
-      {modal&&(
-        <Modal title="Nova Conta" onClose={()=>setModal(false)}>
+
+      {tab==="geral" && (
+        <div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:20}}>
+            {summaryCard("Receitas do mês", receitas, "var(--green)")}
+            {summaryCard("Despesas do mês", despesaTotal, "var(--red)")}
+            {summaryCard("Saldo do mês", saldo, saldo>=0?"var(--green)":"var(--red)")}
+          </div>
+          {vencidas.length>0 && (
+            <div style={{background:"rgba(240,64,64,0.07)",border:"1px solid rgba(240,64,64,0.25)",borderRadius:14,padding:16,marginBottom:16}}>
+              <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,color:"var(--red)",fontWeight:700,fontSize:13}}>
+                <Icon path={I.bell} size={16} color="var(--red)"/> Atrasadas ({vencidas.length})
+              </div>
+              {vencidas.map(e=><EntryRow key={e.id} e={e}/>)}
+            </div>
+          )}
+          <div style={{color:"var(--text-3)",fontSize:13,fontWeight:700,marginBottom:10}}>Pendentes do mês</div>
+          {pendentes.filter(e=>!finOverdue(e)).map(e=><EntryRow key={e.id} e={e}/>)}
+          {pendentes.length===0 && <Empty text="Nada pendente por aqui. 🎉"/>}
+        </div>
+      )}
+
+      {tab!=="geral" && tab!=="card" && (
+        <div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
+            <button onClick={()=>openAdd(tab)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> {FIN_TYPES[tab].singular}</button>
+          </div>
+          {list.filter(e=>e.type===tab).map(e=><EntryRow key={e.id} e={e}/>)}
+          {list.filter(e=>e.type===tab).length===0 && <Empty text="Nada por aqui ainda."/>}
+        </div>
+      )}
+
+      {tab==="card" && (
+        <div>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginBottom:16}}>
+            <button onClick={()=>setCardModal(true)} style={{...btn("var(--bg-card)"),color:"var(--text-2)",border:"1px solid var(--border)",display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Cartão</button>
+            <button onClick={()=>openAdd("card")} style={{...btn(),display:"flex",alignItems:"center",gap:6}} disabled={cards.length===0}><Icon path={I.plus} size={14}/> Compra</button>
+          </div>
+          {cards.length===0 && <Empty text="Cadastre um cartão pra começar a lançar compras."/>}
+          {cards.map(c=>{
+            const purchases = list.filter(e=>e.type==="card" && e.cardId===c.id);
+            const total = purchases.reduce((s,e)=>s+finMonthValue(e),0);
+            return (
+              <div key={c.id} style={{marginBottom:20}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{fontWeight:700,fontSize:14}}>{c.name}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:13,color:"var(--text-3)"}}>Mês: <b style={{color:"var(--text-1)"}}>{fmtMoney(total)}</b></span>
+                    <button onClick={()=>delCard(c.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
+                  </div>
+                </div>
+                {purchases.map(e=><EntryRow key={e.id} e={e}/>)}
+                {purchases.length===0 && <div style={{fontSize:12,color:"var(--text-3)",marginBottom:10}}>Nenhuma compra lançada.</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {modal && (
+        <Modal title={editing?`Editar ${FIN_TYPES[form.type].singular}`:`Novo(a) ${FIN_TYPES[form.type].singular}`} onClose={closeModal}>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            <input style={inp} placeholder="Nome da conta" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+            <select style={inp} value={form.type} onChange={e=>setForm({...emptyFinForm(e.target.value), name:form.name, value:form.value})}>
+              {Object.entries(FIN_TYPES).map(([id,t])=><option key={id} value={id}>{t.emoji} {t.singular}</option>)}
+            </select>
+            <input style={inp} placeholder="Nome" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
             <input style={inp} type="number" placeholder="Valor (R$)" value={form.value} onChange={e=>setForm({...form,value:e.target.value})}/>
-            <input style={inp} type="number" min="1" max="31" placeholder="Dia do vencimento" value={form.dueDay} onChange={e=>setForm({...form,dueDay:e.target.value})}/>
-            <select style={inp} value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})}>{cats.map(c=><option key={c}>{c}</option>)}</select>
-            <label style={{display:"flex",gap:10,alignItems:"center",color:"var(--text-2)",fontSize:14,cursor:"pointer"}}>
-              <input type="checkbox" checked={form.recurrent} onChange={e=>setForm({...form,recurrent:e.target.checked})}/>
-              Conta recorrente (mensal)
-            </label>
-            <button onClick={add} style={btn()}>Salvar</button>
+            <select style={inp} value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>{FIN_CATS.map(c=><option key={c}>{c}</option>)}</select>
+            {form.type==="card" && (
+              <select style={inp} value={form.cardId} onChange={e=>setForm({...form,cardId:e.target.value})}>
+                <option value="">Selecione o cartão</option>
+                {cards.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            )}
+            {RECURRENT_TYPES.includes(form.type) && (
+              <label style={{display:"flex",gap:10,alignItems:"center",color:"var(--text-2)",fontSize:14,cursor:"pointer"}}>
+                <input type="checkbox" checked={form.recurrent} onChange={e=>setForm({...form,recurrent:e.target.checked})}/>
+                Recorrente (todo mês)
+              </label>
+            )}
+            {form.recurrent ? (
+              <input style={inp} type="number" min="1" max="31" placeholder="Dia do vencimento" value={form.dueDay} onChange={e=>setForm({...form,dueDay:e.target.value})}/>
+            ) : (
+              <input style={inp} type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>
+            )}
+            <button onClick={saveEntry} style={btn()}>Salvar</button>
+          </div>
+        </Modal>
+      )}
+
+      {cardModal && (
+        <Modal title="Novo Cartão" onClose={()=>setCardModal(false)}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <input style={inp} placeholder="Nome do cartão" value={cardForm.name} onChange={e=>setCardForm({...cardForm,name:e.target.value})}/>
+            <input style={inp} type="number" placeholder="Limite (R$, opcional)" value={cardForm.limit} onChange={e=>setCardForm({...cardForm,limit:e.target.value})}/>
+            <input style={inp} type="number" min="1" max="31" placeholder="Dia de fechamento (opcional)" value={cardForm.closingDay} onChange={e=>setCardForm({...cardForm,closingDay:e.target.value})}/>
+            <input style={inp} type="number" min="1" max="31" placeholder="Dia de vencimento (opcional)" value={cardForm.dueDay} onChange={e=>setCardForm({...cardForm,dueDay:e.target.value})}/>
+            <button onClick={saveCard} style={btn()}>Salvar</button>
           </div>
         </Modal>
       )}
@@ -3889,7 +4102,7 @@ const TILE_DEFS = [
   { id:"tasks",     color:"var(--tile-tasks)",  icon:"checkSq",  label:"Tarefas",               sub:"Cards editáveis" },
   { id:"docs",      color:"var(--tile-docs)",   icon:"folder",   label:"Documentos",            sub:"Arquivos e anexos" },
   { id:"rascunhos", color:"#0a3a3a",            icon:"image",    label:"Rascunho & Imagens",    sub:"Cards com tags e imagens" },
-  { id:"bills",     color:"var(--tile-bills)",  icon:"card",     label:"Contas",                sub:"Vencimentos e pagamentos" },
+  { id:"bills",     color:"var(--tile-bills)",  icon:"card",     label:"Finanças",              sub:"Receitas, gastos, cartões e assinaturas" },
   { id:"events",    color:"var(--tile-events)", icon:"calendar", label:"Agenda",                sub:"Calendário e compromissos" },
   { id:"lists",     color:"var(--tile-lists)",  icon:"list",     label:"Listas",                sub:"Checklists e anotações" },
   { id:"weather",   color:"var(--tile-weather)",icon:null,       label:"Clima",                 sub:"" },
@@ -4586,7 +4799,7 @@ const PAGE_META = {
   tasks:      {label:"Tarefas",             emoji:"✅"},
   docs:       {label:"Documentos",          emoji:"📁"},
   rascunhos:  {label:"Rascunho & Imagens",  emoji:"🖼"},
-  bills:      {label:"Contas",              emoji:"💳"},
+  bills:      {label:"Finanças",            emoji:"💰"},
   events:     {label:"Agenda",              emoji:"📅"},
   lists:      {label:"Listas",              emoji:"📋"},
   weather:    {label:"Clima",               emoji:"🌤"},
@@ -5465,6 +5678,7 @@ const PEDRO_REACTIONS = {
   task_done: ["Boa! Mais uma riscada da lista 🐾✅", "Aeee, aquele gostinho de tarefa concluída! 😻", "Confirmado com a patinha! 🐾", "Manda mais! Tô contando aqui 🐱"],
   all_today_done: ["UAU! Terminou tudo que era de hoje! Isso merece um agrado 🏆🐾", "Zerou a lista de hoje! Sensacional 😻", "Hoje foi produtivo demais! Orgulho de gato 🐾🎉"],
   bill_paid: ["Conta paga é conta que não pesa mais 💰🐾", "Boa! Uma a menos na lista 🐱", "Certifiquei aqui com a patinha ✅💰"],
+  finance_added: ["Anotado nas finanças! 💰🐾", "Registrei aqui pra você 🐱💳", "Beleza, já tá contabilizado 🧡"],
   event_created: ["Compromisso anotado! Vou ficar de olho pra te lembrar 📅🐾", "Show, já tô de olho nesse compromisso! 🐱", "Marcado! Conte comigo pra te lembrar na hora certa 🐾"],
 };
 
@@ -5474,7 +5688,7 @@ function PedroWidget({ page }) {
   const [pState, setPState] = useKV("pedro_state_v1", { lastGreetedDate: null, remindedEventIds: [], lastEveningCheckDate: null, lastBillsOverdueCheckDate: null, notifPermAsked: false });
   const [events] = useKV("events_v1", []);
   const [tasks] = useKV("tasks_v1", []);
-  const [bills] = useKV("bills_v1", []);
+  const [finance] = useKV("finance_v1", []);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [unread, setUnread] = useState(false);
@@ -5585,13 +5799,12 @@ function PedroWidget({ page }) {
     return () => clearInterval(id);
   }, [tasks, pState.lastEveningCheckDate]);
 
-  // Comentário contextual — ao abrir a página de Contas, se houver conta vencida, avisa (1x por dia)
+  // Comentário contextual — ao abrir a página de Finanças, se houver conta vencida, avisa (1x por dia)
   useEffect(() => {
     if (page !== "bills" || billsCheckedRef.current) return;
     const today = pedroTodayStr();
     if (pState.lastBillsOverdueCheckDate === today) { billsCheckedRef.current = true; return; }
-    const dia = new Date().getDate();
-    const vencidas = (bills || []).filter(b => !b.paid && +b.dueDay < dia);
+    const vencidas = (finance || []).filter(e => ["fixed","subscription","income"].includes(e.type) && !finPaid(e) && finOverdue(e));
     if (!vencidas.length) return;
     billsCheckedRef.current = true;
     const t = setTimeout(() => {
@@ -5599,7 +5812,7 @@ function PedroWidget({ page }) {
       setPState(prev => ({ ...prev, lastBillsOverdueCheckDate: today }));
     }, 1500);
     return () => clearTimeout(t);
-  }, [page, bills, pState.lastBillsOverdueCheckDate]);
+  }, [page, finance, pState.lastBillsOverdueCheckDate]);
 
   // Reage em tempo real a ações feitas nas páginas (tarefa concluída, conta paga, compromisso criado...)
   useEffect(() => {
@@ -5760,7 +5973,7 @@ export default function App() {
       case "tasks":      return <TasksPage/>;
       case "docs":       return <DocsPage/>;
       case "rascunhos":  return <RascunhosPage/>;
-      case "bills":      return <BillsPage/>;
+      case "bills":      return <FinancePage/>;
       case "events":     return <AgendaPage/>;
       case "lists":      return <ListsPage/>;
       case "weather":    return <WeatherPage/>;

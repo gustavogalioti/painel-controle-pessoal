@@ -211,23 +211,59 @@ async function cmdDeleteTask(sql, query) {
   return { reply: `Apaguei a tarefa "${match.text}" 🗑️🐾` };
 }
 
+// ---------- Finanças (finance_v1) — receitas, contas fixas, gastos, cartões, assinaturas ----------
+const FIN_RECURRENT_TYPES = ["fixed", "subscription", "income"];
+const FIN_TYPE_LABEL = { fixed: "conta fixa", subscription: "assinatura", income: "receita", variable: "gasto", card: "compra no cartão" };
+
+function finCurMonth() { return todayISO().slice(0, 7); }
+function finIsPaid(e) { return e.recurrent ? (e.paidMonths || []).includes(finCurMonth()) : !!e.paid; }
+
 async function cmdPayBill(sql, query) {
-  const bills = await getKvList(sql, "bills_v1");
+  const list = await getKvList(sql, "finance_v1");
   const nq = normalize(query);
-  const match = bills.find(b => normalize(b.name).includes(nq) && !b.paid);
+  const match = list.find(e => FIN_RECURRENT_TYPES.includes(e.type) && normalize(e.name).includes(nq) && !finIsPaid(e));
   if (!match) return { reply: `Não achei nenhuma conta pendente parecida com "${query}" 🐾 confere o nome?`, needsClarification: "pay_bill" };
-  const updated = bills.map(b => b.id === match.id ? { ...b, paid: true } : b);
-  await setKvList(sql, "bills_v1", updated);
+  const month = finCurMonth();
+  const updated = list.map(e => {
+    if (e.id !== match.id) return e;
+    return e.recurrent ? { ...e, paidMonths: [...(e.paidMonths || []), month] } : { ...e, paid: true };
+  });
+  await setKvList(sql, "finance_v1", updated);
   return { reply: `Marquei "${match.name}" como paga! 💰🐾` };
 }
 
 async function cmdDeleteBill(sql, query) {
-  const bills = await getKvList(sql, "bills_v1");
+  const list = await getKvList(sql, "finance_v1");
   const nq = normalize(query);
-  const match = bills.find(b => normalize(b.name).includes(nq));
-  if (!match) return { reply: `Não achei nenhuma conta parecida com "${query}" 🐾 confere o nome?`, needsClarification: "delete_bill" };
-  await setKvList(sql, "bills_v1", bills.filter(b => b.id !== match.id));
-  return { reply: `Apaguei a conta "${match.name}" 🗑️🐾` };
+  const match = list.find(e => normalize(e.name).includes(nq));
+  if (!match) return { reply: `Não achei nada nas finanças parecido com "${query}" 🐾 confere o nome?`, needsClarification: "delete_bill" };
+  await setKvList(sql, "finance_v1", list.filter(e => e.id !== match.id));
+  return { reply: `Apaguei "${match.name}" das finanças 🗑️🐾` };
+}
+
+async function cmdAddFinanceEntry(sql, { type, name, value, category, recurrent, dueDay }) {
+  if (!type || !FIN_TYPE_LABEL[type]) type = "variable";
+  if (!name || !value) return { reply: `Preciso do nome e do valor pra lançar isso nas finanças 🐾` };
+  const isRecurrent = FIN_RECURRENT_TYPES.includes(type) && recurrent !== false;
+  const list = await getKvList(sql, "finance_v1");
+  const entry = {
+    id: Date.now(), type, name, value: Number(value) || 0, category: category || "Outro",
+    recurrent: isRecurrent,
+    dueDay: isRecurrent ? (dueDay ? parseInt(dueDay) : null) : null,
+    date: isRecurrent ? null : todayISO(),
+    paidMonths: [], paid: false, cardId: null, createdAt: Date.now(),
+  };
+  await setKvList(sql, "finance_v1", [...list, entry]);
+  const valFmt = entry.value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return { reply: `Lancei "${name}" (${FIN_TYPE_LABEL[type]}) de ${valFmt}${isRecurrent && entry.dueDay ? ` pro dia ${entry.dueDay} de todo mês` : ""} 💰🐾` };
+}
+
+async function cmdAddExpense(sql, name, value, category) {
+  return cmdAddFinanceEntry(sql, { type: "variable", name, value, category, recurrent: false });
+}
+
+async function cmdAddIncome(sql, name, value) {
+  return cmdAddFinanceEntry(sql, { type: "income", name, value, recurrent: false });
 }
 
 async function cmdAddEvent(sql, rawText) {
@@ -330,13 +366,13 @@ async function getTasksPendingReply(sql) {
 
 async function getBillsPendingReply(sql) {
   try {
-    const bills = await getKvList(sql, "bills_v1");
-    const pending = bills.filter(b => !b.paid);
+    const list = await getKvList(sql, "finance_v1");
+    const pending = list.filter(e => FIN_RECURRENT_TYPES.includes(e.type) && !finIsPaid(e));
     if (!pending.length) return "Nenhuma conta pendente! Tudo pago 🐾💰";
-    const total = pending.reduce((s, b) => s + Number(b.value || 0), 0);
+    const total = pending.reduce((s, e) => s + Number(e.value || 0), 0);
     const totalFmt = total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
     const sorted = [...pending].sort((a, b) => (+a.dueDay || 99) - (+b.dueDay || 99));
-    const lista = sorted.slice(0, 5).map(b => `• ${b.name} — ${Number(b.value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}${b.dueDay ? ` (dia ${b.dueDay})` : ""}`).join("\n");
+    const lista = sorted.slice(0, 5).map(e => `• ${e.name} — ${Number(e.value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}${e.dueDay ? ` (dia ${e.dueDay})` : ""}`).join("\n");
     const extra = pending.length > 5 ? `\n...e mais ${pending.length - 5} 🐾` : "";
     return `Você tem ${pending.length} conta(s) pendente(s), totalizando ${totalFmt}:\n${lista}${extra}`;
   } catch (e) {
@@ -344,17 +380,33 @@ async function getBillsPendingReply(sql) {
   }
 }
 
+async function getFinanceSummaryReply(sql) {
+  try {
+    const list = await getKvList(sql, "finance_v1");
+    const month = finCurMonth();
+    const monthVal = (e) => e.recurrent ? Number(e.value) || 0 : ((e.date || "").slice(0, 7) === month ? Number(e.value) || 0 : 0);
+    const sum = (type) => list.filter(e => e.type === type).reduce((s, e) => s + monthVal(e), 0);
+    const receitas = sum("income");
+    const despesas = sum("fixed") + sum("subscription") + sum("variable") + sum("card");
+    const saldo = receitas - despesas;
+    const fmt = (v) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    return `Resumo financeiro do mês 💰\nReceitas: ${fmt(receitas)}\nDespesas: ${fmt(despesas)}\nSaldo: ${fmt(saldo)}`;
+  } catch (e) {
+    return "Fui somar suas finanças mas a calculadora escorregou da pata 😹 tenta de novo?";
+  }
+}
+
 async function getResumoDiaReply(sql) {
   try {
     const todayStr = todayISO();
-    const [events, tasks, bills] = await Promise.all([
-      getKvList(sql, "events_v1"), getKvList(sql, "tasks_v1"), getKvList(sql, "bills_v1"),
+    const [events, tasks, finance] = await Promise.all([
+      getKvList(sql, "events_v1"), getKvList(sql, "tasks_v1"), getKvList(sql, "finance_v1"),
     ]);
     const hojeEventos = events.filter(e => e.date === todayStr).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
     const pendTasks = tasks.filter(t => (t.status || (t.done ? "done" : "todo")) !== "done");
     const hojeTasks = pendTasks.filter(t => t.status === "today");
     const dia = new Date().getDate();
-    const contasVencendo = bills.filter(b => !b.paid && +b.dueDay >= dia && +b.dueDay <= dia + 5);
+    const contasVencendo = finance.filter(e => FIN_RECURRENT_TYPES.includes(e.type) && !finIsPaid(e) && +e.dueDay >= dia && +e.dueDay <= dia + 5);
 
     const partes = [];
     partes.push(hojeEventos.length
@@ -432,7 +484,7 @@ async function ensureSeed(sql) {
     { name: "humor_recente", category: "Humor", is_external: 1, external_type: "mood_recent",
       keywords: ["como fui essa semana", "meu humor recente", "como andei", "como tenho estado", "como venho estando", "meu humor"] },
     { name: "ajuda", category: "Ajuda", keywords: ["o que voce sabe fazer", "o que você sabe fazer", "me ajuda", "ajuda", "comandos", "o que voce faz"],
-      responses: ["Consigo bem mais que bater papo! 🐾 Posso contar sua agenda, tarefas e contas pendentes, resumo do dia, humor recente do Diário e o clima. E também AGIR: \"cria tarefa: X\", \"concluí a tarefa X\", \"muda a tarefa X para Y\", \"apaga a tarefa X\", \"paguei a conta X\", \"cria compromisso X amanhã às 15h\", \"apaga o compromisso X\". Manda ver! 🐱"] },
+      responses: ["Consigo bem mais que bater papo! 🐾 Posso contar sua agenda, tarefas e contas pendentes, resumo financeiro, resumo do dia, humor recente do Diário e o clima. E também AGIR: \"cria tarefa: X\", \"concluí a tarefa X\", \"paguei a conta X\", \"gastei X em Y\", \"recebi X de Y\", \"cria compromisso X amanhã às 15h\". Manda ver! 🐱"] },
     { name: "current_time", category: "Conversa", is_external: 1, external_type: "current_time",
       keywords: ["que horas sao", "que horas são", "que hora e", "que hora é", "horas agora", "hora atual", "que horas"] },
     { name: "current_date", category: "Conversa", is_external: 1, external_type: "current_date",
@@ -517,8 +569,12 @@ const PEDRO_TOOLS = [
   { type: "function", function: { name: "rename_task", description: "Renomeia uma tarefa existente.", parameters: { type: "object", properties: { query: { type: "string" }, new_text: { type: "string" } }, required: ["query", "new_text"] } } },
   { type: "function", function: { name: "set_task_priority", description: "Altera a prioridade de uma tarefa.", parameters: { type: "object", properties: { query: { type: "string" }, priority: { type: "string", enum: ["alta", "normal", "baixa"] } }, required: ["query", "priority"] } } },
   { type: "function", function: { name: "delete_task", description: "Apaga uma tarefa existente.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
-  { type: "function", function: { name: "pay_bill", description: "Marca uma conta pendente como paga, buscando pelo nome aproximado.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
-  { type: "function", function: { name: "delete_bill", description: "Apaga uma conta existente.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "pay_bill", description: "Marca uma conta fixa, assinatura ou receita recorrente pendente como paga/recebida, buscando pelo nome aproximado.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "delete_bill", description: "Apaga um lançamento financeiro existente (conta, gasto, receita, assinatura ou compra no cartão).", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "get_finance_summary", description: "Retorna o resumo financeiro do mês: total de receitas, despesas e saldo.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "add_expense", description: "Registra um gasto avulso do dia (ex: mercado, uber, restaurante). Use para falas como 'gastei X em Y'.", parameters: { type: "object", properties: { name: { type: "string", description: "Descrição do gasto" }, value: { type: "number", description: "Valor gasto" }, category: { type: "string", description: "Categoria, opcional" } }, required: ["name", "value"] } } },
+  { type: "function", function: { name: "add_income", description: "Registra uma receita avulsa recebida (ex: bônus, freela, venda). Use para falas como 'recebi X de Y'.", parameters: { type: "object", properties: { name: { type: "string", description: "Descrição da receita" }, value: { type: "number", description: "Valor recebido" } }, required: ["name", "value"] } } },
+  { type: "function", function: { name: "add_finance_entry", description: "Cria um novo lançamento financeiro recorrente: conta fixa, assinatura ou receita mensal fixa (ex: salário, aluguel, Netflix).", parameters: { type: "object", properties: { type: { type: "string", enum: ["fixed", "subscription", "income"], description: "fixed=conta fixa, subscription=assinatura, income=receita" }, name: { type: "string" }, value: { type: "number" }, due_day: { type: "integer", description: "Dia do vencimento/recebimento, 1-31" }, category: { type: "string", description: "Categoria, opcional" } }, required: ["type", "name", "value", "due_day"] } } },
   { type: "function", function: { name: "add_event", description: "Cria um novo compromisso na AGENDA. Calcule a data absoluta em AAAA-MM-DD a partir da data de hoje informada no contexto.", parameters: { type: "object", properties: { title: { type: "string" }, date: { type: "string", description: "Data no formato AAAA-MM-DD" }, time: { type: "string", description: "Horário HH:MM, opcional" }, local: { type: "string", description: "Local do compromisso, opcional" } }, required: ["title", "date"] } } },
   { type: "function", function: { name: "delete_event", description: "Apaga/cancela um compromisso existente, buscando pelo título aproximado.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
 ];
@@ -541,6 +597,10 @@ async function executeTool(sql, name, args, coords) {
       case "delete_task": return (await cmdDeleteTask(sql, args.query)).reply;
       case "pay_bill": return (await cmdPayBill(sql, args.query)).reply;
       case "delete_bill": return (await cmdDeleteBill(sql, args.query)).reply;
+      case "get_finance_summary": return await getFinanceSummaryReply(sql);
+      case "add_expense": return (await cmdAddExpense(sql, args.name, args.value, args.category)).reply;
+      case "add_income": return (await cmdAddIncome(sql, args.name, args.value)).reply;
+      case "add_finance_entry": return (await cmdAddFinanceEntry(sql, { type: args.type, name: args.name, value: args.value, category: args.category, recurrent: true, dueDay: args.due_day })).reply;
       case "add_event": return (await cmdAddEventStructured(sql, args)).reply;
       case "delete_event": return (await cmdDeleteEvent(sql, args.query)).reply;
       default: return "Ferramenta desconhecida.";
@@ -568,7 +628,7 @@ async function handleGroqChat(sql, userMessage, history, coords) {
   const systemPrompt = `Você é o Pedro, um gato-assistente que vive no Painel de Controle Pessoal do Gustavo, seu tutor. Você é caloroso, brincalhão e leal, com um jeitinho sutil de gato (sem exagerar), e realmente se importa com o dia do Gustavo.
 Hoje é ${weekday}, ${dateStr}, agora são ${time} (horário de Brasília).
 Responda sempre em português do Brasil, em frases curtas (1 a 3 frases, isso aparece num chat de celular). Use no máximo 1-2 emojis por mensagem (prefira 🐾 😻 😹 🧡).
-Você tem ferramentas reais que consultam e MODIFICAM os dados do painel (agenda, tarefas, contas). Use-as sempre que o pedido do usuário exigir dados reais ou uma ação — nunca invente informações que uma ferramenta poderia responder.
+Você tem ferramentas reais que consultam e MODIFICAM os dados do painel (agenda, tarefas, finanças — contas fixas, gastos, receitas, cartões, assinaturas). Use-as sempre que o pedido do usuário exigir dados reais ou uma ação — nunca invente informações que uma ferramenta poderia responder. Se o usuário disser algo como "gastei 50 no mercado" use add_expense; "recebi 200 de freela" use add_income; contas fixas/assinaturas/salário recorrente use add_finance_entry.
 Quando uma ferramenta devolver um texto com fatos (listas, valores, horários, nomes), preserve esses fatos exatamente — não altere números, datas ou nomes, mas pode reescrever a frase ao redor com seu próprio tom.
 Se o pedido não tiver ferramenta correspondente, apenas converse normalmente, de forma natural e breve.`;
 
