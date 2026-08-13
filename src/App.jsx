@@ -1576,7 +1576,6 @@ function TemasPage() {
 function DiaryPage() {
   const [active, setActive] = useState("diary");
   const tabs = [
-    {id:"dia",       label:"📌 Dia",       color:"#e67e22"},
     {id:"diary",     label:"📓 Diário",    color:"var(--accent)"},
     {id:"temas",     label:"📋 Temas",     color:"#0891b2"},
     {id:"reminders", label:"🔔 Lembretes", color:"var(--yellow)"},
@@ -1592,7 +1591,6 @@ function DiaryPage() {
         ))}
       </div>
       <div style={{flex:1,animation:"fadeIn .2s ease",overflow:"hidden"}}>
-        {active==="dia"       && <DayBoardPage/>}
         {active==="diary"     && <NoteColumn storageKey="diary" title="Diário" placeholder="O que está em sua mente hoje?" accent="var(--accent)" emoji="📓"/>}
         {active==="temas"     && <TemasPage/>}
         {active==="reminders" && <RemindersCards/>}
