@@ -1576,6 +1576,7 @@ function TemasPage() {
 function DiaryPage() {
   const [active, setActive] = useState("diary");
   const tabs = [
+    {id:"dia",       label:"📌 Dia",       color:"#e67e22"},
     {id:"diary",     label:"📓 Diário",    color:"var(--accent)"},
     {id:"temas",     label:"📋 Temas",     color:"#0891b2"},
     {id:"reminders", label:"🔔 Lembretes", color:"var(--yellow)"},
@@ -1591,6 +1592,7 @@ function DiaryPage() {
         ))}
       </div>
       <div style={{flex:1,animation:"fadeIn .2s ease",overflow:"hidden"}}>
+        {active==="dia"       && <DayBoardPage/>}
         {active==="diary"     && <NoteColumn storageKey="diary" title="Diário" placeholder="O que está em sua mente hoje?" accent="var(--accent)" emoji="📓"/>}
         {active==="temas"     && <TemasPage/>}
         {active==="reminders" && <RemindersCards/>}
@@ -2675,7 +2677,6 @@ function AgendaPage() {
   const [googleConnected, setGoogleConnected] = useState(null); // null=loading
   const [googleEvents, setGoogleEvents] = useState([]);
   const [googleSyncing, setGoogleSyncing] = useState(false);
-  const [googleError, setGoogleError] = useState(false);
 
   const fetchGoogleEvents = async () => {
     try {
@@ -2684,12 +2685,7 @@ function AgendaPage() {
       const timeMin = minDate.toISOString();
       const timeMax = maxDate.toISOString();
       const r = await fetch(`/api/google-calendar?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`);
-      if (!r.ok) {
-        setGoogleError(true);
-        if (r.status === 401) setGoogleConnected(false); // token really dead — reflect it in the UI
-        return; // don't touch googleEvents/events — a failed fetch must never look like "zero events"
-      }
-      setGoogleError(false);
+      if (!r.ok) { setGoogleEvents([]); return; }
       const items = await r.json();
       const parsed = Array.isArray(items) ? items.map(fromGoogleEvent) : [];
       setGoogleEvents(parsed);
@@ -2703,7 +2699,7 @@ function AgendaPage() {
         if (e.date < minStr || e.date > maxStr) return true; // outside the fetched window — can't verify, keep
         return liveIds.has(e.googleId);              // drop if Google no longer has it
       }));
-    } catch { setGoogleError(true); }
+    } catch { setGoogleEvents([]); }
   };
 
   useEffect(()=>{
@@ -2720,7 +2716,7 @@ function AgendaPage() {
   const connectGoogle = () => { window.location.href = "/api/google-auth"; };
   const disconnectGoogle = async () => {
     await fetch("/api/google-calendar?action=disconnect", { method:"DELETE" });
-    setGoogleConnected(false); setGoogleEvents([]); setGoogleError(false);
+    setGoogleConnected(false); setGoogleEvents([]);
   };
 
   const cats = ["Pessoal","Médico","Reunião","Viagem","Aniversário","Outros"];
@@ -2802,15 +2798,9 @@ function AgendaPage() {
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <div>
           {googleConnected===true && (
-            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:googleError?"var(--red)":"var(--text-3)"}}>
-              <span style={{width:8,height:8,borderRadius:"50%",background:googleError?"var(--red)":"var(--green)",display:"inline-block"}}/>
-              {googleError ? "Erro ao sincronizar com o Google" : `Google Agenda conectado${googleSyncing?" · sincronizando...":""}`}
-              {googleError && (
-                <button onClick={fetchGoogleEvents}
-                  style={{background:"none",border:"none",color:"var(--accent)",textDecoration:"underline",cursor:"pointer",fontSize:12,padding:0}}>
-                  Tentar de novo
-                </button>
-              )}
+            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"var(--text-3)"}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:"var(--green)",display:"inline-block"}}/>
+              Google Agenda conectado{googleSyncing?" · sincronizando...":""}
               <button onClick={disconnectGoogle}
                 style={{background:"none",border:"none",color:"var(--text-3)",textDecoration:"underline",cursor:"pointer",fontSize:12,padding:0}}>
                 Desconectar
@@ -5497,9 +5487,20 @@ function PedroWidget({ page }) {
   const remindedRef = useRef(new Set(pState.remindedEventIds || []));
   const pendingRef = useRef(null); // clarificação pendente: { type, newText?, prio? }
 
-  const notifyOS = (text) => {
+  const notifyOS = async (text) => {
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-    try { new Notification("Pedro 🐾", { body: text, icon: "/pedro-avatar.jpg", tag: `pedro-${Date.now()}` }); } catch {}
+    const opts = { body: text, icon: "/pedro-avatar.jpg", badge: "/pedro-avatar.jpg", tag: `pedro-${Date.now()}` };
+    try {
+      // No Chrome/Android, com Service Worker ativo, a notificação PRECISA passar por ele —
+      // "new Notification()" direto falha silenciosamente nesse cenário.
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg && reg.showNotification) { await reg.showNotification("Pedro 🐾", opts); return; }
+      }
+      new Notification("Pedro 🐾", opts);
+    } catch (e) {
+      try { new Notification("Pedro 🐾", opts); } catch {}
+    }
   };
 
   const subscribePush = async () => {
