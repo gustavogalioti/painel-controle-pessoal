@@ -4874,11 +4874,24 @@ function DJPage() {
   const [libUploading, setLibUploading] = useState(false);
   const [libPickerOpen, setLibPickerOpen] = useState(false); // abre picker dentro do modal do pad
   const libraryInputRef = useRef(null);
+  const [volA, setVolA] = useState(1);
+  const [rateA, setRateA] = useState(1);
+  const [cutClips, setCutClips] = useState([]); // faixas cortadas: {id,label,url,dur}
+  const deckB = useDeck();
+  const [volB, setVolB] = useState(1);
+  const [crossfade, setCrossfade] = useState(0); // 0 = so A, 100 = so B
+  const fileInputBRef = useRef(null);
   const [clipboardClip, setClipboardClip] = useState(null); // {url,label} pending to paste onto a pad
   const [pendingPad, setPendingPad] = useState(null); // pad being edited in modal
   const fileInputRef = useRef(null);
   const effectInputRef = useRef(null);
   const deck = useDeck();
+  useEffect(() => {
+    const gA = volA * (1 - crossfade/100);
+    const gB = volB * (crossfade/100);
+    deck.setVolume(gA);
+    deckB.setVolume(gB);
+  }, [volA, volB, crossfade]);
   const [isNarrow, setIsNarrow] = useState(()=> typeof window!=="undefined" && window.innerWidth < 720);
   useEffect(()=>{
     const mq = window.matchMedia("(max-width: 720px)");
@@ -4933,7 +4946,24 @@ function DJPage() {
     if(!selection || selection.end<=selection.start) return alert("Selecione um trecho na waveform primeiro.");
     const blob = deck.exportRegion(selection.start, selection.end);
     const url = URL.createObjectURL(blob);
-    setClipboardClip({url, label:`Trecho ${selection.start.toFixed(1)}s–${selection.end.toFixed(1)}s`});
+    const dur = selection.end-selection.start;
+    const label = `Trecho ${selection.start.toFixed(1)}s–${selection.end.toFixed(1)}s`;
+    setClipboardClip({url, label});
+    setCutClips(prev => [...prev, {id:Date.now(), label, url, dur}]);
+  };
+
+  const removeCutClip = (id) => setCutClips(prev => prev.filter(c=>c.id!==id));
+
+  const changeSpeed = (delta) => {
+    const next = Math.max(0.25, Math.min(3, +(rateA+delta).toFixed(2)));
+    setRateA(next); deck.setRate(next);
+  };
+  const resetSpeed = () => { setRateA(1); deck.setRate(1); };
+
+  const onUploadTrackB = async (e) => {
+    const file = e.target.files[0]; if(!file) return;
+    const ab = await file.arrayBuffer();
+    await deckB.load(ab, file.name);
   };
 
   const assignClipToPad = (padId, url, label) => {
@@ -5110,6 +5140,7 @@ function DJPage() {
       </div>
 
       {tab==="mixer" ? (
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
         <div style={{display:"flex",gap:14,flex:1,minHeight:0,flexWrap:"wrap"}}>
           {/* GRID DE PADS */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,flex:"1 1 480px",alignContent:"start"}}>
@@ -5132,10 +5163,70 @@ function DJPage() {
             {sideBtn("pause","Pause",()=>deck.pause())}
             {sideBtn("stop","Stop",()=>deck.stop())}
             {sideBtn("refresh","Loop seleção",()=>deck.setLoop(selection?{start:selection.start,end:selection.end}:null))}
-            {sideBtn("scissors","Copiar trecho",onCopySelection)}
-            {sideBtn("shift","Reset velocidade",()=>deck.setRate(1))}
+            {sideBtn("scissors","Cortar/Salvar trecho",onCopySelection)}
             {sideBtn("record","Gravar (em breve)",()=>alert("Gravação da mixagem final: próxima etapa."))}
           </div>
+        </div>
+
+        {/* VOLUME + VELOCIDADE (Deck A) */}
+        <div style={{background:"var(--bg-sub)",borderRadius:14,padding:14,display:"flex",gap:24,flexWrap:"wrap"}}>
+          <div style={{display:"flex",flexDirection:"column",gap:6,flex:"1 1 200px"}}>
+            <span style={{fontSize:11,fontWeight:700,color:"var(--text-2)"}}>🔊 Volume — {(volA*100).toFixed(0)}%</span>
+            <input type="range" min={0} max={1.5} step={0.01} value={volA}
+              onChange={e=>{ const v=+e.target.value; setVolA(v); }}
+              style={{width:"100%"}}/>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6,flex:"1 1 240px"}}>
+            <span style={{fontSize:11,fontWeight:700,color:"var(--text-2)"}}>🎚 Velocidade/Tom — {rateA.toFixed(2)}x</span>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <button onClick={()=>changeSpeed(-0.05)} style={btn("var(--bg-input)")}>−</button>
+              <input type="range" min={0.5} max={2} step={0.01} value={rateA}
+                onChange={e=>{ const v=+e.target.value; setRateA(v); deck.setRate(v); }} style={{flex:1}}/>
+              <button onClick={()=>changeSpeed(0.05)} style={btn("var(--bg-input)")}>+</button>
+              <button onClick={resetSpeed} style={{...btn("var(--bg-input)"),fontSize:11}}>1x</button>
+            </div>
+          </div>
+        </div>
+
+        {/* FAIXAS CORTADAS */}
+        {cutClips.length>0 && (
+          <div style={{background:"var(--bg-sub)",borderRadius:14,padding:14,display:"flex",flexDirection:"column",gap:8}}>
+            <span style={{fontSize:11,fontWeight:700,color:"var(--text-2)"}}>✂️ Faixas cortadas</span>
+            <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4}}>
+              {cutClips.map(c=>(
+                <div key={c.id} style={{border:"1px solid var(--border)",borderRadius:10,padding:8,minWidth:150,flexShrink:0,display:"flex",flexDirection:"column",gap:6}}>
+                  <span style={{fontSize:11,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.label}</span>
+                  <div style={{display:"flex",gap:4}}>
+                    <button onClick={()=>new Audio(c.url).play()} style={{...btn("var(--bg-input)"),padding:"4px 8px",fontSize:10}}>▶</button>
+                    <button onClick={()=>setClipboardClip({url:c.url,label:c.label})} style={{...btn(),padding:"4px 8px",fontSize:10}}>No pad</button>
+                    <button onClick={()=>removeCutClip(c.id)} style={{...btn("var(--bg-input)"),padding:"4px 8px",fontSize:10,color:"#e57373"}}>🗑</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* DECK B + CROSSFADER (TRANSIÇÃO) */}
+        <div style={{background:"var(--bg-sub)",borderRadius:14,padding:14,display:"flex",flexDirection:"column",gap:10}}>
+          <span style={{fontSize:11,fontWeight:700,color:"var(--text-2)"}}>🔀 Transição — Deck B</span>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <button onClick={()=>fileInputBRef.current.click()} style={btn("var(--bg-input)")}>📤 Carregar Faixa B</button>
+            <input ref={fileInputBRef} type="file" accept="audio/*" style={{display:"none"}} onChange={onUploadTrackB}/>
+            <span style={{fontSize:12,color:"var(--text-2)",fontWeight:600}}>{deckB.name||"Nenhuma faixa B carregada"}</span>
+            {sideBtn("play","Play B",()=>deckB.play(deckB.currentTime()),deckB.isPlaying)}
+            {sideBtn("pause","Pause B",()=>deckB.pause())}
+            {sideBtn("stop","Stop B",()=>deckB.stop())}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--text-2)",fontWeight:700}}>
+              <span>A {crossfade<50?`(${(100-crossfade)}%)`:""}</span>
+              <span>{crossfade===0?"Só A":crossfade===100?"Só B":"Mixando"}</span>
+              <span>B {crossfade>=50?`(${crossfade}%)`:""}</span>
+            </div>
+            <input type="range" min={0} max={100} step={1} value={crossfade} onChange={e=>setCrossfade(+e.target.value)} style={{width:"100%"}}/>
+          </div>
+        </div>
         </div>
       ) : tab==="buscar" ? (
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
