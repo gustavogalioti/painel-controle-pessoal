@@ -4872,6 +4872,8 @@ function DJPage() {
   const [libSearch, setLibSearch] = useState("");
   const [libLoading, setLibLoading] = useState(false);
   const [libUploading, setLibUploading] = useState(false);
+  const [libPlayingId, setLibPlayingId] = useState(null);
+  const previewAudioRef = useRef(null);
   const [libPickerOpen, setLibPickerOpen] = useState(false); // abre picker dentro do modal do pad
   const libraryInputRef = useRef(null);
   const [volA, setVolA] = useState(1);
@@ -5052,8 +5054,16 @@ function DJPage() {
   };
 
   const playLibraryTrack = async (track) => {
-    try { const url = await fetchLibraryAudioUrl(track); new Audio(url).play(); }
-    catch { alert("Erro ao tocar a faixa."); }
+    if(libPlayingId===track.id){ previewAudioRef.current?.pause(); setLibPlayingId(null); return; }
+    if(previewAudioRef.current){ previewAudioRef.current.pause(); }
+    try {
+      const url = await fetchLibraryAudioUrl(track);
+      const a = new Audio(url);
+      previewAudioRef.current = a;
+      a.onended = () => setLibPlayingId(null);
+      await a.play();
+      setLibPlayingId(track.id);
+    } catch { alert("Erro ao tocar a faixa."); }
   };
 
   const loadLibraryTrackToDeck = async (track) => {
@@ -5069,6 +5079,7 @@ function DJPage() {
 
   const deleteFromLibrary = async (id) => {
     if(!confirm("Apagar essa faixa da biblioteca?")) return;
+    if(libPlayingId===id){ previewAudioRef.current?.pause(); setLibPlayingId(null); }
     try { await fetch(`/api/db?table=music&id=${id}`, {method:"DELETE"}); setLibrary(prev=>prev.filter(t=>t.id!==id)); } catch {}
   };
 
@@ -5276,7 +5287,7 @@ function DJPage() {
                   <div style={{fontSize:12,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.name}</div>
                   <div style={{fontSize:11,color:"var(--text-3)"}}>{(t.file_size/1024/1024).toFixed(1)}MB</div>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                    <button onClick={()=>playLibraryTrack(t)} style={{...btn("var(--bg-input)"),padding:"5px 10px",fontSize:11}}>▶ Ouvir</button>
+                    <button onClick={()=>playLibraryTrack(t)} style={{...btn("var(--bg-input)"),padding:"5px 10px",fontSize:11}}>{libPlayingId===t.id?"⏸ Pausar":"▶ Ouvir"}</button>
                     <button onClick={()=>loadLibraryTrackToDeck(t)} style={{...btn(),padding:"5px 10px",fontSize:11}}>{jmLoadingId==="lib-"+t.id?"Carregando...":"Carregar no deck"}</button>
                     <button onClick={()=>deleteFromLibrary(t.id)} style={{...btn("var(--bg-input)"),padding:"5px 10px",fontSize:11,color:"#e57373"}}>🗑</button>
                   </div>
