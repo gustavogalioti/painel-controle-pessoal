@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
@@ -1614,6 +1614,10 @@ function TasksPage() {
   const [editModal, setEditModal] = useState(null);
   const [addNote, setAddNote] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  const [newTaskTags, setNewTaskTags] = useState([]);
+  const [tagInput, setTagInput] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [editTagInput, setEditTagInput] = useState("");
 
   const prioColor = {alta:"var(--red)",normal:"var(--accent)",baixa:"var(--text-3)"};
   const prioLabel = {alta:"🔴 Alta",normal:"🔵 Normal",baixa:"⚪ Baixa"};
@@ -1634,10 +1638,47 @@ function TasksPage() {
 
   const add = () => {
     if (!text.trim()) return;
-    const t = { id:Date.now(), text, prio, status:"todo", done:false, date:nowISO(), notes:[], updates:[] };
+    const t = { id:Date.now(), text, prio, status:"todo", done:false, date:nowISO(), notes:[], updates:[], tags:newTaskTags };
     const n = [t, ...tasks];
     save(n);
-    setText(""); setAddOpen(false);
+    setText(""); setAddOpen(false); setNewTaskTags([]); setTagInput("");
+  };
+
+  const addNewTaskTag = () => {
+    const clean = tagInput.trim();
+    if (!clean) return;
+    if (!newTaskTags.some(x=>x.toLowerCase()===clean.toLowerCase())) setNewTaskTags([...newTaskTags, clean]);
+    setTagInput("");
+  };
+  const removeNewTaskTag = (tag) => setNewTaskTags(newTaskTags.filter(t=>t!==tag));
+
+  const addTagToTask = (id, tag) => {
+    const clean = tag.trim();
+    if (!clean) return;
+    const prevTask = tasksRef.current.find(t=>t.id===id);
+    if ((prevTask?.tags||[]).some(x=>x.toLowerCase()===clean.toLowerCase())) return;
+    const n = tasksRef.current.map(t => t.id===id ? { ...t, tags:[...(t.tags||[]), clean] } : t);
+    save(n);
+    setEditModal(n.find(t=>t.id===id));
+  };
+  const removeTagFromTask = (id, tag) => {
+    const n = tasksRef.current.map(t => t.id===id ? { ...t, tags:(t.tags||[]).filter(x=>x!==tag) } : t);
+    save(n);
+    setEditModal(n.find(t=>t.id===id));
+  };
+
+  // Todas as tags existentes (para sugestões de busca)
+  const allTags = useMemo(() => {
+    const s = new Set();
+    tasks.forEach(t => (t.tags||[]).forEach(tag => s.add(tag)));
+    return Array.from(s).sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  }, [tasks]);
+
+  const tagFilterActive = tagFilter.trim().length > 0;
+  const matchesTagFilter = (t) => {
+    if (!tagFilterActive) return true;
+    const q = tagFilter.trim().toLowerCase();
+    return (t.tags||[]).some(tag => tag.toLowerCase().includes(q));
   };
 
   const setStatus = (id, status) => {
@@ -1739,7 +1780,7 @@ function TasksPage() {
   }, [overCol]);
 
   const grouped = Object.fromEntries(COLS.map(c=>[c.id,[]]));
-  tasks.forEach(t => { const s = getStatus(t); (grouped[s] || grouped.todo).push(t); });
+  tasks.filter(matchesTagFilter).forEach(t => { const s = getStatus(t); (grouped[s] || grouped.todo).push(t); });
 
   const TaskCard = ({ t }) => {
     const isDragging = dragId === t.id;
@@ -1764,6 +1805,16 @@ function TasksPage() {
           <span style={{color:prioColor[t.prio],fontWeight:700}}>{prioLabel[t.prio]}</span>
           <span>{new Date(t.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</span>
         </div>
+        {t.tags?.length>0 && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:8,pointerEvents:"none"}}>
+            {t.tags.map(tag=>(
+              <span key={tag} style={{
+                fontSize:9.5, fontWeight:700, color:"var(--accent)", background:"var(--accent-dim)",
+                borderRadius:8, padding:"2px 7px",
+              }}>🏷 {tag}</span>
+            ))}
+          </div>
+        )}
         {t.updates?.length>0 && <div style={{fontSize:10,color:"var(--accent)",marginTop:6,pointerEvents:"none"}}>💬 {t.updates.length}</div>}
       </div>
     );
@@ -1781,6 +1832,17 @@ function TasksPage() {
           <div>
             <textarea autoFocus value={text} onChange={e=>setText(e.target.value)} placeholder="Descreva a tarefa..." rows={2}
               style={{...inp,resize:"none",marginBottom:12}} onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:12}}>
+              {newTaskTags.map(tag=>(
+                <span key={tag} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,color:"var(--accent)",background:"var(--accent-dim)",borderRadius:20,padding:"4px 6px 4px 10px"}}>
+                  🏷 {tag}
+                  <span onClick={()=>removeNewTaskTag(tag)} style={{cursor:"pointer",opacity:.7,padding:"0 2px"}}>✕</span>
+                </span>
+              ))}
+              <input value={tagInput} onChange={e=>setTagInput(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter"){e.preventDefault();addNewTaskTag();} }}
+                placeholder="+ tag" style={{...inp,width:100,padding:"5px 10px",fontSize:11}}/>
+            </div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
               <div style={{display:"flex",gap:8}}>
                 {["alta","normal","baixa"].map(p=>(
@@ -1792,6 +1854,38 @@ function TasksPage() {
                 <button onClick={add} style={{...btn(),padding:"8px 20px"}}>+ Adicionar</button>
               </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Busca por tags */}
+      <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, padding:14, marginBottom:18 }}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <Icon path={I.search} size={14} color="var(--text-3)"/>
+          <input value={tagFilter} onChange={e=>setTagFilter(e.target.value)}
+            placeholder="Buscar tarefas por tag..." style={{...inp,flex:1,padding:"8px 12px"}}/>
+          {tagFilterActive && (
+            <button onClick={()=>setTagFilter("")} style={{...btn("var(--bg-input)"),color:"var(--text-2)",padding:"7px 14px",fontSize:12}}>Limpar</button>
+          )}
+        </div>
+        {allTags.length>0 && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:12}}>
+            {allTags.map(tag=>{
+              const selected = tagFilter.trim().toLowerCase()===tag.toLowerCase();
+              return (
+                <span key={tag} onClick={()=>setTagFilter(selected?"":tag)} style={{
+                  cursor:"pointer", fontSize:11, fontWeight:700,
+                  color: selected ? "#fff" : "var(--accent)",
+                  background: selected ? "var(--accent)" : "var(--accent-dim)",
+                  borderRadius:20, padding:"4px 11px",
+                }}>🏷 {tag}</span>
+              );
+            })}
+          </div>
+        )}
+        {tagFilterActive && (
+          <div style={{fontSize:11,color:"var(--text-3)",marginTop:10}}>
+            {tasks.filter(matchesTagFilter).length} tarefa(s) encontrada(s) com "{tagFilter.trim()}"
           </div>
         )}
       </div>
@@ -1835,7 +1929,7 @@ function TasksPage() {
       `}</style>
 
       {editModal && (
-        <Modal title={editModal.text.slice(0,40)+(editModal.text.length>40?"...":"")} onClose={()=>{setEditModal(null);setAddNote("");}}>
+        <Modal title={editModal.text.slice(0,40)+(editModal.text.length>40?"...":"")} onClose={()=>{setEditModal(null);setAddNote("");setEditTagInput("");}}>
           <div style={{marginBottom:16}}>
             <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:12,flexWrap:"wrap"}}>
               {COLS.map(col=>(
@@ -1854,6 +1948,21 @@ function TasksPage() {
             <span style={{fontSize:11,color:prioColor[editModal.prio],fontWeight:700}}>{prioLabel[editModal.prio]}</span>
             <p style={{color:"var(--text-2)",lineHeight:1.7,fontSize:14,margin:"12px 0 16px"}}>{editModal.text}</p>
             <div style={{fontSize:10,color:"var(--text-3)",marginBottom:16}}>Criada em {new Date(editModal.date).toLocaleString("pt-BR")}</div>
+
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:10,color:"var(--accent)",letterSpacing:2,fontWeight:700,marginBottom:10}}>TAGS</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"center"}}>
+                {(editModal.tags||[]).map(tag=>(
+                  <span key={tag} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,color:"var(--accent)",background:"var(--accent-dim)",borderRadius:20,padding:"4px 6px 4px 10px"}}>
+                    🏷 {tag}
+                    <span onClick={()=>removeTagFromTask(editModal.id,tag)} style={{cursor:"pointer",opacity:.7,padding:"0 2px"}}>✕</span>
+                  </span>
+                ))}
+                <input value={editTagInput} onChange={e=>setEditTagInput(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); addTagToTask(editModal.id, editTagInput); setEditTagInput(""); } }}
+                  placeholder="+ tag" style={{...inp,width:100,padding:"5px 10px",fontSize:11}}/>
+              </div>
+            </div>
 
             <div style={{borderTop:"1px solid var(--border)",paddingTop:16}}>
               <div style={{fontSize:10,color:"var(--accent)",letterSpacing:2,fontWeight:700,marginBottom:12}}>ATUALIZAÇÕES</div>
