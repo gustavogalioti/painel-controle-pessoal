@@ -1618,6 +1618,8 @@ function TasksPage() {
   const [tagInput, setTagInput] = useState("");
   const [tagFilter, setTagFilter] = useState("");
   const [editTagInput, setEditTagInput] = useState("");
+  const [newTaskDue, setNewTaskDue] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
 
   const prioColor = {alta:"var(--red)",normal:"var(--accent)",baixa:"var(--text-3)"};
   const prioLabel = {alta:"🔴 Alta",normal:"🔵 Normal",baixa:"⚪ Baixa"};
@@ -1638,10 +1640,10 @@ function TasksPage() {
 
   const add = () => {
     if (!text.trim()) return;
-    const t = { id:Date.now(), text, prio, status:"todo", done:false, date:nowISO(), notes:[], updates:[], tags:newTaskTags };
+    const t = { id:Date.now(), text, prio, status:"todo", done:false, date:nowISO(), notes:[], updates:[], tags:newTaskTags, dueDate: newTaskDue || null };
     const n = [t, ...tasks];
     save(n);
-    setText(""); setAddOpen(false); setNewTaskTags([]); setTagInput("");
+    setText(""); setAddOpen(false); setNewTaskTags([]); setTagInput(""); setNewTaskDue("");
   };
 
   const addNewTaskTag = () => {
@@ -1665,6 +1667,36 @@ function TasksPage() {
     const n = tasksRef.current.map(t => t.id===id ? { ...t, tags:(t.tags||[]).filter(x=>x!==tag) } : t);
     save(n);
     setEditModal(n.find(t=>t.id===id));
+  };
+
+  const setTaskDue = (id, dueDate) => {
+    const n = tasksRef.current.map(t => t.id===id ? { ...t, dueDate: dueDate || null } : t);
+    save(n);
+    setEditModal(n.find(t=>t.id===id));
+  };
+
+  const fmtDue = (iso) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    const datePart = d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit"});
+    const timePart = d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+    return `${datePart} ${timePart}`;
+  };
+  const isOverdue = (t) => t.dueDate && t.status!=="done" && new Date(t.dueDate).getTime() < Date.now();
+
+  // Todas as datas de vencimento existentes (para sugestões de busca)
+  const allDueDates = useMemo(() => {
+    const s = new Set();
+    tasks.forEach(t => { if (t.dueDate) s.add(t.dueDate.split("T")[0]); });
+    return Array.from(s).sort();
+  }, [tasks]);
+
+  const dateFilterActive = dateFilter.trim().length > 0;
+  const matchesDateFilter = (t) => {
+    if (!dateFilterActive) return true;
+    if (!t.dueDate) return false;
+    return t.dueDate.split("T")[0] === dateFilter;
   };
 
   // Todas as tags existentes (para sugestões de busca)
@@ -1780,7 +1812,7 @@ function TasksPage() {
   }, [overCol]);
 
   const grouped = Object.fromEntries(COLS.map(c=>[c.id,[]]));
-  tasks.filter(matchesTagFilter).forEach(t => { const s = getStatus(t); (grouped[s] || grouped.todo).push(t); });
+  tasks.filter(t=>matchesTagFilter(t) && matchesDateFilter(t)).forEach(t => { const s = getStatus(t); (grouped[s] || grouped.todo).push(t); });
 
   const TaskCard = ({ t }) => {
     const isDragging = dragId === t.id;
@@ -1805,6 +1837,11 @@ function TasksPage() {
           <span style={{color:prioColor[t.prio],fontWeight:700}}>{prioLabel[t.prio]}</span>
           <span>{new Date(t.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</span>
         </div>
+        {t.dueDate && (
+          <div style={{fontSize:10.5,fontWeight:700,marginTop:6,pointerEvents:"none",color: isOverdue(t) ? "var(--red)" : "var(--text-2)"}}>
+            {isOverdue(t) ? "⚠️ " : "📅 "}{fmtDue(t.dueDate)}
+          </div>
+        )}
         {t.tags?.length>0 && (
           <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:8,pointerEvents:"none"}}>
             {t.tags.map(tag=>(
@@ -1843,6 +1880,14 @@ function TasksPage() {
                 onKeyDown={e=>{ if(e.key==="Enter"){e.preventDefault();addNewTaskTag();} }}
                 placeholder="+ tag" style={{...inp,width:100,padding:"5px 10px",fontSize:11}}/>
             </div>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+              <span style={{fontSize:11,color:"var(--text-3)",fontWeight:700}}>📅 Finalizar em:</span>
+              <input type="datetime-local" value={newTaskDue} onChange={e=>setNewTaskDue(e.target.value)}
+                style={{...inp,width:"auto",padding:"6px 10px",fontSize:12}}/>
+              {newTaskDue && (
+                <span onClick={()=>setNewTaskDue("")} style={{cursor:"pointer",fontSize:11,color:"var(--text-3)",textDecoration:"underline"}}>limpar</span>
+              )}
+            </div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
               <div style={{display:"flex",gap:8}}>
                 {["alta","normal","baixa"].map(p=>(
@@ -1858,14 +1903,17 @@ function TasksPage() {
         )}
       </div>
 
-      {/* Busca por tags */}
+      {/* Busca por tags e por data */}
       <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, padding:14, marginBottom:18 }}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <Icon path={I.search} size={14} color="var(--text-3)"/>
           <input value={tagFilter} onChange={e=>setTagFilter(e.target.value)}
-            placeholder="Buscar tarefas por tag..." style={{...inp,flex:1,padding:"8px 12px"}}/>
-          {tagFilterActive && (
-            <button onClick={()=>setTagFilter("")} style={{...btn("var(--bg-input)"),color:"var(--text-2)",padding:"7px 14px",fontSize:12}}>Limpar</button>
+            placeholder="Buscar tarefas por tag..." style={{...inp,flex:1,minWidth:160,padding:"8px 12px"}}/>
+          <span style={{fontSize:11,color:"var(--text-3)",fontWeight:700}}>📅</span>
+          <input type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}
+            style={{...inp,width:"auto",padding:"7px 10px",fontSize:12}}/>
+          {(tagFilterActive || dateFilterActive) && (
+            <button onClick={()=>{setTagFilter("");setDateFilter("");}} style={{...btn("var(--bg-input)"),color:"var(--text-2)",padding:"7px 14px",fontSize:12}}>Limpar</button>
           )}
         </div>
         {allTags.length>0 && (
@@ -1883,9 +1931,28 @@ function TasksPage() {
             })}
           </div>
         )}
-        {tagFilterActive && (
+        {allDueDates.length>0 && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
+            {allDueDates.map(d=>{
+              const selected = dateFilter===d;
+              const label = new Date(d+"T00:00:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit"});
+              return (
+                <span key={d} onClick={()=>setDateFilter(selected?"":d)} style={{
+                  cursor:"pointer", fontSize:11, fontWeight:700,
+                  color: selected ? "#fff" : "var(--text-2)",
+                  background: selected ? "var(--accent)" : "var(--bg-input)",
+                  borderRadius:20, padding:"4px 11px",
+                }}>📅 {label}</span>
+              );
+            })}
+          </div>
+        )}
+        {(tagFilterActive || dateFilterActive) && (
           <div style={{fontSize:11,color:"var(--text-3)",marginTop:10}}>
-            {tasks.filter(matchesTagFilter).length} tarefa(s) encontrada(s) com "{tagFilter.trim()}"
+            {tasks.filter(t=>matchesTagFilter(t)&&matchesDateFilter(t)).length} tarefa(s) encontrada(s)
+            {tagFilterActive && ` com "${tagFilter.trim()}"`}
+            {tagFilterActive && dateFilterActive && " e"}
+            {dateFilterActive && ` na data ${new Date(dateFilter+"T00:00:00").toLocaleDateString("pt-BR")}`}
           </div>
         )}
       </div>
@@ -1961,6 +2028,24 @@ function TasksPage() {
                 <input value={editTagInput} onChange={e=>setEditTagInput(e.target.value)}
                   onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); addTagToTask(editModal.id, editTagInput); setEditTagInput(""); } }}
                   placeholder="+ tag" style={{...inp,width:100,padding:"5px 10px",fontSize:11}}/>
+              </div>
+            </div>
+
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:10,color:"var(--accent)",letterSpacing:2,fontWeight:700,marginBottom:10}}>DATA / HORÁRIO PARA FINALIZAR</div>
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <input type="datetime-local"
+                  value={editModal.dueDate ? editModal.dueDate.slice(0,16) : ""}
+                  onChange={e=>setTaskDue(editModal.id, e.target.value)}
+                  style={{...inp,width:"auto",padding:"6px 10px",fontSize:12}}/>
+                {editModal.dueDate && (
+                  <span onClick={()=>setTaskDue(editModal.id,"")} style={{cursor:"pointer",fontSize:11,color:"var(--text-3)",textDecoration:"underline"}}>limpar</span>
+                )}
+                {editModal.dueDate && (
+                  <span style={{fontSize:11,fontWeight:700,color: isOverdue(editModal) ? "var(--red)" : "var(--text-2)"}}>
+                    {isOverdue(editModal) ? "⚠️ Atrasada" : "📅 " + fmtDue(editModal.dueDate)}
+                  </span>
+                )}
               </div>
             </div>
 
