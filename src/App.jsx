@@ -2931,16 +2931,17 @@ function AgendaPage() {
     setModal(true);
   };
   const openEdit = (e) => {
-    if (e.source==="google") return;
     setEditId(e.id);
-    setForm({title:e.title,date:e.date,time:e.time||"",local:e.local||"",cat:e.cat||"Pessoal",notes:e.notes||""});
+    setForm({title:e.title,date:e.date,time:e.time||"",local:e.local||"",cat:(e.cat&&e.cat!=="Google")?e.cat:"Pessoal",notes:e.notes||""});
     setDetailId(null);
     setModal(true);
   };
   const save = async () => {
     if(!form.title.trim()||!form.date) return;
     setGoogleSyncing(true);
-    let googleId = editId ? events.find(e=>e.id===editId)?.googleId : null;
+    const existing = editId ? allEvents.find(e=>e.id===editId) : null;
+    const wasLocal = editId ? events.some(e=>e.id===editId) : false;
+    let googleId = existing?.googleId || null;
     if (googleConnected) {
       try {
         const gBody = toGoogleEvent(form);
@@ -2959,19 +2960,29 @@ function AgendaPage() {
       } catch {}
     }
     setGoogleSyncing(false);
-    if (editId) setEvents(prev => prev.map(e=>e.id===editId?{...e,...form,googleId}:e).sort(sortFn));
-    else { setEvents(prev => [...prev,{id:Date.now(),...form,googleId}].sort(sortFn)); pedroNotify("event_created", { title: form.title }); }
+    if (editId && wasLocal) {
+      // evento já existia localmente — atualiza
+      setEvents(prev => prev.map(e=>e.id===editId?{...e,...form,googleId}:e).sort(sortFn));
+    } else if (editId && existing) {
+      // evento vindo apenas do Google, agora editado — passa a ser rastreado localmente também
+      setEvents(prev => [...prev,{id:Date.now(),...form,googleId}].sort(sortFn));
+    } else {
+      setEvents(prev => [...prev,{id:Date.now(),...form,googleId}].sort(sortFn));
+      pedroNotify("event_created", { title: form.title });
+    }
     setModal(false); setEditId(null);
   };
   const del = async (id) => {
-    const ev = events.find(e=>e.id===id);
-    if (googleConnected && ev?.googleId) {
+    const existing = allEvents.find(e=>e.id===id);
+    const isLocal = events.some(e=>e.id===id);
+    if (googleConnected && existing?.googleId) {
       try {
-        await fetch(`/api/google-calendar?id=${encodeURIComponent(ev.googleId)}`, { method:"DELETE" });
+        await fetch(`/api/google-calendar?id=${encodeURIComponent(existing.googleId)}`, { method:"DELETE" });
         fetchGoogleEvents();
       } catch {}
     }
-    setEvents(prev=>prev.filter(e=>e.id!==id)); setDetailId(null);
+    if (isLocal) setEvents(prev=>prev.filter(e=>e.id!==id));
+    setDetailId(null);
   };
 
   const cells = buildMonthGrid(viewYear, viewMonth);
@@ -3131,24 +3142,21 @@ function AgendaPage() {
             <div style={{fontSize:12,color:"var(--text-3)"}}>Categoria: {detailEvent.cat}</div>
             {detailEvent.notes && <div style={{fontSize:13,color:"var(--text-1)",marginTop:6,lineHeight:1.5}}>{detailEvent.notes}</div>}
           </div>
-          <div style={{display:"flex",gap:10}}>
-            {detailEvent.source==="google" ? (
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            {detailEvent.source==="google" && detailEvent.htmlLink && (
               <a href={detailEvent.htmlLink} target="_blank" rel="noopener noreferrer"
-                style={{...btn("#4285F4"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,textDecoration:"none"}}>
+                style={{...btn("#4285F4"),flex:"1 1 100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,textDecoration:"none"}}>
                 <Icon path={I.link} size={13}/> Abrir no Google Agenda
               </a>
-            ) : (
-              <>
-                <button onClick={()=>openEdit(detailEvent)}
-                  style={{...btn(),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                  <Icon path={I.edit} size={13}/> Editar
-                </button>
-                <button onClick={()=>del(detailEvent.id)}
-                  style={{...btn("var(--red)"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-                  <Icon path={I.trash} size={13}/> Excluir
-                </button>
-              </>
             )}
+            <button onClick={()=>openEdit(detailEvent)}
+              style={{...btn(),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              <Icon path={I.edit} size={13}/> Editar
+            </button>
+            <button onClick={()=>del(detailEvent.id)}
+              style={{...btn("var(--red)"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+              <Icon path={I.trash} size={13}/> Excluir
+            </button>
           </div>
         </Modal>
       )}
