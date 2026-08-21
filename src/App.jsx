@@ -1869,7 +1869,7 @@ function TasksPage() {
           <div>
             <textarea autoFocus value={text} onChange={e=>setText(e.target.value)} placeholder="Descreva a tarefa..." rows={2}
               style={{...inp,resize:"none",marginBottom:12}} onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
-            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:8}}>
               {newTaskTags.map(tag=>(
                 <span key={tag} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,color:"var(--accent)",background:"var(--accent-dim)",borderRadius:20,padding:"4px 6px 4px 10px"}}>
                   🏷 {tag}
@@ -1880,6 +1880,24 @@ function TasksPage() {
                 onKeyDown={e=>{ if(e.key==="Enter"){e.preventDefault();addNewTaskTag();} }}
                 placeholder="+ tag" style={{...inp,width:100,padding:"5px 10px",fontSize:11}}/>
             </div>
+            {allTags.length>0 && (
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+                {allTags.map(tag=>{
+                  const selected = newTaskTags.some(x=>x.toLowerCase()===tag.toLowerCase());
+                  return (
+                    <span key={tag}
+                      onClick={()=>selected ? removeNewTaskTag(tag) : setNewTaskTags([...newTaskTags,tag])}
+                      style={{
+                        cursor:"pointer", fontSize:11, fontWeight:700,
+                        color: selected ? "#fff" : "var(--text-3)",
+                        background: selected ? "var(--accent)" : "var(--bg-input)",
+                        border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+                        borderRadius:20, padding:"3px 10px",
+                      }}>🏷 {tag}</span>
+                  );
+                })}
+              </div>
+            )}
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
               <span style={{fontSize:11,color:"var(--text-3)",fontWeight:700}}>📅 Finalizar em:</span>
               <input type="datetime-local" value={newTaskDue} onChange={e=>setNewTaskDue(e.target.value)}
@@ -2029,6 +2047,18 @@ function TasksPage() {
                   onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); addTagToTask(editModal.id, editTagInput); setEditTagInput(""); } }}
                   placeholder="+ tag" style={{...inp,width:100,padding:"5px 10px",fontSize:11}}/>
               </div>
+              {allTags.filter(tag=>!(editModal.tags||[]).some(x=>x.toLowerCase()===tag.toLowerCase())).length>0 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>
+                  {allTags.filter(tag=>!(editModal.tags||[]).some(x=>x.toLowerCase()===tag.toLowerCase())).map(tag=>(
+                    <span key={tag} onClick={()=>addTagToTask(editModal.id,tag)}
+                      style={{
+                        cursor:"pointer", fontSize:11, fontWeight:700, color:"var(--text-3)",
+                        background:"var(--bg-input)", border:"1px solid var(--border)",
+                        borderRadius:20, padding:"3px 10px",
+                      }}>🏷 {tag}</span>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div style={{marginBottom:16}}>
