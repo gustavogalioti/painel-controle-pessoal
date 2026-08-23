@@ -1620,6 +1620,7 @@ function TasksPage() {
   const [editTagInput, setEditTagInput] = useState("");
   const [newTaskDue, setNewTaskDue] = useState("");
   const [dateFilter, setDateFilter] = useState("");
+  const [focusedCol, setFocusedCol] = useState(null);
 
   const prioColor = {alta:"var(--red)",normal:"var(--accent)",baixa:"var(--text-3)"};
   const prioLabel = {alta:"🔴 Alta",normal:"🔵 Normal",baixa:"⚪ Baixa"};
@@ -1976,6 +1977,25 @@ function TasksPage() {
       </div>
 
       {/* Kanban board */}
+      {focusedCol ? (
+        <div style={{background:"var(--bg-sub)",border:"2px solid var(--border)",borderRadius:14,padding:16}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,paddingBottom:12,borderBottom:"1px solid var(--border)"}}>
+            <button onClick={()=>setFocusedCol(null)}
+              style={{background:"none",border:"none",color:"var(--text-2)",cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontSize:13,fontWeight:700,padding:0}}>
+              <Icon path={I.back} size={14}/> Ver todos os quadros
+            </button>
+            <span style={{fontSize:15,fontWeight:800,color:COLS.find(c=>c.id===focusedCol)?.color}}>
+              {COLS.find(c=>c.id===focusedCol)?.label} ({grouped[focusedCol].length})
+            </span>
+          </div>
+          <div style={{maxWidth:480,margin:"0 auto"}}>
+            {grouped[focusedCol].map(t => <TaskCard key={t.id} t={t}/>)}
+            {grouped[focusedCol].length===0 && (
+              <div style={{textAlign:"center",color:"var(--text-3)",fontSize:12,padding:"30px 0",opacity:.6}}>Vazio</div>
+            )}
+          </div>
+        </div>
+      ) : (
       <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:14 }} className="kanban-grid">
         {COLS.map(col => (
           <div key={col.id} ref={el => colRefs.current[col.id]=el}
@@ -1986,7 +2006,8 @@ function TasksPage() {
               transition:"background .15s, border-color .15s",
               display:"flex", flexDirection:"column",
             }}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,paddingBottom:10,borderBottom:"1px solid var(--border)"}}>
+            <div onClick={()=>setFocusedCol(col.id)}
+              style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,paddingBottom:10,borderBottom:"1px solid var(--border)",cursor:"pointer"}}>
               <span style={{fontSize:13,fontWeight:800,color:col.color}}>{col.label}</span>
               <span style={{fontSize:11,color:"var(--text-3)",background:"var(--bg-input)",borderRadius:10,padding:"2px 8px"}}>{grouped[col.id].length}</span>
             </div>
@@ -2001,6 +2022,7 @@ function TasksPage() {
           </div>
         ))}
       </div>
+      )}
       <style>{`
         @media (max-width: 760px) {
           .kanban-grid { grid-template-columns: 1fr !important; }
