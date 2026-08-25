@@ -2923,6 +2923,7 @@ function AgendaPage() {
   const [googleConnected, setGoogleConnected] = useState(null); // null=loading
   const [googleEvents, setGoogleEvents] = useState([]);
   const [googleSyncing, setGoogleSyncing] = useState(false);
+  const [googleError, setGoogleError] = useState(false);
 
   const fetchGoogleEvents = async () => {
     try {
@@ -2931,7 +2932,12 @@ function AgendaPage() {
       const timeMin = minDate.toISOString();
       const timeMax = maxDate.toISOString();
       const r = await fetch(`/api/google-calendar?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`);
-      if (!r.ok) { setGoogleEvents([]); return; }
+      if (!r.ok) {
+        setGoogleError(true);
+        if (r.status === 401) setGoogleConnected(false); // token really dead — reflect it in the UI
+        return; // don't touch googleEvents/events — a failed fetch must never look like "zero events"
+      }
+      setGoogleError(false);
       const items = await r.json();
       const parsed = Array.isArray(items) ? items.map(fromGoogleEvent) : [];
       setGoogleEvents(parsed);
@@ -2945,7 +2951,7 @@ function AgendaPage() {
         if (e.date < minStr || e.date > maxStr) return true; // outside the fetched window — can't verify, keep
         return liveIds.has(e.googleId);              // drop if Google no longer has it
       }));
-    } catch { setGoogleEvents([]); }
+    } catch { setGoogleError(true); }
   };
 
   useEffect(()=>{
@@ -2962,7 +2968,7 @@ function AgendaPage() {
   const connectGoogle = () => { window.location.href = "/api/google-auth"; };
   const disconnectGoogle = async () => {
     await fetch("/api/google-calendar?action=disconnect", { method:"DELETE" });
-    setGoogleConnected(false); setGoogleEvents([]);
+    setGoogleConnected(false); setGoogleEvents([]); setGoogleError(false);
   };
 
   const cats = ["Pessoal","Médico","Reunião","Viagem","Aniversário","Outros"];
@@ -3055,9 +3061,15 @@ function AgendaPage() {
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <div>
           {googleConnected===true && (
-            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"var(--text-3)"}}>
-              <span style={{width:8,height:8,borderRadius:"50%",background:"var(--green)",display:"inline-block"}}/>
-              Google Agenda conectado{googleSyncing?" · sincronizando...":""}
+            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:googleError?"var(--red)":"var(--text-3)"}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:googleError?"var(--red)":"var(--green)",display:"inline-block"}}/>
+              {googleError ? "Erro ao sincronizar com o Google" : `Google Agenda conectado${googleSyncing?" · sincronizando...":""}`}
+              {googleError && (
+                <button onClick={fetchGoogleEvents}
+                  style={{background:"none",border:"none",color:"var(--accent)",textDecoration:"underline",cursor:"pointer",fontSize:12,padding:0}}>
+                  Tentar de novo
+                </button>
+              )}
               <button onClick={disconnectGoogle}
                 style={{background:"none",border:"none",color:"var(--text-3)",textDecoration:"underline",cursor:"pointer",fontSize:12,padding:0}}>
                 Desconectar
