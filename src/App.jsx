@@ -130,7 +130,7 @@ function useKV(key, def) {
 
   // Poll every 5s so other devices' changes appear without reload
   useEffect(() => {
-    const id = setInterval(pull, 5000);
+    const id = setInterval(pull, 20000);
     return () => clearInterval(id);
   }, [key]);
 
@@ -203,7 +203,7 @@ function useDB(table, localKey, def=[]) {
 
   // Poll a cada 5s
   useEffect(() => {
-    const id = setInterval(() => pullRef.current(), 5000);
+    const id = setInterval(() => pullRef.current(), 20000);
     return () => clearInterval(id);
   }, [table]);
 
