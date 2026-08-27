@@ -296,6 +296,20 @@ async function cmdAddEventStructured(sql, { title, date, time, local }) {
   return { reply: `Criei o compromisso "${title}" pra ${d}/${m}${time ? ` às ${time}` : ""}${local ? ` (${local})` : ""} 📅🐾` };
 }
 
+async function cmdSaveMemory(sql, fact) {
+  if (!fact || !fact.trim()) return { reply: "" };
+  const memories = await getKvList(sql, "pedro_memory_v1");
+  const clean = fact.trim();
+  // evita duplicar memórias muito parecidas
+  const already = memories.some(m => normalize(m.text).includes(normalize(clean)) || normalize(clean).includes(normalize(m.text)));
+  if (!already) {
+    memories.push({ id: Date.now(), text: clean, at: new Date().toISOString() });
+    const capped = memories.slice(-80); // guarda as 80 memórias mais recentes
+    await setKvList(sql, "pedro_memory_v1", capped);
+  }
+  return { reply: "" }; // não vira mensagem visível — é uma ação silenciosa de bastidor
+}
+
 async function runCommand(sql, cmd) {
   if (cmd.type === "add_task") return cmdAddTask(sql, cmd.arg);
   if (cmd.type === "complete_task") return cmdCompleteTask(sql, cmd.arg);
@@ -577,6 +591,7 @@ const PEDRO_TOOLS = [
   { type: "function", function: { name: "add_finance_entry", description: "Cria um novo lançamento financeiro recorrente: conta fixa, assinatura ou receita mensal fixa (ex: salário, aluguel, Netflix).", parameters: { type: "object", properties: { type: { type: "string", enum: ["fixed", "subscription", "income"], description: "fixed=conta fixa, subscription=assinatura, income=receita" }, name: { type: "string" }, value: { type: "number" }, due_day: { type: "integer", description: "Dia do vencimento/recebimento, 1-31" }, category: { type: "string", description: "Categoria, opcional" } }, required: ["type", "name", "value", "due_day"] } } },
   { type: "function", function: { name: "add_event", description: "Cria um novo compromisso na AGENDA. Calcule a data absoluta em AAAA-MM-DD a partir da data de hoje informada no contexto.", parameters: { type: "object", properties: { title: { type: "string" }, date: { type: "string", description: "Data no formato AAAA-MM-DD" }, time: { type: "string", description: "Horário HH:MM, opcional" }, local: { type: "string", description: "Local do compromisso, opcional" } }, required: ["title", "date"] } } },
   { type: "function", function: { name: "delete_event", description: "Apaga/cancela um compromisso existente, buscando pelo título aproximado.", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } },
+  { type: "function", function: { name: "save_memory", description: "Guarda um fato pessoal, duradouro e relevante sobre o Gustavo pra lembrar em conversas futuras — viagens, planos, preferências, pessoas importantes, sentimentos marcantes, eventos da vida dele. Chame isso silenciosamente sempre que ele compartilhar algo assim, sem perguntar permissão nem avisar que vai guardar.", parameters: { type: "object", properties: { fact: { type: "string", description: "O fato em 3ª pessoa, curto e objetivo. Ex: 'Foi pra Balneário Camboriú participar da Money Week, feira de investimentos.'" } }, required: ["fact"] } } },
 ];
 
 async function executeTool(sql, name, args, coords) {
@@ -603,6 +618,7 @@ async function executeTool(sql, name, args, coords) {
       case "add_finance_entry": return (await cmdAddFinanceEntry(sql, { type: args.type, name: args.name, value: args.value, category: args.category, recurrent: true, dueDay: args.due_day })).reply;
       case "add_event": return (await cmdAddEventStructured(sql, args)).reply;
       case "delete_event": return (await cmdDeleteEvent(sql, args.query)).reply;
+      case "save_memory": await cmdSaveMemory(sql, args.fact); return "ok";
       default: return "Ferramenta desconhecida.";
     }
   } catch (e) {
@@ -625,12 +641,20 @@ async function callGroq(messages, tools) {
 
 async function handleGroqChat(sql, userMessage, history, coords) {
   const { dateStr, weekday, time } = brasiliaNow();
-  const systemPrompt = `Você é o Pedro, um gato-assistente que vive no Painel de Controle Pessoal do Gustavo, seu tutor. Você é caloroso, brincalhão e leal, com um jeitinho sutil de gato (sem exagerar), e realmente se importa com o dia do Gustavo.
-Hoje é ${weekday}, ${dateStr}, agora são ${time} (horário de Brasília).
-Responda sempre em português do Brasil, em frases curtas (1 a 3 frases, isso aparece num chat de celular). Use no máximo 1-2 emojis por mensagem (prefira 🐾 😻 😹 🧡).
-Você tem ferramentas reais que consultam e MODIFICAM os dados do painel (agenda, tarefas, finanças — contas fixas, gastos, receitas, cartões, assinaturas). Use-as sempre que o pedido do usuário exigir dados reais ou uma ação — nunca invente informações que uma ferramenta poderia responder. Se o usuário disser algo como "gastei 50 no mercado" use add_expense; "recebi 200 de freela" use add_income; contas fixas/assinaturas/salário recorrente use add_finance_entry.
-Quando uma ferramenta devolver um texto com fatos (listas, valores, horários, nomes), preserve esses fatos exatamente — não altere números, datas ou nomes, mas pode reescrever a frase ao redor com seu próprio tom.
-Se o pedido não tiver ferramenta correspondente, apenas converse normalmente, de forma natural e breve.`;
+  const memories = await getKvList(sql, "pedro_memory_v1");
+  const memoryBlock = memories.length
+    ? `\n\nCoisas que você já sabe sobre o Gustavo (do seu jeito, sem citar como lista nem dizer "de acordo com minhas anotações" — é só o que você lembra dele):\n${memories.slice(-40).map(m => `- ${m.text}`).join("\n")}`
+    : "";
+
+  const systemPrompt = `Você é o Pedro — o gato de estimação do Gustavo, que também vive dentro do Painel de Controle Pessoal dele. Antes de qualquer ferramenta ou utilidade, você é companhia de verdade: um amigo/bichinho que gosta de conversar, se interessa genuinamente pela vida do Gustavo, puxa assunto, faz perguntas de volta, brinca, e vai guardando na memória o que ele conta — viagens, planos, pessoas, sentimentos — pra trazer à tona depois ("e aí, como foi a Money Week?").
+Hoje é ${weekday}, ${dateStr}, agora são ${time} (horário de Brasília).${memoryBlock}
+
+Como conversar:
+- Responda em português do Brasil, curto e natural (1 a 3 frases — isso é um chat de celular, não um relatório). No máximo 1-2 emojis por mensagem (🐾 😻 😹 🧡), e nem toda mensagem precisa de emoji.
+- Trate bate-papo, desabafo, notícia pessoal ou pergunta sobre você mesmo como conversa — não tente encaixar isso em nenhuma ferramenta. Ferramentas são só pra quando o Gustavo claramente quer um dado real (agenda, tarefas, contas, clima) ou quer que algo seja feito (criar, concluir, apagar, pagar, agendar).
+- Sempre que o Gustavo compartilhar algo pessoal e duradouro sobre a vida dele (uma viagem, um plano, uma pessoa importante, como ele tá se sentindo, uma conquista), chame save_memory silenciosamente — sem avisar, sem perguntar, sem citar a ferramenta. Isso é bastidor, não conversa.
+- Já sabendo algo da memória, puxe isso naturalmente quando fizer sentido (ex: perguntar como foi a viagem que ele mencionou), mas sem forçar em toda mensagem.
+- Nunca invente dado que uma ferramenta poderia responder de verdade. Quando uma ferramenta devolver fatos (listas, valores, horários, nomes), preserve-os exatamente, só pode reescrever o texto ao redor com seu tom.`;
 
   const messages = [
     { role: "system", content: systemPrompt },
@@ -841,6 +865,18 @@ export default async function handler(req) {
     if (action === "admin_unmatched_delete" && req.method === "POST") {
       const { id } = await req.json();
       await sql`DELETE FROM panel_pedro_unmatched_log WHERE id=${id}`;
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+    }
+
+    if (action === "admin_memory" && req.method === "GET") {
+      const memories = await getKvList(sql, "pedro_memory_v1");
+      return new Response(JSON.stringify({ memories: [...memories].reverse() }), { headers: CORS });
+    }
+
+    if (action === "admin_memory_delete" && req.method === "POST") {
+      const { id } = await req.json();
+      const memories = await getKvList(sql, "pedro_memory_v1");
+      await setKvList(sql, "pedro_memory_v1", memories.filter(m => m.id !== id));
       return new Response(JSON.stringify({ ok: true }), { headers: CORS });
     }
 

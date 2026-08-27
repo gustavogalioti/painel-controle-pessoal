@@ -5674,6 +5674,7 @@ function PedroAdminModal({ onClose }) {
   const [newKw, setNewKw] = useState("");
   const [newRsp, setNewRsp] = useState("");
   const [unmatched, setUnmatched] = useState([]);
+  const [memories, setMemories] = useState([]);
   const [newIntentName, setNewIntentName] = useState("");
   const [newIntentCat, setNewIntentCat] = useState("");
 
@@ -5686,7 +5687,11 @@ function PedroAdminModal({ onClose }) {
   const loadUnmatched = async () => {
     try { const d = await fetch("/api/pedro?action=admin_unmatched").then(r => r.json()); setUnmatched(d.logs || []); } catch {}
   };
-  useEffect(() => { loadIntents(); loadUnmatched(); }, []);
+  const loadMemories = async () => {
+    try { const d = await fetch("/api/pedro?action=admin_memory").then(r => r.json()); setMemories(d.memories || []); } catch {}
+  };
+  const deleteMemory = async (id) => { await jpost("admin_memory_delete", { id }); loadMemories(); };
+  useEffect(() => { loadIntents(); loadUnmatched(); loadMemories(); }, []);
 
   const loadDetail = async (intentId) => {
     try {
@@ -5731,10 +5736,27 @@ function PedroAdminModal({ onClose }) {
 
   return (
     <Modal title="🐾 Cérebro do Pedro" onClose={onClose} wide>
-      <div style={{display:"flex",gap:8,marginBottom:16}}>
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
         <button onClick={() => setTab("intents")} style={btn(tab === "intents" ? "var(--accent)" : "var(--bg-sub)")}>Intents</button>
+        <button onClick={() => setTab("memory")} style={btn(tab === "memory" ? "var(--accent)" : "var(--bg-sub)")}>Memória ({memories.length})</button>
         <button onClick={() => setTab("unmatched")} style={btn(tab === "unmatched" ? "var(--accent)" : "var(--bg-sub)")}>Não reconhecidas ({unmatched.length})</button>
       </div>
+
+      {tab === "memory" && (
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{fontSize:12,color:"var(--text-3)",marginBottom:4}}>Fatos que o Pedro foi guardando sobre você durante as conversas. Pode apagar o que não quiser que ele lembre mais.</div>
+          {memories.length === 0 && <div style={{color:"var(--text-3)",fontSize:13}}>Ainda não guardou nada. Vai aparecendo conforme você conversa com ele 🐾</div>}
+          {memories.map(m => (
+            <div key={m.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:"var(--bg-sub)",border:"1px solid var(--border)",borderRadius:8,padding:"8px 12px"}}>
+              <div>
+                <div style={{fontSize:13}}>{m.text}</div>
+                <div style={{fontSize:10,color:"var(--text-3)"}}>{new Date(m.at).toLocaleString("pt-BR")}</div>
+              </div>
+              <button onClick={() => deleteMemory(m.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",flexShrink:0}}><Icon path={I.trash} size={14}/></button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {tab === "intents" && (
         <>
