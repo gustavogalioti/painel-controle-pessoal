@@ -646,8 +646,13 @@ async function handleGroqChat(sql, userMessage, history, coords) {
     ? `\n\nCoisas que você já sabe sobre o Gustavo (do seu jeito, sem citar como lista nem dizer "de acordo com minhas anotações" — é só o que você lembra dele):\n${memories.slice(-40).map(m => `- ${m.text}`).join("\n")}`
     : "";
 
+  const learned = await getKvList(sql, "pedro_learned_v1");
+  const learnedBlock = learned.length
+    ? `\n\nRegras que o Gustavo te ensinou explicitamente sobre como agir — siga à risca sempre que a situação descrita se aplicar, elas têm prioridade sobre seu julgamento padrão:\n${learned.map(l => `- ${l.text}`).join("\n")}`
+    : "";
+
   const systemPrompt = `Você é o Pedro — o gato de estimação do Gustavo, que também vive dentro do Painel de Controle Pessoal dele. Antes de qualquer ferramenta ou utilidade, você é companhia de verdade: um amigo/bichinho que gosta de conversar, se interessa genuinamente pela vida do Gustavo, puxa assunto, faz perguntas de volta, brinca, e vai guardando na memória o que ele conta — viagens, planos, pessoas, sentimentos — pra trazer à tona depois ("e aí, como foi a Money Week?").
-Hoje é ${weekday}, ${dateStr}, agora são ${time} (horário de Brasília).${memoryBlock}
+Hoje é ${weekday}, ${dateStr}, agora são ${time} (horário de Brasília).${memoryBlock}${learnedBlock}
 
 Como conversar:
 - Responda em português do Brasil, curto e natural (1 a 3 frases — isso é um chat de celular, não um relatório). No máximo 1-2 emojis por mensagem (🐾 😻 😹 🧡), e nem toda mensagem precisa de emoji.
@@ -712,6 +717,19 @@ export default async function handler(req) {
       const { message, coords, pending, history } = await req.json();
       if (!message || !message.trim()) {
         return new Response(JSON.stringify({ error: "Mensagem vazia" }), { status: 400, headers: CORS });
+      }
+
+      // "aprenda: ..." é um comando de ensino explícito — sempre prioritário, nunca passa pelo LLM
+      const teachMatch = message.trim().match(/^aprenda\s*[:\-]\s*(.+)/i);
+      if (teachMatch) {
+        const rule = teachMatch[1].trim();
+        if (!rule) {
+          return new Response(JSON.stringify({ reply: "Me fala o que devo aprender depois dos dois pontos! Tipo \"aprenda: X\" 🐾" }), { headers: CORS });
+        }
+        const learned = await getKvList(sql, "pedro_learned_v1");
+        learned.push({ id: Date.now(), text: rule, at: new Date().toISOString() });
+        await setKvList(sql, "pedro_learned_v1", learned.slice(-150));
+        return new Response(JSON.stringify({ reply: "Anotado! 📝🐾 Da próxima vez que rolar essa situação, já sei o que fazer." }), { headers: CORS });
       }
 
       // Groq (LLM real) é o caminho principal quando a chave está configurada
@@ -877,6 +895,18 @@ export default async function handler(req) {
       const { id } = await req.json();
       const memories = await getKvList(sql, "pedro_memory_v1");
       await setKvList(sql, "pedro_memory_v1", memories.filter(m => m.id !== id));
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+    }
+
+    if (action === "admin_learned" && req.method === "GET") {
+      const learned = await getKvList(sql, "pedro_learned_v1");
+      return new Response(JSON.stringify({ learned: [...learned].reverse() }), { headers: CORS });
+    }
+
+    if (action === "admin_learned_delete" && req.method === "POST") {
+      const { id } = await req.json();
+      const learned = await getKvList(sql, "pedro_learned_v1");
+      await setKvList(sql, "pedro_learned_v1", learned.filter(l => l.id !== id));
       return new Response(JSON.stringify({ ok: true }), { headers: CORS });
     }
 
