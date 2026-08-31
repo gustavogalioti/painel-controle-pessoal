@@ -130,7 +130,7 @@ function useKV(key, def) {
 
   // Poll every 5s so other devices' changes appear without reload
   useEffect(() => {
-    const id = setInterval(pull, 20000);
+    const id = setInterval(pull, 5000);
     return () => clearInterval(id);
   }, [key]);
 
@@ -203,7 +203,7 @@ function useDB(table, localKey, def=[]) {
 
   // Poll a cada 5s
   useEffect(() => {
-    const id = setInterval(() => pullRef.current(), 20000);
+    const id = setInterval(() => pullRef.current(), 5000);
     return () => clearInterval(id);
   }, [table]);
 
@@ -1977,25 +1977,6 @@ function TasksPage() {
       </div>
 
       {/* Kanban board */}
-      {focusedCol ? (
-        <div style={{background:"var(--bg-sub)",border:"2px solid var(--border)",borderRadius:14,padding:16}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,paddingBottom:12,borderBottom:"1px solid var(--border)"}}>
-            <button onClick={()=>setFocusedCol(null)}
-              style={{background:"none",border:"none",color:"var(--text-2)",cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontSize:13,fontWeight:700,padding:0}}>
-              <Icon path={I.back} size={14}/> Ver todos os quadros
-            </button>
-            <span style={{fontSize:15,fontWeight:800,color:COLS.find(c=>c.id===focusedCol)?.color}}>
-              {COLS.find(c=>c.id===focusedCol)?.label} ({grouped[focusedCol].length})
-            </span>
-          </div>
-          <div style={{maxWidth:480,margin:"0 auto"}}>
-            {grouped[focusedCol].map(t => <TaskCard key={t.id} t={t}/>)}
-            {grouped[focusedCol].length===0 && (
-              <div style={{textAlign:"center",color:"var(--text-3)",fontSize:12,padding:"30px 0",opacity:.6}}>Vazio</div>
-            )}
-          </div>
-        </div>
-      ) : (
       <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:14 }} className="kanban-grid">
         {COLS.map(col => (
           <div key={col.id} ref={el => colRefs.current[col.id]=el}
@@ -2006,8 +1987,8 @@ function TasksPage() {
               transition:"background .15s, border-color .15s",
               display:"flex", flexDirection:"column",
             }}>
-            <div onClick={()=>setFocusedCol(col.id)}
-              style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,paddingBottom:10,borderBottom:"1px solid var(--border)",cursor:"pointer"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,paddingBottom:10,borderBottom:"1px solid var(--border)",cursor:"pointer"}}
+              onClick={()=>setFocusedCol(col.id)}>
               <span style={{fontSize:13,fontWeight:800,color:col.color}}>{col.label}</span>
               <span style={{fontSize:11,color:"var(--text-3)",background:"var(--bg-input)",borderRadius:10,padding:"2px 8px"}}>{grouped[col.id].length}</span>
             </div>
@@ -2022,7 +2003,6 @@ function TasksPage() {
           </div>
         ))}
       </div>
-      )}
       <style>{`
         @media (max-width: 760px) {
           .kanban-grid { grid-template-columns: 1fr !important; }
@@ -2032,6 +2012,33 @@ function TasksPage() {
         }
         @media (min-width:1101px) and (max-width:1450px) {
           .kanban-grid { grid-template-columns: repeat(3,1fr) !important; }
+        }
+      `}</style>
+
+      {focusedCol && (() => {
+        const col = COLS.find(c=>c.id===focusedCol);
+        const colTasks = grouped[focusedCol] || [];
+        return (
+          <Modal title={col.label} wide onClose={()=>setFocusedCol(null)}>
+            <div style={{fontSize:11,color:"var(--text-3)",marginBottom:14}}>{colTasks.length} tarefa(s)</div>
+            {colTasks.length===0 ? (
+              <Empty text="Nenhuma tarefa nesta etapa."/>
+            ) : (
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}} className="focused-col-grid">
+                {colTasks.map(t => (
+                  <TaskCard key={t.id} t={t}/>
+                ))}
+              </div>
+            )}
+          </Modal>
+        );
+      })()}
+      <style>{`
+        @media (max-width: 700px) {
+          .focused-col-grid { grid-template-columns: repeat(2,1fr) !important; }
+        }
+        @media (max-width: 420px) {
+          .focused-col-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
 
@@ -2923,7 +2930,6 @@ function AgendaPage() {
   const [googleConnected, setGoogleConnected] = useState(null); // null=loading
   const [googleEvents, setGoogleEvents] = useState([]);
   const [googleSyncing, setGoogleSyncing] = useState(false);
-  const [googleError, setGoogleError] = useState(false);
 
   const fetchGoogleEvents = async () => {
     try {
@@ -2932,12 +2938,7 @@ function AgendaPage() {
       const timeMin = minDate.toISOString();
       const timeMax = maxDate.toISOString();
       const r = await fetch(`/api/google-calendar?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`);
-      if (!r.ok) {
-        setGoogleError(true);
-        if (r.status === 401) setGoogleConnected(false); // token really dead — reflect it in the UI
-        return; // don't touch googleEvents/events — a failed fetch must never look like "zero events"
-      }
-      setGoogleError(false);
+      if (!r.ok) { setGoogleEvents([]); return; }
       const items = await r.json();
       const parsed = Array.isArray(items) ? items.map(fromGoogleEvent) : [];
       setGoogleEvents(parsed);
@@ -2951,7 +2952,7 @@ function AgendaPage() {
         if (e.date < minStr || e.date > maxStr) return true; // outside the fetched window — can't verify, keep
         return liveIds.has(e.googleId);              // drop if Google no longer has it
       }));
-    } catch { setGoogleError(true); }
+    } catch { setGoogleEvents([]); }
   };
 
   useEffect(()=>{
@@ -2968,7 +2969,7 @@ function AgendaPage() {
   const connectGoogle = () => { window.location.href = "/api/google-auth"; };
   const disconnectGoogle = async () => {
     await fetch("/api/google-calendar?action=disconnect", { method:"DELETE" });
-    setGoogleConnected(false); setGoogleEvents([]); setGoogleError(false);
+    setGoogleConnected(false); setGoogleEvents([]);
   };
 
   const cats = ["Pessoal","Médico","Reunião","Viagem","Aniversário","Outros"];
@@ -3061,15 +3062,9 @@ function AgendaPage() {
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <div>
           {googleConnected===true && (
-            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:googleError?"var(--red)":"var(--text-3)"}}>
-              <span style={{width:8,height:8,borderRadius:"50%",background:googleError?"var(--red)":"var(--green)",display:"inline-block"}}/>
-              {googleError ? "Erro ao sincronizar com o Google" : `Google Agenda conectado${googleSyncing?" · sincronizando...":""}`}
-              {googleError && (
-                <button onClick={fetchGoogleEvents}
-                  style={{background:"none",border:"none",color:"var(--accent)",textDecoration:"underline",cursor:"pointer",fontSize:12,padding:0}}>
-                  Tentar de novo
-                </button>
-              )}
+            <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"var(--text-3)"}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:"var(--green)",display:"inline-block"}}/>
+              Google Agenda conectado{googleSyncing?" · sincronizando...":""}
               <button onClick={disconnectGoogle}
                 style={{background:"none",border:"none",color:"var(--text-3)",textDecoration:"underline",cursor:"pointer",fontSize:12,padding:0}}>
                 Desconectar
@@ -5674,8 +5669,6 @@ function PedroAdminModal({ onClose }) {
   const [newKw, setNewKw] = useState("");
   const [newRsp, setNewRsp] = useState("");
   const [unmatched, setUnmatched] = useState([]);
-  const [memories, setMemories] = useState([]);
-  const [learned, setLearned] = useState([]);
   const [newIntentName, setNewIntentName] = useState("");
   const [newIntentCat, setNewIntentCat] = useState("");
 
@@ -5688,15 +5681,7 @@ function PedroAdminModal({ onClose }) {
   const loadUnmatched = async () => {
     try { const d = await fetch("/api/pedro?action=admin_unmatched").then(r => r.json()); setUnmatched(d.logs || []); } catch {}
   };
-  const loadMemories = async () => {
-    try { const d = await fetch("/api/pedro?action=admin_memory").then(r => r.json()); setMemories(d.memories || []); } catch {}
-  };
-  const deleteMemory = async (id) => { await jpost("admin_memory_delete", { id }); loadMemories(); };
-  const loadLearned = async () => {
-    try { const d = await fetch("/api/pedro?action=admin_learned").then(r => r.json()); setLearned(d.learned || []); } catch {}
-  };
-  const deleteLearned = async (id) => { await jpost("admin_learned_delete", { id }); loadLearned(); };
-  useEffect(() => { loadIntents(); loadUnmatched(); loadMemories(); loadLearned(); }, []);
+  useEffect(() => { loadIntents(); loadUnmatched(); }, []);
 
   const loadDetail = async (intentId) => {
     try {
@@ -5741,44 +5726,10 @@ function PedroAdminModal({ onClose }) {
 
   return (
     <Modal title="🐾 Cérebro do Pedro" onClose={onClose} wide>
-      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
         <button onClick={() => setTab("intents")} style={btn(tab === "intents" ? "var(--accent)" : "var(--bg-sub)")}>Intents</button>
-        <button onClick={() => setTab("memory")} style={btn(tab === "memory" ? "var(--accent)" : "var(--bg-sub)")}>Memória ({memories.length})</button>
-        <button onClick={() => setTab("learned")} style={btn(tab === "learned" ? "var(--accent)" : "var(--bg-sub)")}>Ensinado ({learned.length})</button>
         <button onClick={() => setTab("unmatched")} style={btn(tab === "unmatched" ? "var(--accent)" : "var(--bg-sub)")}>Não reconhecidas ({unmatched.length})</button>
       </div>
-
-      {tab === "learned" && (
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:12,color:"var(--text-3)",marginBottom:4}}>Regras que você ensinou mandando "aprenda: ..." no chat. Ele segue à risca quando a situação bate.</div>
-          {learned.length === 0 && <div style={{color:"var(--text-3)",fontSize:13}}>Nada ensinado ainda. Manda "aprenda: X" no chat do Pedro quando ele não souber algo 🐾</div>}
-          {learned.map(l => (
-            <div key={l.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:"var(--bg-sub)",border:"1px solid var(--border)",borderRadius:8,padding:"8px 12px"}}>
-              <div>
-                <div style={{fontSize:13}}>{l.text}</div>
-                <div style={{fontSize:10,color:"var(--text-3)"}}>{new Date(l.at).toLocaleString("pt-BR")}</div>
-              </div>
-              <button onClick={() => deleteLearned(l.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",flexShrink:0}}><Icon path={I.trash} size={14}/></button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tab === "memory" && (
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          <div style={{fontSize:12,color:"var(--text-3)",marginBottom:4}}>Fatos que o Pedro foi guardando sobre você durante as conversas. Pode apagar o que não quiser que ele lembre mais.</div>
-          {memories.length === 0 && <div style={{color:"var(--text-3)",fontSize:13}}>Ainda não guardou nada. Vai aparecendo conforme você conversa com ele 🐾</div>}
-          {memories.map(m => (
-            <div key={m.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,background:"var(--bg-sub)",border:"1px solid var(--border)",borderRadius:8,padding:"8px 12px"}}>
-              <div>
-                <div style={{fontSize:13}}>{m.text}</div>
-                <div style={{fontSize:10,color:"var(--text-3)"}}>{new Date(m.at).toLocaleString("pt-BR")}</div>
-              </div>
-              <button onClick={() => deleteMemory(m.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",flexShrink:0}}><Icon path={I.trash} size={14}/></button>
-            </div>
-          ))}
-        </div>
-      )}
 
       {tab === "intents" && (
         <>
