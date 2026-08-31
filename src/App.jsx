@@ -2024,9 +2024,11 @@ function TasksPage() {
             {colTasks.length===0 ? (
               <Empty text="Nenhuma tarefa nesta etapa."/>
             ) : (
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}} className="focused-col-grid">
+              <div className="focused-col-grid" style={{columnCount:4, columnGap:12}}>
                 {colTasks.map(t => (
-                  <TaskCard key={t.id} t={t}/>
+                  <div key={t.id} style={{breakInside:"avoid",WebkitColumnBreakInside:"avoid"}}>
+                    <TaskCard t={t}/>
+                  </div>
                 ))}
               </div>
             )}
@@ -2035,10 +2037,10 @@ function TasksPage() {
       })()}
       <style>{`
         @media (max-width: 700px) {
-          .focused-col-grid { grid-template-columns: repeat(2,1fr) !important; }
+          .focused-col-grid { column-count: 2 !important; }
         }
         @media (max-width: 420px) {
-          .focused-col-grid { grid-template-columns: 1fr !important; }
+          .focused-col-grid { column-count: 1 !important; }
         }
       `}</style>
 
