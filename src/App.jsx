@@ -1831,12 +1831,12 @@ function TasksPage() {
           touchAction:"none", userSelect:"none",
           transition: isDragging ? "none" : "opacity .15s",
           boxShadow: isDragging ? "0 8px 24px #0003" : "0 1px 4px #0001",
-          height:225, overflow:"hidden", display:"flex", flexDirection:"column",
+          height:190, overflow:"hidden", display:"flex", flexDirection:"column",
         }}
       >
         <p style={{
           margin:0,fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:8,pointerEvents:"none",
-          display:"-webkit-box", WebkitLineClamp:7, WebkitBoxOrient:"vertical", overflow:"hidden",
+          display:"-webkit-box", WebkitLineClamp:5, WebkitBoxOrient:"vertical", overflow:"hidden",
         }}>{t.text}</p>
         <div style={{marginTop:"auto"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"var(--text-3)",pointerEvents:"none"}}>
