@@ -1831,29 +1831,35 @@ function TasksPage() {
           touchAction:"none", userSelect:"none",
           transition: isDragging ? "none" : "opacity .15s",
           boxShadow: isDragging ? "0 8px 24px #0003" : "0 1px 4px #0001",
+          height:225, overflow:"hidden", display:"flex", flexDirection:"column",
         }}
       >
-        <p style={{margin:0,fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:8,pointerEvents:"none"}}>{t.text}</p>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"var(--text-3)",pointerEvents:"none"}}>
-          <span style={{color:prioColor[t.prio],fontWeight:700}}>{prioLabel[t.prio]}</span>
-          <span>{new Date(t.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</span>
+        <p style={{
+          margin:0,fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:8,pointerEvents:"none",
+          display:"-webkit-box", WebkitLineClamp:7, WebkitBoxOrient:"vertical", overflow:"hidden",
+        }}>{t.text}</p>
+        <div style={{marginTop:"auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"var(--text-3)",pointerEvents:"none"}}>
+            <span style={{color:prioColor[t.prio],fontWeight:700}}>{prioLabel[t.prio]}</span>
+            <span>{new Date(t.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</span>
+          </div>
+          {t.dueDate && (
+            <div style={{fontSize:10.5,fontWeight:700,marginTop:6,pointerEvents:"none",color: isOverdue(t) ? "var(--red)" : "var(--text-2)"}}>
+              {isOverdue(t) ? "⚠️ " : "📅 "}{fmtDue(t.dueDate)}
+            </div>
+          )}
+          {t.tags?.length>0 && (
+            <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:8,pointerEvents:"none",overflow:"hidden",maxHeight:22}}>
+              {t.tags.map(tag=>(
+                <span key={tag} style={{
+                  fontSize:9.5, fontWeight:700, color:"var(--accent)", background:"var(--accent-dim)",
+                  borderRadius:8, padding:"2px 7px",
+                }}>🏷 {tag}</span>
+              ))}
+            </div>
+          )}
+          {t.updates?.length>0 && <div style={{fontSize:10,color:"var(--accent)",marginTop:6,pointerEvents:"none"}}>💬 {t.updates.length}</div>}
         </div>
-        {t.dueDate && (
-          <div style={{fontSize:10.5,fontWeight:700,marginTop:6,pointerEvents:"none",color: isOverdue(t) ? "var(--red)" : "var(--text-2)"}}>
-            {isOverdue(t) ? "⚠️ " : "📅 "}{fmtDue(t.dueDate)}
-          </div>
-        )}
-        {t.tags?.length>0 && (
-          <div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:8,pointerEvents:"none"}}>
-            {t.tags.map(tag=>(
-              <span key={tag} style={{
-                fontSize:9.5, fontWeight:700, color:"var(--accent)", background:"var(--accent-dim)",
-                borderRadius:8, padding:"2px 7px",
-              }}>🏷 {tag}</span>
-            ))}
-          </div>
-        )}
-        {t.updates?.length>0 && <div style={{fontSize:10,color:"var(--accent)",marginTop:6,pointerEvents:"none"}}>💬 {t.updates.length}</div>}
       </div>
     );
   };
@@ -2024,11 +2030,9 @@ function TasksPage() {
             {colTasks.length===0 ? (
               <Empty text="Nenhuma tarefa nesta etapa."/>
             ) : (
-              <div className="focused-col-grid" style={{columnCount:4, columnGap:12}}>
+              <div className="focused-col-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
                 {colTasks.map(t => (
-                  <div key={t.id} style={{breakInside:"avoid",WebkitColumnBreakInside:"avoid"}}>
-                    <TaskCard t={t}/>
-                  </div>
+                  <TaskCard key={t.id} t={t}/>
                 ))}
               </div>
             )}
@@ -2037,10 +2041,10 @@ function TasksPage() {
       })()}
       <style>{`
         @media (max-width: 700px) {
-          .focused-col-grid { column-count: 2 !important; }
+          .focused-col-grid { grid-template-columns: repeat(2,1fr) !important; }
         }
         @media (max-width: 420px) {
-          .focused-col-grid { column-count: 1 !important; }
+          .focused-col-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
 
