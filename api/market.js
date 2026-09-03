@@ -8,9 +8,12 @@ const CORS = {
   "Content-Type": "application/json",
 };
 
+const bcbSeries = (code) =>
+  fetch(`https://api.bcb.gov.br/dados/serie/bcdata.sgs.${code}/dados/ultimos/2?formato=json`).then(r => r.json());
+
 export default async function handler(req) {
   try {
-    const [usdR, ibovR, spR, nqR, djR, vixR, cgR, erR, cgXauR, brentR] = await Promise.allSettled([
+    const [usdR, ibovR, spR, nqR, djR, vixR, cgR, erR, cgXauR, brentR, selicR, ipca12R, ipcaAnoR] = await Promise.allSettled([
       fetch(`https://brapi.dev/api/quote/USDBRL%3DX?token=${BRAPI}`).then(r => r.json()),
       fetch(`https://brapi.dev/api/quote/%5EBVSP?token=${BRAPI}`).then(r => r.json()),
       fetch(`https://brapi.dev/api/quote/%5EGSPC?token=${BRAPI}`).then(r => r.json()),
@@ -21,6 +24,9 @@ export default async function handler(req) {
       fetch("https://open.er-api.com/v6/latest/USD").then(r => r.json()),
       fetch("https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
       fetch(`https://brapi.dev/api/quote/BZ%3DF?token=${BRAPI}`).then(r => r.json()),
+      bcbSeries(432),   // Meta Selic definida pelo Copom (% a.a.)
+      bcbSeries(13522), // IPCA - variação % acumulada em 12 meses
+      bcbSeries(13521), // IPCA - variação % acumulada no ano
     ]);
 
     const getQ  = (r) => r.status === "fulfilled" ? r.value?.results?.[0] : null;
@@ -39,6 +45,20 @@ export default async function handler(req) {
 
     const q = (r) => getQ(r);
 
+    // BCB SGS series return the last 2 points so we can compute a delta vs. the previous reading
+    const bcbLast2 = (r) => r.status === "fulfilled" && Array.isArray(r.value) ? r.value : [];
+    const bcbVal = (arr, i) => arr[i] ? parseFloat(String(arr[i].valor).replace(",", ".")) : null;
+    const selicArr = bcbLast2(selicR);
+    const ipca12Arr = bcbLast2(ipca12R);
+    const ipcaAnoArr = bcbLast2(ipcaAnoR);
+    const selicVal  = bcbVal(selicArr, selicArr.length-1);
+    const selicPrev = bcbVal(selicArr, selicArr.length-2);
+    const ipca12Val  = bcbVal(ipca12Arr, ipca12Arr.length-1);
+    const ipca12Prev = bcbVal(ipca12Arr, ipca12Arr.length-2);
+    const ipcaAnoVal  = bcbVal(ipcaAnoArr, ipcaAnoArr.length-1);
+    const ipcaAnoPrev = bcbVal(ipcaAnoArr, ipcaAnoArr.length-2);
+    const delta = (cur, prev) => (cur!=null && prev!=null) ? (cur-prev) : null;
+
     const result = {
       dolar:  { price: usdBrl,               chg: usd?.regularMarketChangePercent       },
       ibov:   { price: q(ibovR)?.regularMarketPrice,  chg: q(ibovR)?.regularMarketChangePercent  },
@@ -52,7 +72,9 @@ export default async function handler(req) {
       ouro:   { price: xauBrl,                        chg: paxgChg                                },
       ouroUsd:{ price: paxg,                          chg: paxgChg                                },
       brent:  { price: q(brentR)?.regularMarketPrice, chg: q(brentR)?.regularMarketChangePercent  },
-      selic:  { price: 14.75,                         chg: null                                   },
+      selic:    { price: selicVal,   chg: delta(selicVal, selicPrev)     },
+      ipca12m:  { price: ipca12Val,  chg: delta(ipca12Val, ipca12Prev)   },
+      ipcaAno:  { price: ipcaAnoVal, chg: delta(ipcaAnoVal, ipcaAnoPrev) },
     };
 
     return new Response(JSON.stringify(result), { headers: CORS });

@@ -264,6 +264,7 @@ function useMarketData() {
     dolar:{val:"--",chg:"--"}, ibov:{val:"--",chg:"--"},
     sp500:{val:"--",chg:"--"}, ouro:{val:"--",chg:"--"},
     btc:  {val:"--",chg:"--"}, euro:{val:"--",chg:"--"},
+    selic:{val:"--",chg:"--"}, ipca12m:{val:"--",chg:"--"}, ipcaAno:{val:"--",chg:"--"},
   });
   const [loading, setLoading] = useState(true);
 
@@ -278,6 +279,9 @@ function useMarketData() {
         ouro: {val:fmt$(d.ouroUsd?.price,"$ ",0), chg:fmtPct(d.ouroUsd?.chg)},
         btc:  {val:fmt$(d.btc?.price,"$ ",0),   chg:fmtPct(d.btc?.chg)},
         euro: {val:fmt$(d.euro?.price,"R$ "),   chg:fmtPct(d.euro?.chg)},
+        selic:  {val: d.selic?.price!=null   ? `${fmtNum(d.selic.price,2)}%`   : "--", chg:fmtPct(d.selic?.chg)},
+        ipca12m:{val: d.ipca12m?.price!=null ? `${fmtNum(d.ipca12m.price,2)}%` : "--", chg:fmtPct(d.ipca12m?.chg)},
+        ipcaAno:{val: d.ipcaAno?.price!=null ? `${fmtNum(d.ipcaAno.price,2)}%` : "--", chg:fmtPct(d.ipcaAno?.chg)},
       });
       setLoading(false);
     } catch {}
@@ -395,6 +399,16 @@ function TopTickerRow({ market }) {
         icon={<Icon path={I.trend} size={13} color="#fff"/>}/>
       <TickerPill label="BITCOIN" value={data.btc.val} chg={data.btc.chg} loading={loading} color="#f7931a"
         icon={<span style={{color:"#fff",fontWeight:800,fontSize:12}}>₿</span>}/>
+      <TickerPill label="OURO" value={data.ouro.val} chg={data.ouro.chg} loading={loading} color="var(--yellow)"
+        icon={<span style={{color:"#fff",fontWeight:800,fontSize:12}}>Au</span>}/>
+      <TickerPill label="EURO" value={data.euro.val} chg={data.euro.chg} loading={loading} color="#3b5bdb"
+        icon={<span style={{color:"#fff",fontWeight:800,fontSize:13}}>€</span>}/>
+      <TickerPill label="SELIC HOJE" value={data.selic.val} chg={data.selic.chg} loading={loading} color="#0891b2"
+        icon={<Icon path={I.card} size={12} color="#fff"/>}/>
+      <TickerPill label="IPCA 12M" value={data.ipca12m.val} chg={data.ipca12m.chg} loading={loading} color="#be185d"
+        icon={<Icon path={I.trend} size={12} color="#fff"/>}/>
+      <TickerPill label="IPCA NO ANO" value={data.ipcaAno.val} chg={data.ipcaAno.chg} loading={loading} color="#9333ea"
+        icon={<Icon path={I.trend} size={12} color="#fff"/>}/>
     </div>
   );
 }
@@ -4357,7 +4371,7 @@ function DiarioCard({ onClick }) {
   const last = entries[0];
   const lastLabel = last ? new Date(last.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+", "+new Date(last.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "Nenhum registro";
   return (
-    <div onClick={onClick} style={{...homeCardStyle("var(--tile-diary)"), gridArea:"diario"}}>
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-diary)"), height:"100%"}}>
       <CardHeader icon="book" label="Diário"/>
       <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.book} size={46} color="rgba(255,255,255,0.85)"/></div>
       <div style={{fontWeight:800,fontSize:16,marginBottom:8}}>Momento de foco</div>
@@ -4375,7 +4389,7 @@ function DiarioCard({ onClick }) {
 function IdeiasCard({ onClick }) {
   const [entries] = useKV("ideas_v1", []);
   return (
-    <div onClick={onClick} style={{...homeCardStyle("var(--purple)"), gridArea:"ideias"}}>
+    <div onClick={onClick} style={{...homeCardStyle("var(--purple)"), height:"100%"}}>
       <CardHeader icon="bulb" label="Ideias"/>
       <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.bulb} size={40} color="rgba(255,255,255,0.85)"/></div>
       <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{entries.length}</div>
@@ -4389,7 +4403,7 @@ function TarefasCard({ onClick }) {
   const today = tasks.filter(t=>(t.status||(t.done?"done":"todo"))==="today").length;
   const doing = tasks.filter(t=>(t.status||(t.done?"done":"todo"))==="doing").length;
   return (
-    <div onClick={onClick} style={{...homeCardStyle("#7c3aed"), gridArea:"tarefas"}}>
+    <div onClick={onClick} style={{...homeCardStyle("#7c3aed"), height:"100%"}}>
       <CardHeader icon="checkSq" label="Tarefas"/>
       <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.checkSq} size={40} color="rgba(255,255,255,0.85)"/></div>
       <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{today}</div>
@@ -4402,21 +4416,11 @@ function TarefasCard({ onClick }) {
 function RascunhosCard({ onClick }) {
   const [items] = useKV("rascunhos_v1", []);
   const withImg = items.filter(i=>i.hasImage);
-  const [thumb, setThumb] = useState(null);
-  useEffect(()=>{
-    const first = withImg[0];
-    if (first) KV.get("rascunho_img_"+first.id).then(setThumb);
-  }, [items.length]);
   return (
-    <div onClick={onClick} style={{...homeCardStyle("#0a3a3a"), gridArea:"rascunhos"}}>
+    <div onClick={onClick} style={{...homeCardStyle("#0a3a3a"), height:"100%"}}>
       <CardHeader icon="image" label="Rascunho & Imagens"/>
-      <div style={{display:"flex",gap:14,alignItems:"center",flex:1}}>
-        <Icon path={I.image} size={34} color="rgba(255,255,255,0.7)"/>
-        <div style={{flex:1,aspectRatio:"4/3",borderRadius:10,overflow:"hidden",background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-          {thumb ? <img src={thumb} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : <Icon path={I.image} size={22} color="rgba(255,255,255,0.4)"/>}
-        </div>
-      </div>
-      <div style={{display:"flex",gap:24,marginTop:14}}>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.image} size={40} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{display:"flex",gap:24,marginTop:"auto"}}>
         <div><div style={{fontSize:22,fontWeight:800}}>{items.length-withImg.length}</div><div style={{fontSize:11,color:"rgba(255,255,255,0.75)"}}>rascunhos</div></div>
         <div><div style={{fontSize:22,fontWeight:800}}>{withImg.length}</div><div style={{fontSize:11,color:"rgba(255,255,255,0.75)"}}>imagens</div></div>
       </div>
@@ -4429,7 +4433,7 @@ function ListasCard({ onClick }) {
   const first = lists[0];
   const items = (first?.items||[]).slice(0,3);
   return (
-    <div onClick={onClick} style={{...homeCardStyle("var(--tile-lists)"), gridArea:"listas"}}>
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-lists)"), height:"100%"}}>
       <CardHeader icon="list" label="Listas"/>
       {items.length>0 ? (
         <div style={{display:"flex",flexDirection:"column",gap:9,marginTop:4}}>
@@ -4459,7 +4463,7 @@ function DocumentosCard({ onClick }) {
   const weekAgo = Date.now() - 7*86400000;
   const recent = docs.filter(d=>{ const dt = parseBr(d.date); return dt && dt.getTime()>=weekAgo; }).length;
   return (
-    <div onClick={onClick} style={{...homeCardStyle("var(--tile-docs)"), gridArea:"documentos"}}>
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-docs)"), height:"100%"}}>
       <CardHeader icon="folder" label="Documentos"/>
       <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.folder} size={40} color="rgba(255,255,255,0.85)"/></div>
       <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{docs.length}</div>
@@ -4476,7 +4480,7 @@ function AgendaCard({ onClick }) {
   const next = upcoming[0];
   const todayCount = events.filter(e=>e.date===todayStr).length;
   return (
-    <div onClick={onClick} style={{...homeCardStyle("var(--tile-events)"), gridArea:"agenda"}}>
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-events)"), height:"100%"}}>
       <CardHeader icon="calendar" label="Agenda"/>
       <div style={{display:"flex",gap:14,alignItems:"center",flex:1}}>
         <Icon path={I.calendar} size={34} color="rgba(255,255,255,0.75)"/>
@@ -4503,7 +4507,7 @@ function ContasCard({ onClick }) {
   const day = new Date().getDate();
   const upcoming = unpaid.filter(b=>+b.dueDay>=day && +b.dueDay<=day+5).length;
   return (
-    <div onClick={onClick} style={{...homeCardStyle("var(--tile-bills)"), gridArea:"contas"}}>
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-bills)"), height:"100%"}}>
       <CardHeader icon="card" label="Contas"/>
       <div style={{display:"flex",justifyContent:"center",margin:"6px 0 14px"}}><Icon path={I.card} size={36} color="rgba(255,255,255,0.85)"/></div>
       <div style={{fontSize:12,color:"rgba(255,255,255,0.8)"}}>Total a pagar</div>
@@ -4518,7 +4522,7 @@ function ContasCard({ onClick }) {
 
 function DJMixCard({ onClick }) {
   return (
-    <div onClick={onClick} style={{...homeCardStyle("#4a1030"), gridArea:"djmix", alignItems:"center", justifyContent:"center", textAlign:"center"}}>
+    <div onClick={onClick} style={{...homeCardStyle("#4a1030"), height:"100%", alignItems:"center", justifyContent:"center", textAlign:"center"}}>
       <Icon path={I.headphones} size={40} color="rgba(255,255,255,0.85)"/>
       <div style={{fontWeight:800,fontSize:14,marginTop:12}}>DJ Mix</div>
       <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:4}}>Abrir mixer</div>
@@ -4533,7 +4537,7 @@ function MercadoCard({ market, onClick }) {
   const isUp = d.chg && !String(d.chg).startsWith("-") && d.chg!=="--";
   const barColor = market.loading ? "rgba(255,255,255,0.3)" : isUp ? "#4ade80" : "#f87171";
   return (
-    <div onClick={onClick} style={{...homeCardStyle("var(--tile-market)"), gridArea:"mercado"}}>
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-market)"), height:"100%"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <Icon path={I.trend} size={18} color="rgba(255,255,255,0.9)"/>
@@ -4570,7 +4574,7 @@ function MercadoCard({ market, onClick }) {
 function TempoCard({ onClick }) {
   const w = useWeather();
   return (
-    <div onClick={onClick} style={{...homeCardStyle("var(--tile-weather)"), gridArea:"tempo", alignItems:"center", textAlign:"center"}}>
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-weather)"), height:"100%", alignItems:"center", textAlign:"center"}}>
       <CardHeader icon={null} label="Tempo"/>
       <Icon path={I.weather} size={38} color="rgba(255,255,255,0.9)"/>
       {w && !w.error ? (<>
@@ -4585,9 +4589,54 @@ function TempoCard({ onClick }) {
   );
 }
 
+const DASH_CARD_DEFS = [
+  { id:"diario",     nav:"diary",     defC:1, defR:2 },
+  { id:"ideias",     nav:"ideas",     defC:1, defR:1 },
+  { id:"tarefas",    nav:"tasks",     defC:1, defR:1 },
+  { id:"rascunhos",  nav:"rascunhos", defC:2, defR:1 },
+  { id:"listas",     nav:"lists",     defC:1, defR:1 },
+  { id:"documentos", nav:"docs",      defC:1, defR:1 },
+  { id:"agenda",     nav:"events",    defC:1, defR:1 },
+  { id:"contas",     nav:"bills",     defC:1, defR:1 },
+  { id:"djmix",      nav:"dj",        defC:1, defR:1 },
+  { id:"mercado",    nav:"market",    defC:2, defR:1 },
+  { id:"tempo",      nav:"weather",   defC:1, defR:1 },
+];
+const DASH_DEFAULT_ORDER = DASH_CARD_DEFS.map(c=>c.id);
+const DASH_SIZE_CYCLE = [{c:1,r:1},{c:2,r:1},{c:1,r:2},{c:2,r:2}];
+
+function DashSlot({ id, col, row, orderIdx, editMode, isDragging, onPointerDown, onResize, children }) {
+  return (
+    <div
+      className={`dash-slot${editMode?" edit-mode":""}${isDragging?" dragging":""}`}
+      style={{ gridColumn:`span ${col}`, gridRow:`span ${row}`, order: orderIdx }}
+      onMouseDown={onPointerDown} onTouchStart={onPointerDown}>
+      {children}
+      {editMode && (
+        <button className="dash-resize-btn"
+          onClick={e=>{e.stopPropagation();onResize();}}
+          onTouchEnd={e=>{e.stopPropagation();e.preventDefault();onResize();}}>
+          <Icon path={I.resize} size={13} color="#fff"/>
+        </button>
+      )}
+    </div>
+  );
+}
+
+const DASH_COMPONENTS = {
+  diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
+  listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
+  djmix: DJMixCard, mercado: MercadoCard, tempo: TempoCard,
+};
+
 function HomePage({ onNavigate }) {
   const [customTiles, setCustomTiles] = useKV("custom_tiles_home_v1", []);
   const [showAddTile, setShowAddTile] = useState(false);
+  const [layout, setLayout] = useKV("home_dash_layout_v1", { order: DASH_DEFAULT_ORDER, sizes: {} });
+  const [editMode, setEditMode] = useState(false);
+  const [dragId, setDragId] = useState(null);
+  const slotRefs = useRef({});
+  const drag = useRef(null);
   const market = useMarketData();
   const today = new Date();
   const dateLabel = today.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
@@ -4603,25 +4652,108 @@ function HomePage({ onNavigate }) {
     { id:"letreiro",   color:"#1a0a2a",           icon:"marquee", label:"Letreiro" },
   ];
 
+  const order = (layout.order && layout.order.length) ? layout.order.filter(id=>DASH_DEFAULT_ORDER.includes(id)) : DASH_DEFAULT_ORDER;
+  const fullOrder = [...order, ...DASH_DEFAULT_ORDER.filter(id=>!order.includes(id))];
+  const sizes = layout.sizes || {};
+
+  const findSlotAt = (x,y) => {
+    for (const id of fullOrder) {
+      const el = slotRefs.current[id];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (x>=r.left && x<=r.right && y>=r.top && y<=r.bottom) return id;
+    }
+    return null;
+  };
+
+  const onSlotPointerDown = (e, id) => {
+    if (!editMode) return;
+    if (e.button !== undefined && e.button !== 0) return;
+    const point = e.touches ? e.touches[0] : e;
+    drag.current = { id, startX: point.clientX, startY: point.clientY, moved:false };
+  };
+
+  useEffect(() => {
+    if (!editMode) return;
+    const onMove = (e) => {
+      const d = drag.current; if (!d) return;
+      const point = e.touches ? e.touches[0] : e;
+      const dx = point.clientX-d.startX, dy = point.clientY-d.startY;
+      if (!d.moved && Math.hypot(dx,dy)>8) { d.moved=true; setDragId(d.id); }
+      if (!d.moved) return;
+      if (e.cancelable) e.preventDefault();
+      const overId = findSlotAt(point.clientX, point.clientY);
+      if (overId && overId !== d.id) {
+        setLayout(prev => {
+          const prevOrder = (prev.order && prev.order.length) ? prev.order : [];
+          const ord = [...prevOrder, ...DASH_DEFAULT_ORDER.filter(id=>!prevOrder.includes(id))];
+          const from = ord.indexOf(d.id), to = ord.indexOf(overId);
+          if (from===-1||to===-1) return prev;
+          ord.splice(from,1); ord.splice(to,0,d.id);
+          return { ...prev, order: ord };
+        });
+      }
+    };
+    const onUp = () => { drag.current = null; setDragId(null); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive:false });
+    window.addEventListener('touchend', onUp);
+    window.addEventListener('touchcancel', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+      window.removeEventListener('touchcancel', onUp);
+    };
+  }, [editMode]);
+
+  const cycleSize = (id) => {
+    setLayout(prev => {
+      const def = DASH_CARD_DEFS.find(c=>c.id===id);
+      const cur = (prev.sizes||{})[id] || {c:def.defC, r:def.defR};
+      const curIdx = DASH_SIZE_CYCLE.findIndex(s=>s.c===cur.c && s.r===cur.r);
+      const next = DASH_SIZE_CYCLE[(curIdx===-1?0:curIdx+1) % DASH_SIZE_CYCLE.length];
+      return { ...prev, sizes: { ...(prev.sizes||{}), [id]: next } };
+    });
+  };
+
   return (
     <div style={{padding:"24px 24px 40px", minHeight:"calc(100vh - 148px)"}}>
-      <div style={{marginBottom:24}}>
-        <div style={{fontSize:32,fontWeight:800,color:"var(--text-1)"}}>Olá, Gustavo</div>
-        <div style={{fontSize:14,color:"var(--text-3)",textTransform:"capitalize",marginTop:2}}>{dateLabel}</div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,flexWrap:"wrap",gap:10}}>
+        <div>
+          <div style={{fontSize:32,fontWeight:800,color:"var(--text-1)"}}>Olá, Gustavo</div>
+          <div style={{fontSize:14,color:"var(--text-3)",textTransform:"capitalize",marginTop:2}}>{dateLabel}</div>
+        </div>
+        <button onClick={()=>setEditMode(m=>!m)}
+          style={{background: editMode?"var(--accent)":"var(--bg-card)", border:"1px solid var(--border)", borderRadius:20,
+            padding:"9px 18px", color: editMode?"#fff":"var(--text-2)", fontSize:13, fontWeight:700, cursor:"pointer",
+            display:"flex",alignItems:"center",gap:6}}>
+          <Icon path={I.edit} size={14}/> {editMode ? "Concluído" : "Personalizar"}
+        </button>
       </div>
+      {editMode && (
+        <div style={{fontSize:12,color:"var(--text-3)",marginBottom:14}}>
+          Arraste os cards para reordenar · toque no ⤢ para mudar o tamanho
+        </div>
+      )}
 
       <div className="dash-grid">
-        <DiarioCard onClick={()=>onNavigate("diary")}/>
-        <IdeiasCard onClick={()=>onNavigate("ideas")}/>
-        <TarefasCard onClick={()=>onNavigate("tasks")}/>
-        <RascunhosCard onClick={()=>onNavigate("rascunhos")}/>
-        <ListasCard onClick={()=>onNavigate("lists")}/>
-        <DocumentosCard onClick={()=>onNavigate("docs")}/>
-        <AgendaCard onClick={()=>onNavigate("events")}/>
-        <ContasCard onClick={()=>onNavigate("bills")}/>
-        <DJMixCard onClick={()=>onNavigate("dj")}/>
-        <MercadoCard market={market} onClick={()=>onNavigate("market")}/>
-        <TempoCard onClick={()=>onNavigate("weather")}/>
+        {fullOrder.map((id, idx) => {
+          const def = DASH_CARD_DEFS.find(c=>c.id===id);
+          const size = sizes[id] || {c:def.defC, r:def.defR};
+          const Comp = DASH_COMPONENTS[id];
+          const extraProps = id==="mercado" ? {market} : {};
+          return (
+            <DashSlot key={id} id={id} col={size.c} row={size.r} orderIdx={idx}
+              editMode={editMode} isDragging={dragId===id}
+              onPointerDown={(e)=>onSlotPointerDown(e,id)}
+              onResize={()=>cycleSize(id)}>
+              <Comp onClick={editMode?undefined:()=>onNavigate(def.nav)} {...extraProps}/>
+            </DashSlot>
+          );
+        })}
       </div>
 
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:20,alignItems:"center"}}>
@@ -4675,6 +4807,23 @@ const OTHER_PROJECT_DEFS = [
   { id:"aindanestavida",   color:"#2d0a2e",       icon:"calendar", label:"Ainda Nesta Vida",  sub:"Ainda Nesta Vida",  url:"https://gustavogalioti.github.io/aindanestavida/" },
 ];
 
+function ProjectCard({ color, icon, label, sub, onClick, onDelete }) {
+  return (
+    <div onClick={onClick} style={{...homeCardStyle(color), minHeight:150, alignItems:"center", justifyContent:"center", textAlign:"center"}}>
+      {onDelete && (
+        <button onClick={e=>{e.stopPropagation();onDelete();}}
+          style={{position:"absolute",top:10,right:10,width:22,height:22,borderRadius:"50%",background:"rgba(0,0,0,0.35)",
+            border:"1px solid rgba(255,255,255,0.45)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",zIndex:5}}>
+          <Icon path={I.x} size={11} color="#fff"/>
+        </button>
+      )}
+      <Icon path={I[icon]} size={32} color="rgba(255,255,255,0.9)"/>
+      <div style={{fontWeight:800,fontSize:14,marginTop:12}}>{label}</div>
+      {sub && sub!==label && <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:2}}>{sub}</div>}
+    </div>
+  );
+}
+
 function ProjectsPage() {
   const [tab, setTab] = useState("projects");
   const [customTiles, setCustomTiles] = useKV("custom_tiles_projects_v1", []);
@@ -4706,26 +4855,27 @@ function ProjectsPage() {
       </div>
 
       {tab==="projects" && (
-        <div className="tiles-grid" style={{padding:0}}>
+        <div className="project-grid">
           {PROJECT_DEFS.map(p=>(
-            <MenuTile key={p.id} color={p.color} icon={p.icon} label={p.label} sub={p.sub}
+            <ProjectCard key={p.id} color={p.color} icon={p.icon} label={p.label} sub={p.sub}
               onClick={()=>window.open(p.url,"_blank","noopener,noreferrer")}/>
           ))}
           {customTiles.map(t=>(
-            <MenuTile key={t.id} color={t.color} icon={t.icon} label={t.title} sub=""
+            <ProjectCard key={t.id} color={t.color} icon={t.icon} label={t.title} sub=""
               onDelete={()=>deleteCustomTile(t.id)}
               onClick={()=>window.open(t.url,"_blank","noopener,noreferrer")}/>
           ))}
-          <div className="tile" onClick={()=>setShowAddTile(true)}
-            style={{background:"transparent",border:"2px dashed var(--border-2)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <Icon path={I.plus} size={30} color="var(--text-3)"/>
+          <div onClick={()=>setShowAddTile(true)}
+            style={{minHeight:150,borderRadius:20,background:"transparent",border:"2px dashed var(--border-2)",
+              display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+            <Icon path={I.plus} size={28} color="var(--text-3)"/>
           </div>
         </div>
       )}
       {tab==="others" && (
-        <div className="tiles-grid" style={{padding:0}}>
+        <div className="project-grid">
           {OTHER_PROJECT_DEFS.map(p=>(
-            <MenuTile key={p.id} color={p.color} icon={p.icon} label={p.label} sub={p.sub}
+            <ProjectCard key={p.id} color={p.color} icon={p.icon} label={p.label} sub={p.sub}
               onClick={()=>window.open(p.url,"_blank","noopener,noreferrer")}/>
           ))}
         </div>
