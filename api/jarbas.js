@@ -143,6 +143,16 @@ async function cmdDeleteEvent(sql, titulo) {
   return { reply: `Cancelei "${match.title}" da agenda.` };
 }
 
+async function cmdAnotarDiario(sql, { texto, humor }) {
+  if (!texto || !texto.trim()) return { reply: "" };
+  const moodMap = { bom: "🙂", otimo: "😄", ruim: "😔", pessimo: "😤", neutro: "🙂" };
+  const mood = moodMap[normalize(humor || "")] || "🙂";
+  const entries = await getKvList(sql, "diary_v1");
+  const entry = { id: Date.now(), text: texto.trim(), mood, date: new Date().toISOString() };
+  await setKvList(sql, "diary_v1", [entry, ...entries]);
+  return { reply: "" }; // ação de bastidor, não vira fala
+}
+
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
@@ -170,6 +180,7 @@ export default async function handler(req) {
       else if (comando === "apagar_conta") result = await cmdDeleteBill(sql, arg?.nome);
       else if (comando === "criar_compromisso") result = await cmdAddEvent(sql, arg || {});
       else if (comando === "apagar_compromisso") result = await cmdDeleteEvent(sql, arg?.titulo);
+      else if (comando === "anotar_diario") result = await cmdAnotarDiario(sql, arg || {});
       else result = { reply: "Comando desconhecido." };
       return new Response(JSON.stringify(result), { headers: CORS });
     }
