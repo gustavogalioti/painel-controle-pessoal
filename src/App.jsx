@@ -44,6 +44,11 @@ const I = {
   shift:   "M12 19V6 M5 13l7-7 7 7",
   record:  "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z",
   scissors:"M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M20 4L8.12 15.88 M14.47 14.48 20 20 M8.12 8.12 12 12",
+  headphones:"M3 18v-6a9 9 0 0 1 18 0v6 M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z",
+  gear:    "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
+  weather: "M17 18a4 4 0 0 0 0-8 5 5 0 0 0-9.6-1.5A4.5 4.5 0 0 0 7 18h10z M12 2v2 M4.2 4.2l1.4 1.4 M2 11h2",
+  skipBack:"M19 20 9 12l10-8v16z M5 19V5",
+  skipFwd: "M5 4l10 8-10 8V4z M19 5v14",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -361,6 +366,39 @@ function useWeather() {
 }
 
 // ─── TICKER STRIP ────────────────────────────────────────────────────────────
+function TickerPill({ icon, label, value, chg, color, loading }) {
+  const isUp = chg && !String(chg).startsWith("-") && chg!=="--";
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:10,background:"var(--bg-card)",border:"1px solid var(--border)",
+      borderRadius:24,padding:"6px 16px 6px 6px",flexShrink:0}}>
+      <div style={{width:26,height:26,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+        {icon}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",lineHeight:1.15}}>
+        <span style={{fontSize:9,fontWeight:800,letterSpacing:0.8,color:"var(--text-3)"}}>{label}</span>
+        <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)",fontFamily:"'DM Mono',monospace"}}>{loading?"···":value}</span>
+      </div>
+      {!loading && chg!=="--" && (
+        <Icon path={isUp?I.up:I.down} size={13} color={isUp?"var(--green)":"var(--red)"}/>
+      )}
+    </div>
+  );
+}
+
+function TopTickerRow({ market }) {
+  const { data, loading } = market;
+  return (
+    <div style={{display:"flex",gap:10,overflowX:"auto"}}>
+      <TickerPill label="DÓLAR" value={data.dolar.val} chg={data.dolar.chg} loading={loading} color="#16a34a"
+        icon={<span style={{color:"#fff",fontWeight:800,fontSize:13}}>$</span>}/>
+      <TickerPill label="IBOV" value={data.ibov.val} chg={data.ibov.chg} loading={loading} color="var(--accent)"
+        icon={<Icon path={I.trend} size={13} color="#fff"/>}/>
+      <TickerPill label="BITCOIN" value={data.btc.val} chg={data.btc.chg} loading={loading} color="#f7931a"
+        icon={<span style={{color:"#fff",fontWeight:800,fontSize:12}}>₿</span>}/>
+    </div>
+  );
+}
+
 function TickerStrip({ market }) {
   const { data, loading } = market;
   const items = [
@@ -4290,16 +4328,269 @@ function BackgroundModal({ current, onSave, onClose }) {
   );
 }
 
+// ─── HOME DASHBOARD (v4 design) ────────────────────────────────────────────────
+function homeCardStyle(color) {
+  return {
+    background:color, borderRadius:20, padding:20, color:"#fff", position:"relative",
+    display:"flex", flexDirection:"column", cursor:"pointer", overflow:"hidden", minHeight:170,
+  };
+}
+function CardHeader({ icon, label }) {
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+      {icon && <Icon path={I[icon]} size={18} color="rgba(255,255,255,0.9)"/>}
+      <span style={{fontSize:11,fontWeight:800,letterSpacing:1.2,color:"rgba(255,255,255,0.85)"}}>{label.toUpperCase()}</span>
+    </div>
+  );
+}
+function CardFooter({ children }) {
+  return (
+    <div style={{marginTop:"auto",paddingTop:12,borderTop:"1px solid rgba(255,255,255,0.18)",
+      fontSize:11.5,color:"rgba(255,255,255,0.8)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+      {children}
+    </div>
+  );
+}
+
+function DiarioCard({ onClick }) {
+  const [entries] = useKV("diary_v1", []);
+  const last = entries[0];
+  const lastLabel = last ? new Date(last.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+", "+new Date(last.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : "Nenhum registro";
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-diary)"), gridArea:"diario"}}>
+      <CardHeader icon="book" label="Diário"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.book} size={46} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{fontWeight:800,fontSize:16,marginBottom:8}}>Momento de foco</div>
+      <div style={{fontSize:12.5,lineHeight:1.6,color:"rgba(255,255,255,0.85)"}}>
+        Comece o dia registrando ideias, aprendizados e prioridades. Pequenos passos constroem grandes resultados.
+      </div>
+      <CardFooter>
+        <span style={{display:"flex",alignItems:"center",gap:6}}><Icon path={I.edit} size={12}/> Última edição</span>
+        <span>{lastLabel}</span>
+      </CardFooter>
+    </div>
+  );
+}
+
+function IdeiasCard({ onClick }) {
+  const [entries] = useKV("ideas_v1", []);
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("var(--purple)"), gridArea:"ideias"}}>
+      <CardHeader icon="bulb" label="Ideias"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.bulb} size={40} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{entries.length}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>ideias registradas</div>
+    </div>
+  );
+}
+
+function TarefasCard({ onClick }) {
+  const [tasks] = useKV("tasks_v1", []);
+  const today = tasks.filter(t=>(t.status||(t.done?"done":"todo"))==="today").length;
+  const doing = tasks.filter(t=>(t.status||(t.done?"done":"todo"))==="doing").length;
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("#7c3aed"), gridArea:"tarefas"}}>
+      <CardHeader icon="checkSq" label="Tarefas"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.checkSq} size={40} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{today}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>hoje</div>
+      <div style={{fontSize:11,color:"rgba(255,255,255,0.65)",marginTop:2}}>{doing} em andamento</div>
+    </div>
+  );
+}
+
+function RascunhosCard({ onClick }) {
+  const [items] = useKV("rascunhos_v1", []);
+  const withImg = items.filter(i=>i.hasImage);
+  const [thumb, setThumb] = useState(null);
+  useEffect(()=>{
+    const first = withImg[0];
+    if (first) KV.get("rascunho_img_"+first.id).then(setThumb);
+  }, [items.length]);
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("#0a3a3a"), gridArea:"rascunhos"}}>
+      <CardHeader icon="image" label="Rascunho & Imagens"/>
+      <div style={{display:"flex",gap:14,alignItems:"center",flex:1}}>
+        <Icon path={I.image} size={34} color="rgba(255,255,255,0.7)"/>
+        <div style={{flex:1,aspectRatio:"4/3",borderRadius:10,overflow:"hidden",background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {thumb ? <img src={thumb} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : <Icon path={I.image} size={22} color="rgba(255,255,255,0.4)"/>}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:24,marginTop:14}}>
+        <div><div style={{fontSize:22,fontWeight:800}}>{items.length-withImg.length}</div><div style={{fontSize:11,color:"rgba(255,255,255,0.75)"}}>rascunhos</div></div>
+        <div><div style={{fontSize:22,fontWeight:800}}>{withImg.length}</div><div style={{fontSize:11,color:"rgba(255,255,255,0.75)"}}>imagens</div></div>
+      </div>
+    </div>
+  );
+}
+
+function ListasCard({ onClick }) {
+  const [lists] = useKV("lists_v1", []);
+  const first = lists[0];
+  const items = (first?.items||[]).slice(0,3);
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-lists)"), gridArea:"listas"}}>
+      <CardHeader icon="list" label="Listas"/>
+      {items.length>0 ? (
+        <div style={{display:"flex",flexDirection:"column",gap:9,marginTop:4}}>
+          {items.map(it=>(
+            <div key={it.id} style={{display:"flex",alignItems:"center",gap:8,fontSize:12.5}}>
+              <div style={{width:16,height:16,borderRadius:5,border:"1.5px solid rgba(255,255,255,0.7)",
+                background: it.done?"rgba(255,255,255,0.9)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                {it.done && <Icon path={I.check} size={11} color="var(--tile-lists)"/>}
+              </div>
+              <span style={{textDecoration:it.done?"line-through":"none",opacity:it.done?0.7:1}}>{it.text}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{fontSize:12,color:"rgba(255,255,255,0.7)",marginTop:4}}>Nenhuma lista ainda</div>
+      )}
+    </div>
+  );
+}
+
+function DocumentosCard({ onClick }) {
+  const [docs] = useKV("docs_v1", []);
+  const parseBr = (s) => { // "DD/MM/YYYY, HH:MM:SS" -> Date
+    const m = String(s).match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    return m ? new Date(+m[3], +m[2]-1, +m[1]) : null;
+  };
+  const weekAgo = Date.now() - 7*86400000;
+  const recent = docs.filter(d=>{ const dt = parseBr(d.date); return dt && dt.getTime()>=weekAgo; }).length;
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-docs)"), gridArea:"documentos"}}>
+      <CardHeader icon="folder" label="Documentos"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.folder} size={40} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{docs.length}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>documentos</div>
+      <div style={{fontSize:11,color:"rgba(255,255,255,0.65)",marginTop:2}}>{recent} adicionados esta semana</div>
+    </div>
+  );
+}
+
+function AgendaCard({ onClick }) {
+  const [events] = useKV("events_v1", []);
+  const todayStr = toDateStr(new Date());
+  const upcoming = events.filter(e=>new Date(e.date+"T"+(e.time||"23:59"))>=new Date()).sort((a,b)=>new Date(a.date+"T"+(a.time||"00:00"))-new Date(b.date+"T"+(b.time||"00:00")));
+  const next = upcoming[0];
+  const todayCount = events.filter(e=>e.date===todayStr).length;
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-events)"), gridArea:"agenda"}}>
+      <CardHeader icon="calendar" label="Agenda"/>
+      <div style={{display:"flex",gap:14,alignItems:"center",flex:1}}>
+        <Icon path={I.calendar} size={34} color="rgba(255,255,255,0.75)"/>
+        <div>
+          {next ? (<>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.75)"}}>Próximo:</div>
+            <div style={{fontSize:26,fontWeight:800,lineHeight:1.1}}>{next.time||"—"}</div>
+            <div style={{fontSize:12,color:"rgba(255,255,255,0.85)"}}>{next.title}</div>
+          </>) : <div style={{fontSize:13,color:"rgba(255,255,255,0.8)"}}>Nada agendado</div>}
+        </div>
+      </div>
+      <CardFooter>
+        <span style={{display:"flex",alignItems:"center",gap:6}}><Icon path={I.bell} size={12}/> {todayCount} compromisso{todayCount===1?"":"s"} hoje</span>
+        <span style={{display:"flex",alignItems:"center",gap:4}}>Ver agenda <Icon path={I.next} size={11}/></span>
+      </CardFooter>
+    </div>
+  );
+}
+
+function ContasCard({ onClick }) {
+  const [bills] = useKV("bills_v1", []);
+  const unpaid = bills.filter(b=>!b.paid);
+  const total = unpaid.reduce((s,b)=>s+(b.value||0),0);
+  const day = new Date().getDate();
+  const upcoming = unpaid.filter(b=>+b.dueDay>=day && +b.dueDay<=day+5).length;
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-bills)"), gridArea:"contas"}}>
+      <CardHeader icon="card" label="Contas"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 14px"}}><Icon path={I.card} size={36} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)"}}>Total a pagar</div>
+      <div style={{fontSize:24,fontWeight:800}}>{fmtMoney(total)}</div>
+      <CardFooter>
+        <span>{upcoming} vencendo em breve</span>
+        <span style={{display:"flex",alignItems:"center",gap:4}}>Ver detalhes <Icon path={I.next} size={11}/></span>
+      </CardFooter>
+    </div>
+  );
+}
+
+function DJMixCard({ onClick }) {
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("#4a1030"), gridArea:"djmix", alignItems:"center", justifyContent:"center", textAlign:"center"}}>
+      <Icon path={I.headphones} size={40} color="rgba(255,255,255,0.85)"/>
+      <div style={{fontWeight:800,fontSize:14,marginTop:12}}>DJ Mix</div>
+      <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:4}}>Abrir mixer</div>
+    </div>
+  );
+}
+
+function MercadoCard({ market, onClick }) {
+  const [tab, setTab] = useState("ibov");
+  const tabs = [["ibov","IBOV"],["dolar","DÓLAR"],["btc","BITCOIN"],["ouro","OURO"]];
+  const d = market.data[tab] || {val:"--",chg:"--"};
+  const isUp = d.chg && !String(d.chg).startsWith("-") && d.chg!=="--";
+  const barColor = market.loading ? "rgba(255,255,255,0.3)" : isUp ? "#4ade80" : "#f87171";
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-market)"), gridArea:"mercado"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <Icon path={I.trend} size={18} color="rgba(255,255,255,0.9)"/>
+          <span style={{fontSize:11,fontWeight:800,letterSpacing:1.2,color:"rgba(255,255,255,0.85)"}}>MERCADO &amp; INDICADORES</span>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+        {tabs.map(([id,label])=>(
+          <button key={id} onClick={e=>{e.stopPropagation();setTab(id);}}
+            style={{background:tab===id?"rgba(255,255,255,0.22)":"transparent",border:"none",borderRadius:14,
+              padding:"4px 12px",color:"#fff",fontSize:10.5,fontWeight:700,cursor:"pointer"}}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div style={{display:"flex",alignItems:"flex-end",gap:16,flex:1}}>
+        <div>
+          <div style={{fontSize:30,fontWeight:800,fontFamily:"'DM Mono',monospace"}}>{market.loading?"···":d.val}</div>
+          <div style={{fontSize:13,color:barColor,fontWeight:700,marginTop:4}}>
+            {!market.loading && d.chg!=="--" && (isUp?"▲ ":"▼ ")}{d.chg}
+          </div>
+        </div>
+        <div style={{flex:1,height:4,borderRadius:4,background:"rgba(255,255,255,0.15)",overflow:"hidden",marginBottom:8}}>
+          <div style={{width: isUp?"70%":"35%",height:"100%",background:barColor}}/>
+        </div>
+      </div>
+      <CardFooter>
+        <span>Última atualização {new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
+      </CardFooter>
+    </div>
+  );
+}
+
+function TempoCard({ onClick }) {
+  const w = useWeather();
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-weather)"), gridArea:"tempo", alignItems:"center", textAlign:"center"}}>
+      <CardHeader icon={null} label="Tempo"/>
+      <Icon path={I.weather} size={38} color="rgba(255,255,255,0.9)"/>
+      {w && !w.error ? (<>
+        <div style={{fontSize:32,fontWeight:800,marginTop:8}}>{w.temp}°</div>
+        <div style={{fontSize:12,color:"rgba(255,255,255,0.8)"}}>{w.city||"..."}</div>
+        <div style={{display:"flex",gap:12,marginTop:10,fontSize:10.5,color:"rgba(255,255,255,0.75)"}}>
+          <span>💧 {w.humidity}%</span>
+          <span>🌬 {w.wind} km/h</span>
+        </div>
+      </>) : <div style={{fontSize:12,color:"rgba(255,255,255,0.75)",marginTop:8}}>Carregando...</div>}
+    </div>
+  );
+}
+
 function HomePage({ onNavigate }) {
-  const [layout, setLayout] = useKV("home_layout_v1", { order: DEFAULT_ORDER, sizes: DEFAULT_SIZES });
-  const [bg, setBg] = useKV("home_bg_v1", { type:"default" });
   const [customTiles, setCustomTiles] = useKV("custom_tiles_home_v1", []);
-  const [editMode, setEditMode] = useState(false);
-  const [showBgModal, setShowBgModal] = useState(false);
   const [showAddTile, setShowAddTile] = useState(false);
-  const [dragId, setDragId] = useState(null);
-  const tileRefs = useRef({});
-  const drag = useRef(null);
+  const market = useMarketData();
+  const today = new Date();
+  const dateLabel = today.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
 
   const addCustomTile = (t) => {
     setCustomTiles(prev => [...prev, { id:"custom_"+Date.now(), ...t, color: nextTileColor(prev.length) }]);
@@ -4307,132 +4598,62 @@ function HomePage({ onNavigate }) {
   };
   const deleteCustomTile = (id) => setCustomTiles(prev => prev.filter(t=>t.id!==id));
 
-  const allTileIds = [...DEFAULT_ORDER, ...customTiles.map(t=>t.id)];
-  const order = (layout.order && layout.order.length) ? layout.order.filter(id=>allTileIds.includes(id)) : allTileIds;
-  const fullOrder = [...order, ...allTileIds.filter(id=>!order.includes(id))];
-  const sizes = layout.sizes || {};
-
-  const findTileAt = (x,y) => {
-    for (const id of fullOrder) {
-      const el = tileRefs.current[id];
-      if (!el) continue;
-      const r = el.getBoundingClientRect();
-      if (x>=r.left && x<=r.right && y>=r.top && y<=r.bottom) return id;
-    }
-    return null;
-  };
-
-  const onTilePointerDown = (e, id) => {
-    if (!editMode) return;
-    if (e.button !== undefined && e.button !== 0) return;
-    const point = e.touches ? e.touches[0] : e;
-    drag.current = { id, startX: point.clientX, startY: point.clientY, moved:false };
-  };
-
-  useEffect(() => {
-    if (!editMode) return;
-    const onMove = (e) => {
-      const d = drag.current; if (!d) return;
-      const point = e.touches ? e.touches[0] : e;
-      const dx = point.clientX-d.startX, dy = point.clientY-d.startY;
-      if (!d.moved && Math.hypot(dx,dy)>8) { d.moved=true; setDragId(d.id); }
-      if (!d.moved) return;
-      if (e.cancelable) e.preventDefault();
-      const overId = findTileAt(point.clientX, point.clientY);
-      if (overId && overId !== d.id) {
-        setLayout(prev => {
-          const prevOrder = (prev.order && prev.order.length) ? prev.order : [];
-          const ord = [...prevOrder, ...allTileIds.filter(id=>!prevOrder.includes(id))];
-          const from = ord.indexOf(d.id), to = ord.indexOf(overId);
-          if (from===-1||to===-1) return prev;
-          ord.splice(from,1); ord.splice(to,0,d.id);
-          return { ...prev, order: ord };
-        });
-      }
-    };
-    const onUp = () => { drag.current = null; setDragId(null); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    window.addEventListener('touchmove', onMove, { passive:false });
-    window.addEventListener('touchend', onUp);
-    window.addEventListener('touchcancel', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend', onUp);
-      window.removeEventListener('touchcancel', onUp);
-    };
-  }, [editMode]);
-
-  const cycleSize = (id) => {
-    setLayout(prev => {
-      const cur = (prev.sizes||{})[id] || DEFAULT_SIZES[id] || "normal";
-      const next = SIZE_CYCLE[(SIZE_CYCLE.indexOf(cur)+1) % SIZE_CYCLE.length];
-      return { ...prev, sizes: { ...(prev.sizes||{}), [id]: next } };
-    });
-  };
-
-  const bgStyle = (() => {
-    if (bg.type==="color") return { background:bg.value };
-    if (bg.type==="image" && bg.value) return {
-      backgroundImage:`linear-gradient(rgba(0,0,0,${(bg.dim??40)/100}),rgba(0,0,0,${(bg.dim??40)/100})),url(${bg.value})`,
-      backgroundSize:"cover", backgroundPosition:"center", backgroundAttachment:"fixed",
-    };
-    return {};
-  })();
+  const extraTiles = [
+    { id:"whiteboard", color:"var(--tile-white)", icon:"edit",    label:"Whiteboard" },
+    { id:"letreiro",   color:"#1a0a2a",           icon:"marquee", label:"Letreiro" },
+  ];
 
   return (
-    <div style={{minHeight:"calc(100vh - 148px)", ...bgStyle}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,padding:"14px 20px 0"}}>
-        <button onClick={()=>setEditMode(m=>!m)}
-          style={{background: editMode?"var(--accent)":"rgba(0,0,0,0.06)", border:"none", borderRadius:20,
-            padding:"7px 16px", color: editMode?"#fff":"var(--text-2)", fontSize:12, fontWeight:700, cursor:"pointer",
-            display:"flex",alignItems:"center",gap:6}}>
-          <Icon path={I.edit} size={13}/> {editMode ? "Concluído" : "Personalizar"}
-        </button>
-        {editMode && (
-          <button onClick={()=>setShowBgModal(true)}
-            style={{background:"rgba(0,0,0,0.06)", border:"none", borderRadius:20, padding:"7px 16px",
-              color:"var(--text-2)", fontSize:12, fontWeight:700, cursor:"pointer", display:"flex",alignItems:"center",gap:6}}>
-            <Icon path={I.image} size={13}/> Fundo
+    <div style={{padding:"24px 24px 40px", minHeight:"calc(100vh - 148px)"}}>
+      <div style={{marginBottom:24}}>
+        <div style={{fontSize:32,fontWeight:800,color:"var(--text-1)"}}>Olá, Gustavo</div>
+        <div style={{fontSize:14,color:"var(--text-3)",textTransform:"capitalize",marginTop:2}}>{dateLabel}</div>
+      </div>
+
+      <div className="dash-grid">
+        <DiarioCard onClick={()=>onNavigate("diary")}/>
+        <IdeiasCard onClick={()=>onNavigate("ideas")}/>
+        <TarefasCard onClick={()=>onNavigate("tasks")}/>
+        <RascunhosCard onClick={()=>onNavigate("rascunhos")}/>
+        <ListasCard onClick={()=>onNavigate("lists")}/>
+        <DocumentosCard onClick={()=>onNavigate("docs")}/>
+        <AgendaCard onClick={()=>onNavigate("events")}/>
+        <ContasCard onClick={()=>onNavigate("bills")}/>
+        <DJMixCard onClick={()=>onNavigate("dj")}/>
+        <MercadoCard market={market} onClick={()=>onNavigate("market")}/>
+        <TempoCard onClick={()=>onNavigate("weather")}/>
+      </div>
+
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:20,alignItems:"center"}}>
+        {extraTiles.map(t=>(
+          <button key={t.id} onClick={()=>onNavigate(t.id)}
+            style={{background:t.color,border:"none",borderRadius:14,padding:"10px 18px",color:"#fff",
+              fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
+            <Icon path={I[t.icon]} size={14}/> {t.label}
           </button>
-        )}
-        {editMode && <span style={{fontSize:11,color:"var(--text-3)"}}>Arraste para reordenar · toque no ⤢ para redimensionar</span>}
+        ))}
+        {customTiles.map(t=>(
+          <div key={t.id} style={{position:"relative"}}>
+            <button onClick={()=>window.open(t.url,"_blank","noopener,noreferrer")}
+              style={{background:t.color,border:"none",borderRadius:14,padding:"10px 18px",color:"#fff",
+                fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
+              <Icon path={I[t.icon]} size={14}/> {t.title}
+            </button>
+            <button onClick={()=>deleteCustomTile(t.id)}
+              style={{position:"absolute",top:-6,right:-6,width:18,height:18,borderRadius:"50%",background:"rgba(0,0,0,0.5)",
+                border:"1px solid rgba(255,255,255,0.5)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+              <Icon path={I.x} size={10} color="#fff"/>
+            </button>
+          </div>
+        ))}
+        <button onClick={()=>setShowAddTile(true)}
+          style={{background:"transparent",border:"2px dashed var(--border-2)",borderRadius:14,padding:"9px 18px",
+            color:"var(--text-3)",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
+          <Icon path={I.plus} size={14}/> Personalizar
+        </button>
       </div>
 
-      <div className="tiles-grid">
-        {fullOrder.map(id => {
-          const def = TILE_DEFS.find(t=>t.id===id);
-          const custom = !def ? customTiles.find(t=>t.id===id) : null;
-          if (!def && !custom) return null;
-          const size = sizes[id] || DEFAULT_SIZES[id] || "normal";
-          const commonProps = {
-            tileRef: el=>tileRefs.current[id]=el, size, editMode,
-            isDragging: dragId===id,
-            onPointerDown: (e)=>onTilePointerDown(e,id),
-            onResize: editMode ? ()=>cycleSize(id) : undefined,
-            onClick: editMode ? undefined : (def ? ()=>onNavigate(id) : ()=>window.open(custom.url,"_blank","noopener,noreferrer")),
-            onDelete: (custom && editMode) ? ()=>deleteCustomTile(id) : undefined,
-          };
-          if (def && id==="weather") return <WeatherTile key={id} {...commonProps}/>;
-          const t = def || custom;
-          return <MenuTile key={id} {...commonProps} color={t.color} icon={t.icon} label={def?def.label:custom.title} sub={def?def.sub:""}/>;
-        })}
-        <div className="tile" onClick={()=>setShowAddTile(true)}
-          style={{background:"transparent",border:"2px dashed var(--border-2)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <Icon path={I.plus} size={30} color="var(--text-3)"/>
-        </div>
-      </div>
-
-      {showBgModal && (
-        <BackgroundModal current={bg}
-          onSave={(v)=>{ setBg(v); setShowBgModal(false); }}
-          onClose={()=>setShowBgModal(false)}/>
-      )}
-      {showAddTile && (
-        <CustomTileModal onSave={addCustomTile} onClose={()=>setShowAddTile(false)}/>
-      )}
+      {showAddTile && <CustomTileModal onSave={addCustomTile} onClose={()=>setShowAddTile(false)}/>}
     </div>
   );
 }
@@ -6155,30 +6376,34 @@ export default function App() {
   return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
       {/* TOP BAR */}
-      <header style={{background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:54,flexShrink:0,gap:16}}>
+      <header style={{background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",padding:"0 20px",height:64,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <div style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center"}}>
             <img src="/radioactive-icon.png" alt="logo" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
           </div>
-          <div>
-            <div style={{fontWeight:800,fontSize:11,letterSpacing:1.5,lineHeight:1}}>PAINEL DE CONTROLE</div>
-            <div style={{fontWeight:400,fontSize:9,letterSpacing:2,color:"var(--text-3)",lineHeight:1,marginTop:2}}>PESSOAL</div>
-          </div>
+          <div style={{fontWeight:800,fontSize:14,letterSpacing:0.5,lineHeight:1}}>PAINEL DE CONTROLE</div>
         </div>
-        {/* Ticker always visible */}
-        <div style={{flex:1,overflow:"hidden"}}>
-          <TickerStrip market={market}/>
+        <div style={{flex:1,overflow:"hidden",display:"flex",justifyContent:"center"}}>
+          <TopTickerRow market={market}/>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+          {[["search",()=>{}],["bell",()=>{}],["calendar",()=>setPage("events")],["gear",()=>{}]].map(([ic,fn])=>(
+            <button key={ic} onClick={fn}
+              style={{width:34,height:34,borderRadius:"50%",background:"var(--bg-card)",border:"1px solid var(--border)",
+                display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)"}}>
+              <Icon path={I[ic]} size={15}/>
+            </button>
+          ))}
         </div>
       </header>
 
       {/* BREADCRUMB BAR */}
+      {page!=="home" && (
       <div style={{background:"var(--bg-sub)",borderBottom:"1px solid var(--border-2)",padding:"0 20px",height:40,display:"flex",alignItems:"center",gap:10}}>
-        {page!=="home"&&(
-          <button onClick={()=>setPage("home")} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontSize:12}}>
-            <Icon path={I.back} size={14}/> Menu
-          </button>
-        )}
-        {page!=="home"&&<span style={{color:"var(--border)",fontSize:12}}>/</span>}
+        <button onClick={()=>setPage("home")} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontSize:12}}>
+          <Icon path={I.back} size={14}/> Menu
+        </button>
+        <span style={{color:"var(--border)",fontSize:12}}>/</span>
         <span style={{fontSize:13,fontWeight:700,color:"var(--text-1)"}}>{meta.emoji?`${meta.emoji} `:""}{meta.label}</span>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
           <ViewToggle/>
@@ -6186,6 +6411,7 @@ export default function App() {
           <span style={{fontSize:10,color:"var(--text-3)"}}>v3.0</span>
         </div>
       </div>
+      )}
 
       {/* CONTENT */}
       <main style={{flex:1,padding: (page==="home"||page==="projects")?"0":"24px 20px",maxWidth: page==="market"||page==="home"||page==="projects"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects")?"hidden":"visible",position:"relative"}}>

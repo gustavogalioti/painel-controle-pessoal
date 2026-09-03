@@ -257,3 +257,40 @@ input, textarea, select { color-scheme:light; }
   background: var(--accent);
 }
 .cal-day.selected.has-events::after { background: #fff; }
+
+/* Home dashboard (v4) — bento-style card grid */
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: minmax(190px, auto);
+  gap: 16px;
+  grid-template-areas:
+    "diario ideias tarefas rascunhos rascunhos listas documentos"
+    "diario agenda contas djmix mercado mercado tempo";
+}
+@media (max-width: 1200px) {
+  .dash-grid {
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: minmax(170px, auto);
+    grid-template-areas:
+      "diario ideias tarefas"
+      "diario rascunhos rascunhos"
+      "listas documentos agenda"
+      "contas djmix tempo"
+      "mercado mercado mercado";
+  }
+}
+@media (max-width: 680px) {
+  .dash-grid {
+    grid-template-columns: 1fr 1fr;
+    grid-auto-rows: minmax(160px, auto);
+    grid-template-areas:
+      "diario diario"
+      "ideias tarefas"
+      "rascunhos rascunhos"
+      "listas documentos"
+      "agenda contas"
+      "djmix tempo"
+      "mercado mercado";
+  }
+}
