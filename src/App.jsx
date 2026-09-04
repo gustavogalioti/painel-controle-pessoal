@@ -1678,6 +1678,7 @@ function TasksPage() {
   const prioLabel = {alta:"🔴 Alta",normal:"🔵 Normal",baixa:"⚪ Baixa"};
 
   const COLS = [
+    { id:"now",     label:"🔥 Para Agora",   color:"#dc2626" },
     { id:"today",   label:"🌟 De Hoje",      color:"var(--accent)" },
     { id:"todo",    label:"📋 A Fazer",     color:"var(--text-3)" },
     { id:"doing",   label:"⚡ Em Andamento", color:"var(--yellow)" },
@@ -1877,7 +1878,7 @@ function TasksPage() {
           background:"var(--bg-card)",
           border:`1px solid ${prioColor[t.prio]}33`,
           borderLeft:`3px solid ${prioColor[t.prio]}`,
-          borderRadius:10, padding:"12px 14px", marginBottom:10,
+          borderRadius:16, padding:"12px 14px", marginBottom:10,
           cursor: isDragging ? "grabbing" : "pointer",
           opacity: isDragging ? 0.4 : 1,
           touchAction:"none", userSelect:"none",
@@ -1919,7 +1920,7 @@ function TasksPage() {
   return (
     <div>
       {/* Add task bar */}
-      <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, padding:16, marginBottom:18 }}>
+      <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:20, padding:16, marginBottom:18 }}>
         {!addOpen ? (
           <button onClick={()=>setAddOpen(true)} style={{...btn(),display:"flex",alignItems:"center",gap:8,width:"100%",justifyContent:"center"}}>
             <Icon path={I.plus} size={14}/> Nova Tarefa
@@ -1981,7 +1982,7 @@ function TasksPage() {
       </div>
 
       {/* Busca por tags e por data */}
-      <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:14, padding:14, marginBottom:18 }}>
+      <div style={{ background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:20, padding:14, marginBottom:18 }}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <Icon path={I.search} size={14} color="var(--text-3)"/>
           <input value={tagFilter} onChange={e=>setTagFilter(e.target.value)}
@@ -2035,20 +2036,21 @@ function TasksPage() {
       </div>
 
       {/* Kanban board */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(5, 1fr)", gap:14 }} className="kanban-grid">
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(6, 1fr)", gap:14 }} className="kanban-grid">
         {COLS.map(col => (
           <div key={col.id} ref={el => colRefs.current[col.id]=el}
             style={{
-              background: overCol===col.id ? "var(--accent-dim)" : "var(--bg-sub)",
+              background: overCol===col.id ? "var(--accent-dim)" : "var(--bg-card)",
               border: `2px ${overCol===col.id ? "dashed var(--accent)" : "solid var(--border)"}`,
-              borderRadius:14, padding:14, minHeight:300,
+              borderRadius:20, padding:12, minHeight:300,
               transition:"background .15s, border-color .15s",
               display:"flex", flexDirection:"column",
             }}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,paddingBottom:10,borderBottom:"1px solid var(--border)",cursor:"pointer"}}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,
+                background:col.color, borderRadius:14, padding:"9px 14px", cursor:"pointer"}}
               onClick={()=>setFocusedCol(col.id)}>
-              <span style={{fontSize:13,fontWeight:800,color:col.color}}>{col.label}</span>
-              <span style={{fontSize:11,color:"var(--text-3)",background:"var(--bg-input)",borderRadius:10,padding:"2px 8px"}}>{grouped[col.id].length}</span>
+              <span style={{fontSize:12.5,fontWeight:800,color:"#fff"}}>{col.label}</span>
+              <span style={{fontSize:11,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.25)",borderRadius:10,padding:"2px 8px"}}>{grouped[col.id].length}</span>
             </div>
             <div style={{flex:1}}>
               {grouped[col.id].map(t => <TaskCard key={t.id} t={t}/>)}
@@ -2070,6 +2072,9 @@ function TasksPage() {
         }
         @media (min-width:1101px) and (max-width:1450px) {
           .kanban-grid { grid-template-columns: repeat(3,1fr) !important; }
+        }
+        @media (min-width:1451px) and (max-width:1750px) {
+          .kanban-grid { grid-template-columns: repeat(4,1fr) !important; }
         }
       `}</style>
 
