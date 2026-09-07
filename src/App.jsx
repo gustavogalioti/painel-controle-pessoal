@@ -1769,7 +1769,7 @@ function TasksPage() {
 
   const setStatus = (id, status) => {
     const prevTask = tasksRef.current.find(t => t.id===id);
-    const n = tasksRef.current.map(t => t.id===id ? { ...t, status, done: status==="done" } : t);
+    const n = tasksRef.current.map(t => t.id===id ? { ...t, status, done: status==="done", doneAt: status==="done" ? nowISO() : t.doneAt } : t);
     save(n);
     if (status === "done" && prevTask?.status !== "done") {
       pedroNotify("task_done", { text: prevTask?.text });
@@ -1867,6 +1867,8 @@ function TasksPage() {
 
   const grouped = Object.fromEntries(COLS.map(c=>[c.id,[]]));
   tasks.filter(t=>matchesTagFilter(t) && matchesDateFilter(t)).forEach(t => { const s = getStatus(t); (grouped[s] || grouped.todo).push(t); });
+  grouped.done = [...grouped.done].sort((a,b) => new Date(b.doneAt||b.date) - new Date(a.doneAt||a.date));
+  const DONE_PREVIEW = 3;
 
   const TaskCard = ({ t }) => {
     const isDragging = dragId === t.id;
@@ -2053,7 +2055,14 @@ function TasksPage() {
               <span style={{fontSize:11,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.25)",borderRadius:10,padding:"2px 8px"}}>{grouped[col.id].length}</span>
             </div>
             <div style={{flex:1}}>
-              {grouped[col.id].map(t => <TaskCard key={t.id} t={t}/>)}
+              {(col.id==="done" ? grouped[col.id].slice(0,DONE_PREVIEW) : grouped[col.id]).map(t => <TaskCard key={t.id} t={t}/>)}
+              {col.id==="done" && grouped[col.id].length>DONE_PREVIEW && (
+                <button onClick={()=>setFocusedCol("done")} style={{
+                  width:"100%", background:"var(--bg-input)", border:"1px solid var(--border)",
+                  borderRadius:10, padding:"10px", color:"var(--text-2)", fontSize:12, fontWeight:700,
+                  cursor:"pointer", marginTop:4,
+                }}>Ver mais ({grouped[col.id].length - DONE_PREVIEW})</button>
+              )}
               {grouped[col.id].length===0 && (
                 <div style={{textAlign:"center",color:"var(--text-3)",fontSize:12,padding:"30px 0",opacity:.6}}>
                   {overCol===col.id ? "Solte aqui" : "Vazio"}
