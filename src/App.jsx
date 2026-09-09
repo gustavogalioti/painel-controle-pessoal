@@ -1626,31 +1626,7 @@ function TemasPage() {
 }
 
 function DiaryPage() {
-  const [active, setActive] = useState("diary");
-  const tabs = [
-    {id:"dia",       label:"📌 Dia",       color:"#e67e22"},
-    {id:"diary",     label:"📓 Diário",    color:"var(--accent)"},
-    {id:"temas",     label:"📋 Temas",     color:"#0891b2"},
-    {id:"reminders", label:"🔔 Lembretes", color:"var(--yellow)"},
-  ];
-  return (
-    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-      <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setActive(t.id)}
-            style={{background:active===t.id?t.color:"var(--bg-card)",border:`1px solid ${active===t.id?t.color:"var(--border)"}`,borderRadius:24,padding:"10px 24px",color:active===t.id?t.id==="reminders"?"#000":"#fff":"var(--text-2)",fontSize:14,fontWeight:700,cursor:"pointer",transition:"all .2s"}}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <div style={{flex:1,animation:"fadeIn .2s ease",overflow:"hidden"}}>
-        {active==="dia"       && <DayBoardPage/>}
-        {active==="diary"     && <NoteColumn storageKey="diary" title="Diário" placeholder="O que está em sua mente hoje?" accent="var(--accent)" emoji="📓"/>}
-        {active==="temas"     && <TemasPage/>}
-        {active==="reminders" && <RemindersCards/>}
-      </div>
-    </div>
-  );
+  return <NoteColumn storageKey="diary" title="Diário" placeholder="O que está em sua mente hoje?" accent="var(--accent)" emoji="📓"/>;
 }
 
 // ─── IDEIAS PAGE ──────────────────────────────────────────────────────────────
@@ -4412,6 +4388,31 @@ function IdeiasCard({ onClick }) {
   );
 }
 
+function LembretesCard({ onClick }) {
+  const [entries] = useKV("reminders_v1", []);
+  const pending = entries.filter(e=>!e.done).length;
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("var(--yellow)"), height:"100%"}}>
+      <CardHeader icon="bell" label="Lembretes"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.bell} size={40} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{pending}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>pendentes</div>
+    </div>
+  );
+}
+
+function InfosCard({ onClick }) {
+  const [fixedBoards] = useKV("temas_fixed_v1", []);
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("#0891b2"), height:"100%"}}>
+      <CardHeader icon="list" label="Infos"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.list} size={40} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{fixedBoards.length}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>fixados</div>
+    </div>
+  );
+}
+
 function TarefasCard({ onClick }) {
   const [tasks] = useKV("tasks_v1", []);
   const today = tasks.filter(t=>(t.status||(t.done?"done":"todo"))==="today").length;
@@ -4615,6 +4616,8 @@ const DASH_CARD_DEFS = [
   { id:"djmix",      nav:"dj",        defC:1, defR:1 },
   { id:"mercado",    nav:"market",    defC:2, defR:1 },
   { id:"tempo",      nav:"weather",   defC:1, defR:1 },
+  { id:"lembretes",  nav:"reminders", defC:1, defR:1 },
+  { id:"infos",      nav:"infos",     defC:1, defR:1 },
 ];
 const DASH_DEFAULT_ORDER = DASH_CARD_DEFS.map(c=>c.id);
 const DASH_SIZE_CYCLE = [{c:1,r:1},{c:2,r:1},{c:1,r:2},{c:2,r:2}];
@@ -4642,6 +4645,7 @@ const DASH_COMPONENTS = {
   diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
   djmix: DJMixCard, mercado: MercadoCard, tempo: TempoCard,
+  lembretes: LembretesCard, infos: InfosCard,
 };
 
 function HomePage({ onNavigate }) {
@@ -5234,6 +5238,8 @@ const PAGE_META = {
   home:       {label:"Menu",                emoji:""},
   projects:   {label:"Projetos",            emoji:"🗂"},
   diary:      {label:"Diário",              emoji:"📓"},
+  reminders:  {label:"Lembretes",           emoji:"🔔"},
+  infos:      {label:"Infos",               emoji:"📋"},
   ideas:      {label:"Ideias",              emoji:"💡"},
   tasks:      {label:"Tarefas",             emoji:"✅"},
   docs:       {label:"Documentos",          emoji:"📁"},
@@ -6520,6 +6526,8 @@ export default function App() {
   const renderPage = () => {
     switch(page) {
       case "diary":      return <DiaryPage/>;
+      case "reminders":  return <RemindersCards/>;
+      case "infos":      return <TemasPage/>;
       case "ideas":      return <IdeasPage/>;
       case "tasks":      return <TasksPage/>;
       case "docs":       return <DocsPage/>;
