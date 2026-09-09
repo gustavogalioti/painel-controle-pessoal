@@ -1625,8 +1625,271 @@ function TemasPage() {
   );
 }
 
+// ─── DIÁRIO V2 — timeline pessoal ──────────────────────────────────────────────
+const DIARY_SECRET_PATTERNS = [
+  /gh[pousr]_[A-Za-z0-9]{20,}/g,           // GitHub tokens
+  /sk-[A-Za-z0-9]{20,}/g,                  // OpenAI-style keys
+  /AIza[0-9A-Za-z\-_]{30,}/g,              // Google API keys
+  /xox[baprs]-[A-Za-z0-9-]{10,}/g,         // Slack tokens
+  /\b[A-Za-z0-9+/]{40,}={0,2}\b/g,         // long base64-like blobs
+  /\b(?=[A-Za-z0-9]{32,}\b)(?=[a-zA-Z]*[0-9])(?=[0-9]*[a-zA-Z])[A-Za-z0-9]{32,}\b/g, // long alnum mixed strings
+];
+function maskDiarySecrets(text) {
+  let masked = text, found = false;
+  DIARY_SECRET_PATTERNS.forEach(re => {
+    masked = masked.replace(re, () => { found = true; return "••••••••••••"; });
+  });
+  return { masked, found };
+}
+
+function computeStreak(entries) {
+  const days = new Set(entries.map(e=>toDateStr(new Date(e.date))));
+  let streak = 0, d = new Date();
+  while (days.has(toDateStr(d))) { streak++; d.setDate(d.getDate()-1); }
+  return streak;
+}
+
+const DIARY_MOODS = ["😄","🙂","😐","😔","😤","🤔","🎉"];
+const DIARY_PAGE_SIZE = 15; // day-groups per page
+
+function DiaryEntryRow({ e, isToday, onEdit, onDelete }) {
+  const [expanded, setExpanded] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(e.text);
+  const { masked, found } = maskDiarySecrets(e.text);
+  const showText = found && !revealed ? masked : e.text;
+  const time = new Date(e.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+
+  const saveEdit = () => {
+    if (!editText.trim()) return;
+    onEdit(e.id, editText.trim());
+    setEditing(false);
+  };
+
+  return (
+    <div style={{display:"flex",gap:12,position:"relative"}}>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:44,flexShrink:0}}>
+        <span style={{fontSize:10,color:"var(--text-3)",whiteSpace:"nowrap"}}>{time}</span>
+        <div style={{width:8,height:8,borderRadius:"50%",background:isToday?"var(--accent)":"var(--border-2)",margin:"4px 0"}}/>
+        <div style={{width:2,flex:1,background:"var(--border-2)",minHeight:14}}/>
+      </div>
+      <div style={{flex:1,minWidth:0,paddingBottom:16}}>
+        <div onClick={()=>!editing && setExpanded(x=>!x)}
+          style={{cursor:editing?"default":"pointer",display:"flex",gap:8,alignItems:"flex-start"}}>
+          <span style={{fontSize:16,flexShrink:0,lineHeight:1.4}}>{e.mood}</span>
+          <div style={{flex:1,minWidth:0}}>
+            {editing ? (
+              <textarea value={editText} onChange={ev=>setEditText(ev.target.value)} rows={3}
+                onClick={ev=>ev.stopPropagation()}
+                style={{...inp,fontSize:13,resize:"vertical",marginBottom:6}}/>
+            ) : (
+              <p style={{margin:0,color:"var(--text-1)",lineHeight:1.55,fontSize:13,whiteSpace:"pre-wrap",wordBreak:"break-word",
+                display: expanded?"block":"-webkit-box", WebkitLineClamp: expanded?"unset":1, WebkitBoxOrient:"vertical", overflow: expanded?"visible":"hidden"}}>
+                {showText}
+              </p>
+            )}
+            {found && !editing && (
+              <button onClick={ev=>{ev.stopPropagation();setRevealed(r=>!r);}}
+                style={{display:"flex",alignItems:"center",gap:4,background:"none",border:"none",color:"var(--text-3)",
+                  fontSize:10,cursor:"pointer",padding:0,marginTop:4}}>
+                <Icon path={I.lock} size={10}/> {revealed?"Ocultar":"🔐 Informação técnica protegida — mostrar"}
+              </button>
+            )}
+            {e.tag && !editing && (
+              <span style={{display:"inline-block",fontSize:10,color:"var(--accent)",background:"var(--accent-dim)",
+                borderRadius:8,padding:"1px 8px",marginTop:6}}>#{e.tag}</span>
+            )}
+            {expanded && !editing && (
+              <div style={{display:"flex",gap:14,marginTop:8}}>
+                <button onClick={ev=>{ev.stopPropagation();setEditText(e.text);setEditing(true);}}
+                  style={{background:"none",border:"none",color:"var(--text-3)",fontSize:11,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+                  <Icon path={I.edit} size={11}/> Editar
+                </button>
+                <button onClick={ev=>{ev.stopPropagation();onDelete(e.id);}}
+                  style={{background:"none",border:"none",color:"var(--red)",fontSize:11,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+                  <Icon path={I.trash} size={11}/> Excluir
+                </button>
+              </div>
+            )}
+            {editing && (
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={saveEdit} style={{...btn(),padding:"5px 14px",fontSize:12}}>Salvar</button>
+                <button onClick={()=>setEditing(false)} style={{background:"none",border:"1px solid var(--border)",borderRadius:10,padding:"5px 14px",fontSize:12,color:"var(--text-2)",cursor:"pointer"}}>Cancelar</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DiaryPage() {
-  return <NoteColumn storageKey="diary" title="Diário" placeholder="O que está em sua mente hoje?" accent="var(--accent)" emoji="📓"/>;
+  const [entries, setEntries, synced] = useKV("diary_v1", []);
+  const [text, setText] = useState("");
+  const [mood, setMood] = useState("🙂");
+  const [tag, setTag] = useState("");
+  const [showTagInput, setShowTagInput] = useState(false);
+  const [period, setPeriod] = useState("hoje");
+  const [search, setSearch] = useState("");
+  const [visibleDays, setVisibleDays] = useState(DIARY_PAGE_SIZE);
+
+  const todayStr = toDateStr(new Date());
+
+  const add = () => {
+    if (!text.trim()) return;
+    const e = { id:Date.now(), text:text.trim(), mood, date:nowISO(), ...(tag.trim()?{tag:tag.trim()}:{}) };
+    setEntries(prev => [e, ...prev]);
+    setText(""); setTag(""); setShowTagInput(false);
+  };
+  const editEntry = (id, newText) => setEntries(prev => prev.map(e=>e.id===id?{...e,text:newText}:e));
+  const delEntry = (id) => setEntries(prev => prev.filter(e=>e.id!==id));
+
+  const hojeCount = entries.filter(e=>toDateStr(new Date(e.date))===todayStr).length;
+  const streak = computeStreak(entries);
+
+  // Stats
+  const moodCounts = {};
+  entries.forEach(e=>{ moodCounts[e.mood] = (moodCounts[e.mood]||0)+1; });
+  const topMood = Object.entries(moodCounts).sort((a,b)=>b[1]-a[1])[0];
+  const dayCounts = {};
+  entries.forEach(e=>{ const k=toDateStr(new Date(e.date)); dayCounts[k]=(dayCounts[k]||0)+1; });
+  const topDay = Object.entries(dayCounts).sort((a,b)=>b[1]-a[1])[0];
+
+  // Period filter
+  const now = new Date();
+  const weekAgo = new Date(now.getTime()-7*86400000);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  let filtered = entries;
+  if (period==="hoje") filtered = entries.filter(e=>toDateStr(new Date(e.date))===todayStr);
+  else if (period==="semana") filtered = entries.filter(e=>new Date(e.date)>=weekAgo);
+  else if (period==="mes") filtered = entries.filter(e=>new Date(e.date)>=monthStart);
+
+  // Search filter
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    filtered = filtered.filter(e=>e.text.toLowerCase().includes(q) || (e.tag||"").toLowerCase().includes(q));
+  }
+
+  // Group by day (already roughly sorted desc since entries are prepended)
+  const sorted = [...filtered].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const groups = [];
+  const groupIndex = {};
+  sorted.forEach(e=>{
+    const key = toDateStr(new Date(e.date));
+    if (groupIndex[key]===undefined) { groupIndex[key]=groups.length; groups.push({key,date:new Date(e.date),items:[]}); }
+    groups[groupIndex[key]].items.push(e);
+  });
+  const visibleGroups = groups.slice(0, visibleDays);
+
+  const periods = [["hoje","Hoje"],["semana","Semana"],["mes","Mês"],["todos","Todos"]];
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{display:"flex",flexWrap:"wrap",justifyContent:"space-between",alignItems:"flex-end",gap:16,marginBottom:18}}>
+        <div>
+          <div style={{fontSize:26,fontWeight:800,color:"var(--text-1)"}}>Diário</div>
+          <div style={{fontSize:13,color:"var(--text-3)",textTransform:"capitalize",marginTop:2}}>
+            {now.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:20}}>
+          <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:800,color:"var(--text-1)"}}>{entries.length}</div><div style={{fontSize:10,color:"var(--text-3)"}}>registros</div></div>
+          <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:800,color:"var(--accent)"}}>{hojeCount}</div><div style={{fontSize:10,color:"var(--text-3)"}}>hoje</div></div>
+          <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:800,color:"var(--green)"}}>{streak}</div><div style={{fontSize:10,color:"var(--text-3)"}}>dias seguidos</div></div>
+        </div>
+      </div>
+
+      {/* Period + search */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:18,alignItems:"center"}}>
+        {periods.map(([id,label])=>(
+          <button key={id} onClick={()=>setPeriod(id)}
+            style={{background:period===id?"var(--accent)":"var(--bg-card)",border:`1px solid ${period===id?"var(--accent)":"var(--border)"}`,
+              borderRadius:20,padding:"7px 16px",color:period===id?"#fff":"var(--text-2)",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+            {label}
+          </button>
+        ))}
+        <div style={{position:"relative",marginLeft:"auto",minWidth:200,flex:"0 1 260px"}}>
+          <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)"}}>
+            <Icon path={I.search} size={13} color="var(--text-3)"/>
+          </span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar no diário..."
+            style={{...inp,paddingLeft:34,fontSize:13}}/>
+        </div>
+      </div>
+
+      {/* Composer (compact) */}
+      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,padding:14,marginBottom:22}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+            {DIARY_MOODS.map(m=>(
+              <button key={m} onClick={()=>setMood(m)}
+                style={{fontSize:17,background:mood===m?"var(--bg-input)":"none",border:mood===m?"1px solid var(--accent)":"1px solid transparent",
+                  borderRadius:8,padding:"2px 6px",cursor:"pointer"}}>{m}</button>
+            ))}
+          </div>
+          <span style={{fontSize:9,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"syncing..."}</span>
+        </div>
+        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="O que está em sua mente hoje?" rows={2}
+          style={{...inp,resize:"vertical",marginBottom:8,fontSize:13}}
+          onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
+        {showTagInput && (
+          <input value={tag} onChange={e=>setTag(e.target.value)} placeholder="tag (opcional)"
+            style={{...inp,fontSize:12,marginBottom:8,maxWidth:200}}/>
+        )}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <button onClick={()=>setShowTagInput(s=>!s)}
+            style={{background:"none",border:"none",color:"var(--text-3)",fontSize:11.5,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+            <Icon path={I.plus} size={11}/> Tag
+          </button>
+          <button onClick={add} style={{...btn("var(--accent)"),padding:"7px 20px",fontSize:13}}>+ Salvar</button>
+        </div>
+      </div>
+
+      {/* Quick stats */}
+      {entries.length>0 && (topMood || topDay) && (
+        <div style={{display:"flex",gap:20,flexWrap:"wrap",marginBottom:22,fontSize:12,color:"var(--text-3)"}}>
+          {topMood && <span>Emoji mais usado: <b style={{color:"var(--text-1)"}}>{topMood[0]}</b> ({topMood[1]})</span>}
+          {topDay && <span>Dia mais ativo: <b style={{color:"var(--text-1)"}}>{new Date(topDay[0]+"T12:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})}</b> — {topDay[1]} registros</span>}
+        </div>
+      )}
+
+      {/* Timeline */}
+      {visibleGroups.length===0 && <Empty text={search?"Nenhum registro encontrado.":"Nenhum registro ainda."}/>}
+      {visibleGroups.map(g=>{
+        const isToday = g.key===todayStr;
+        const dayLabel = g.date.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}).toUpperCase().replace(".","");
+        const weekday = g.date.toLocaleDateString("pt-BR",{weekday:"long"});
+        return (
+          <div key={g.key} style={{marginBottom:20}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:4}}>
+              <span style={{fontSize:13,fontWeight:800,color:isToday?"var(--accent)":"var(--text-1)",letterSpacing:0.5}}>
+                {isToday?"HOJE · ":""}{dayLabel}
+              </span>
+            </div>
+            <div style={{fontSize:11.5,color:"var(--text-3)",textTransform:"capitalize",marginBottom:12}}>
+              {weekday} · {g.items.length} {g.items.length===1?"momento":"momentos"}
+            </div>
+            <div>
+              {g.items.map((e,i)=>(
+                <DiaryEntryRow key={e.id} e={e} isToday={isToday} onEdit={editEntry} onDelete={delEntry}/>
+              ))}
+            </div>
+            <div style={{height:1,background:"var(--border-2)",marginTop:4}}/>
+          </div>
+        );
+      })}
+      {groups.length>visibleDays && (
+        <button onClick={()=>setVisibleDays(v=>v+DIARY_PAGE_SIZE)}
+          style={{display:"block",margin:"0 auto",background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:20,
+            padding:"9px 22px",color:"var(--text-2)",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          Mostrar mais dias
+        </button>
+      )}
+    </div>
+  );
 }
 
 // ─── IDEIAS PAGE ──────────────────────────────────────────────────────────────
