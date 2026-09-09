@@ -4623,7 +4623,8 @@ function DashSlot({ id, col, row, orderIdx, editMode, isDragging, onPointerDown,
   return (
     <div
       className={`dash-slot${editMode?" edit-mode":""}${isDragging?" dragging":""}`}
-      style={{ gridColumn:`span ${col}`, gridRow:`span ${row}`, order: orderIdx }}
+      style={{ gridColumn:`span ${col}`, gridRow:`span ${row}`, order: orderIdx,
+        touchAction: editMode?"none":"auto", cursor: editMode?(isDragging?"grabbing":"grab"):"default" }}
       onMouseDown={onPointerDown} onTouchStart={onPointerDown}>
       {children}
       {editMode && (
