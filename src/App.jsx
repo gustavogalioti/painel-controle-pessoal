@@ -49,6 +49,7 @@ const I = {
   weather: "M17 18a4 4 0 0 0 0-8 5 5 0 0 0-9.6-1.5A4.5 4.5 0 0 0 7 18h10z M12 2v2 M4.2 4.2l1.4 1.4 M2 11h2",
   skipBack:"M19 20 9 12l10-8v16z M5 19V5",
   skipFwd: "M5 4l10 8-10 8V4z M19 5v14",
+  pin:     "M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7z M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -1652,7 +1653,18 @@ function computeStreak(entries) {
 const DIARY_MOODS = ["😄","🙂","😐","😔","😤","🤔","🎉"];
 const DIARY_PAGE_SIZE = 15; // day-groups per page
 
-function DiaryEntryRow({ e, isToday, onEdit, onDelete }) {
+const DIARY_TYPES = [
+  { id:"pensamento",    icon:"💭", label:"Pensamento" },
+  { id:"acontecimento", icon:"📍", label:"Acontecimento" },
+  { id:"ideia",         icon:"💡", label:"Ideia" },
+  { id:"conquista",     icon:"🏆", label:"Conquista" },
+  { id:"viagem",        icon:"✈️", label:"Viagem" },
+  { id:"trabalho",      icon:"💼", label:"Trabalho" },
+  { id:"link",          icon:"🔗", label:"Link" },
+  { id:"nota_tecnica",  icon:"💻", label:"Nota técnica" },
+];
+
+function DiaryEntryRow({ e, isToday, onEdit, onDelete, onPin }) {
   const [expanded, setExpanded] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -1660,6 +1672,7 @@ function DiaryEntryRow({ e, isToday, onEdit, onDelete }) {
   const { masked, found } = maskDiarySecrets(e.text);
   const showText = found && !revealed ? masked : e.text;
   const time = new Date(e.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  const typeDef = DIARY_TYPES.find(t=>t.id===e.type);
 
   const saveEdit = () => {
     if (!editText.trim()) return;
@@ -1679,6 +1692,10 @@ function DiaryEntryRow({ e, isToday, onEdit, onDelete }) {
           style={{cursor:editing?"default":"pointer",display:"flex",gap:8,alignItems:"flex-start"}}>
           <span style={{fontSize:16,flexShrink:0,lineHeight:1.4}}>{e.mood}</span>
           <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+              {e.pinned && <Icon path={I.pin} size={11} color="var(--yellow)"/>}
+              {typeDef && <span style={{fontSize:11,color:"var(--text-3)"}}>{typeDef.icon} {typeDef.label}</span>}
+            </div>
             {editing ? (
               <textarea value={editText} onChange={ev=>setEditText(ev.target.value)} rows={3}
                 onClick={ev=>ev.stopPropagation()}
@@ -1701,7 +1718,11 @@ function DiaryEntryRow({ e, isToday, onEdit, onDelete }) {
                 borderRadius:8,padding:"1px 8px",marginTop:6}}>#{e.tag}</span>
             )}
             {expanded && !editing && (
-              <div style={{display:"flex",gap:14,marginTop:8}}>
+              <div style={{display:"flex",gap:14,marginTop:8,flexWrap:"wrap"}}>
+                <button onClick={ev=>{ev.stopPropagation();onPin(e.id);}}
+                  style={{background:"none",border:"none",color:e.pinned?"var(--yellow)":"var(--text-3)",fontSize:11,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+                  <Icon path={I.pin} size={11}/> {e.pinned?"Desafixar":"Fixar"}
+                </button>
                 <button onClick={ev=>{ev.stopPropagation();setEditText(e.text);setEditing(true);}}
                   style={{background:"none",border:"none",color:"var(--text-3)",fontSize:11,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
                   <Icon path={I.edit} size={11}/> Editar
@@ -1730,24 +1751,35 @@ function DiaryPage() {
   const [text, setText] = useState("");
   const [mood, setMood] = useState("🙂");
   const [tag, setTag] = useState("");
+  const [type, setType] = useState("");
   const [showTagInput, setShowTagInput] = useState(false);
+  const [showTypePicker, setShowTypePicker] = useState(false);
   const [period, setPeriod] = useState("hoje");
   const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState("Todas");
   const [visibleDays, setVisibleDays] = useState(DIARY_PAGE_SIZE);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarDate, setCalendarDate] = useState(null); // "YYYY-MM-DD" | null
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
 
   const todayStr = toDateStr(new Date());
 
   const add = () => {
     if (!text.trim()) return;
-    const e = { id:Date.now(), text:text.trim(), mood, date:nowISO(), ...(tag.trim()?{tag:tag.trim()}:{}) };
+    const e = { id:Date.now(), text:text.trim(), mood, date:nowISO(),
+      ...(tag.trim()?{tag:tag.trim()}:{}), ...(type?{type}:{}) };
     setEntries(prev => [e, ...prev]);
-    setText(""); setTag(""); setShowTagInput(false);
+    setText(""); setTag(""); setType(""); setShowTagInput(false); setShowTypePicker(false);
   };
   const editEntry = (id, newText) => setEntries(prev => prev.map(e=>e.id===id?{...e,text:newText}:e));
   const delEntry = (id) => setEntries(prev => prev.filter(e=>e.id!==id));
+  const pinEntry = (id) => setEntries(prev => prev.map(e=>e.id===id?{...e,pinned:!e.pinned}:e));
 
   const hojeCount = entries.filter(e=>toDateStr(new Date(e.date))===todayStr).length;
   const streak = computeStreak(entries);
+  const pinned = entries.filter(e=>e.pinned);
+  const allTags = Array.from(new Set(entries.filter(e=>e.tag).map(e=>e.tag))).sort();
 
   // Stats
   const moodCounts = {};
@@ -1756,15 +1788,19 @@ function DiaryPage() {
   const dayCounts = {};
   entries.forEach(e=>{ const k=toDateStr(new Date(e.date)); dayCounts[k]=(dayCounts[k]||0)+1; });
   const topDay = Object.entries(dayCounts).sort((a,b)=>b[1]-a[1])[0];
+  const entryDaySet = new Set(Object.keys(dayCounts));
 
-  // Period filter
+  // Period / calendar filter
   const now = new Date();
   const weekAgo = new Date(now.getTime()-7*86400000);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   let filtered = entries;
-  if (period==="hoje") filtered = entries.filter(e=>toDateStr(new Date(e.date))===todayStr);
+  if (calendarDate) filtered = entries.filter(e=>toDateStr(new Date(e.date))===calendarDate);
+  else if (period==="hoje") filtered = entries.filter(e=>toDateStr(new Date(e.date))===todayStr);
   else if (period==="semana") filtered = entries.filter(e=>new Date(e.date)>=weekAgo);
   else if (period==="mes") filtered = entries.filter(e=>new Date(e.date)>=monthStart);
+
+  if (tagFilter!=="Todas") filtered = filtered.filter(e=>e.tag===tagFilter);
 
   // Search filter
   if (search.trim()) {
@@ -1784,6 +1820,8 @@ function DiaryPage() {
   const visibleGroups = groups.slice(0, visibleDays);
 
   const periods = [["hoje","Hoje"],["semana","Semana"],["mes","Mês"],["todos","Todos"]];
+  const selectPeriod = (id) => { setCalendarDate(null); setPeriod(id); };
+  const calCells = buildMonthGrid(calYear, calMonth);
 
   return (
     <div>
@@ -1802,15 +1840,20 @@ function DiaryPage() {
         </div>
       </div>
 
-      {/* Period + search */}
-      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:18,alignItems:"center"}}>
+      {/* Period + search + calendar toggle */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12,alignItems:"center"}}>
         {periods.map(([id,label])=>(
-          <button key={id} onClick={()=>setPeriod(id)}
-            style={{background:period===id?"var(--accent)":"var(--bg-card)",border:`1px solid ${period===id?"var(--accent)":"var(--border)"}`,
-              borderRadius:20,padding:"7px 16px",color:period===id?"#fff":"var(--text-2)",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          <button key={id} onClick={()=>selectPeriod(id)}
+            style={{background:(!calendarDate&&period===id)?"var(--accent)":"var(--bg-card)",border:`1px solid ${(!calendarDate&&period===id)?"var(--accent)":"var(--border)"}`,
+              borderRadius:20,padding:"7px 16px",color:(!calendarDate&&period===id)?"#fff":"var(--text-2)",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
             {label}
           </button>
         ))}
+        <button onClick={()=>setShowCalendar(s=>!s)}
+          style={{background:showCalendar||calendarDate?"var(--accent)":"var(--bg-card)",border:`1px solid ${showCalendar||calendarDate?"var(--accent)":"var(--border)"}`,
+            borderRadius:20,padding:"7px 14px",color:showCalendar||calendarDate?"#fff":"var(--text-2)",fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <Icon path={I.calendar} size={13}/> {calendarDate ? new Date(calendarDate+"T12:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "Calendário"}
+        </button>
         <div style={{position:"relative",marginLeft:"auto",minWidth:200,flex:"0 1 260px"}}>
           <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)"}}>
             <Icon path={I.search} size={13} color="var(--text-3)"/>
@@ -1819,6 +1862,50 @@ function DiaryPage() {
             style={{...inp,paddingLeft:34,fontSize:13}}/>
         </div>
       </div>
+
+      {showCalendar && (
+        <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,padding:16,marginBottom:16,maxWidth:320}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <button onClick={()=>{ if(calMonth===0){setCalMonth(11);setCalYear(y=>y-1);} else setCalMonth(m=>m-1); }}
+              style={{background:"none",border:"none",cursor:"pointer",color:"var(--text-2)"}}><Icon path={I.back} size={14}/></button>
+            <span style={{fontSize:13,fontWeight:700,textTransform:"capitalize"}}>{new Date(calYear,calMonth,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"})}</span>
+            <button onClick={()=>{ if(calMonth===11){setCalMonth(0);setCalYear(y=>y+1);} else setCalMonth(m=>m+1); }}
+              style={{background:"none",border:"none",cursor:"pointer",color:"var(--text-2)"}}><Icon path={I.next} size={14}/></button>
+          </div>
+          <div className="cal-grid">
+            {["D","S","T","Q","Q","S","S"].map((d,i)=><div key={i} className="cal-weekday">{d}</div>)}
+            {calCells.map((c,i)=>{
+              const ds = toDateStr(c.date);
+              const has = entryDaySet.has(ds);
+              return (
+                <div key={i}
+                  className={`cal-day${c.inMonth?"":" other-month"}${ds===todayStr?" today":""}${ds===calendarDate?" selected":""}${has?" has-events":""}`}
+                  onClick={()=>{ setCalendarDate(ds); setShowCalendar(false); }}>
+                  {c.date.getDate()}
+                </div>
+              );
+            })}
+          </div>
+          {calendarDate && (
+            <button onClick={()=>setCalendarDate(null)}
+              style={{marginTop:10,background:"none",border:"none",color:"var(--text-3)",fontSize:11,cursor:"pointer",padding:0,textDecoration:"underline"}}>
+              Limpar seleção
+            </button>
+          )}
+        </div>
+      )}
+
+      {allTags.length>0 && (
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:18}}>
+          {["Todas",...allTags].map(t=>(
+            <button key={t} onClick={()=>setTagFilter(t)}
+              style={{background:tagFilter===t?"var(--accent)":"var(--bg-input)",border:"none",borderRadius:16,padding:"4px 12px",
+                color:tagFilter===t?"#fff":"var(--text-3)",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+              {t==="Todas"?"Todas":`#${t}`}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Composer (compact) */}
       <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,padding:14,marginBottom:22}}>
@@ -1839,11 +1926,28 @@ function DiaryPage() {
           <input value={tag} onChange={e=>setTag(e.target.value)} placeholder="tag (opcional)"
             style={{...inp,fontSize:12,marginBottom:8,maxWidth:200}}/>
         )}
+        {showTypePicker && (
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+            {DIARY_TYPES.map(t=>(
+              <button key={t.id} onClick={()=>setType(type===t.id?"":t.id)}
+                style={{background:type===t.id?"var(--accent)":"var(--bg-input)",border:"none",borderRadius:14,padding:"4px 10px",
+                  color:type===t.id?"#fff":"var(--text-2)",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+                {t.icon} {t.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <button onClick={()=>setShowTagInput(s=>!s)}
-            style={{background:"none",border:"none",color:"var(--text-3)",fontSize:11.5,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
-            <Icon path={I.plus} size={11}/> Tag
-          </button>
+          <div style={{display:"flex",gap:14}}>
+            <button onClick={()=>setShowTagInput(s=>!s)}
+              style={{background:"none",border:"none",color:"var(--text-3)",fontSize:11.5,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+              <Icon path={I.plus} size={11}/> Tag
+            </button>
+            <button onClick={()=>setShowTypePicker(s=>!s)}
+              style={{background:"none",border:"none",color:"var(--text-3)",fontSize:11.5,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+              <Icon path={I.plus} size={11}/> Tipo
+            </button>
+          </div>
           <button onClick={add} style={{...btn("var(--accent)"),padding:"7px 20px",fontSize:13}}>+ Salvar</button>
         </div>
       </div>
@@ -1856,8 +1960,21 @@ function DiaryPage() {
         </div>
       )}
 
+      {/* Pinned */}
+      {pinned.length>0 && (
+        <div style={{marginBottom:26}}>
+          <div style={{fontSize:13,fontWeight:800,color:"var(--yellow)",marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
+            <Icon path={I.pin} size={13}/> FIXADOS
+          </div>
+          {pinned.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(e=>(
+            <DiaryEntryRow key={e.id} e={e} isToday={toDateStr(new Date(e.date))===todayStr} onEdit={editEntry} onDelete={delEntry} onPin={pinEntry}/>
+          ))}
+          <div style={{height:1,background:"var(--border-2)",marginTop:4}}/>
+        </div>
+      )}
+
       {/* Timeline */}
-      {visibleGroups.length===0 && <Empty text={search?"Nenhum registro encontrado.":"Nenhum registro ainda."}/>}
+      {visibleGroups.length===0 && <Empty text={search||calendarDate?"Nenhum registro encontrado.":"Nenhum registro ainda."}/>}
       {visibleGroups.map(g=>{
         const isToday = g.key===todayStr;
         const dayLabel = g.date.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}).toUpperCase().replace(".","");
@@ -1874,7 +1991,7 @@ function DiaryPage() {
             </div>
             <div>
               {g.items.map((e,i)=>(
-                <DiaryEntryRow key={e.id} e={e} isToday={isToday} onEdit={editEntry} onDelete={delEntry}/>
+                <DiaryEntryRow key={e.id} e={e} isToday={isToday} onEdit={editEntry} onDelete={delEntry} onPin={pinEntry}/>
               ))}
             </div>
             <div style={{height:1,background:"var(--border-2)",marginTop:4}}/>
