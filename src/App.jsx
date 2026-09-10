@@ -1746,6 +1746,95 @@ function DiaryEntryRow({ e, isToday, onEdit, onDelete, onPin }) {
   );
 }
 
+function DiaryStatBar({ label, count, max, color }) {
+  const pct = max>0 ? Math.round((count/max)*100) : 0;
+  return (
+    <div style={{marginBottom:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+        <span style={{color:"var(--text-2)"}}>{label}</span>
+        <span style={{color:"var(--text-3)",fontWeight:700}}>{count}</span>
+      </div>
+      <div style={{height:8,borderRadius:4,background:"var(--bg-input)",overflow:"hidden"}}>
+        <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:4}}/>
+      </div>
+    </div>
+  );
+}
+
+function DiaryResumoModal({ entries, onClose }) {
+  const total = entries.length;
+
+  const typeCounts = {};
+  entries.forEach(e=>{ const t = e.type || "outros"; typeCounts[t] = (typeCounts[t]||0)+1; });
+  const typeLabel = (id) => id==="outros" ? "Sem tipo" : (DIARY_TYPES.find(t=>t.id===id)?.label || id);
+  const typeList = Object.entries(typeCounts).sort((a,b)=>b[1]-a[1]);
+  const maxType = typeList[0]?.[1] || 1;
+
+  const moodCounts = {};
+  entries.forEach(e=>{ moodCounts[e.mood] = (moodCounts[e.mood]||0)+1; });
+  const moodList = Object.entries(moodCounts).sort((a,b)=>b[1]-a[1]);
+  const maxMood = moodList[0]?.[1] || 1;
+
+  const dayCounts = {};
+  entries.forEach(e=>{ const k=toDateStr(new Date(e.date)); dayCounts[k]=(dayCounts[k]||0)+1; });
+  const topDays = Object.entries(dayCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const maxDay = topDays[0]?.[1] || 1;
+
+  const tagCounts = {};
+  entries.forEach(e=>{ if (e.tag) tagCounts[e.tag] = (tagCounts[e.tag]||0)+1; });
+  const topTags = Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  const firstDate = entries.length ? new Date(Math.min(...entries.map(e=>new Date(e.date).getTime()))) : null;
+
+  return (
+    <Modal title="Resumo do Diário" onClose={onClose} wide>
+      <div style={{fontSize:12,color:"var(--text-3)",marginBottom:20}}>
+        {total} registro{total!==1?"s":""}{firstDate?` desde ${firstDate.toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}`:""}
+      </div>
+
+      {total===0 ? <Empty text="Ainda não há registros suficientes para gerar um resumo."/> : (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:28}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"var(--text-3)",letterSpacing:1,marginBottom:12}}>TIPOS DE REGISTRO</div>
+            {typeList.map(([id,count])=>(
+              <DiaryStatBar key={id} label={typeLabel(id)} count={count} max={maxType} color="var(--accent)"/>
+            ))}
+          </div>
+
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"var(--text-3)",letterSpacing:1,marginBottom:12}}>HUMOR</div>
+            {moodList.map(([m,count])=>(
+              <DiaryStatBar key={m} label={m} count={count} max={maxMood} color="var(--yellow)"/>
+            ))}
+          </div>
+
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"var(--text-3)",letterSpacing:1,marginBottom:12}}>DIAS MAIS ATIVOS</div>
+            {topDays.map(([d,count])=>(
+              <DiaryStatBar key={d} label={new Date(d+"T12:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})} count={count} max={maxDay} color="var(--green)"/>
+            ))}
+          </div>
+
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"var(--text-3)",letterSpacing:1,marginBottom:12}}>TAGS RECORRENTES</div>
+            {topTags.length===0
+              ? <div style={{fontSize:12,color:"var(--text-3)"}}>Nenhuma tag usada ainda.</div>
+              : (
+                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                  {topTags.map(([t,count])=>(
+                    <span key={t} style={{fontSize:11,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:12,padding:"4px 12px",fontWeight:600}}>
+                      #{t} <span style={{opacity:0.7}}>({count})</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function DiaryPage() {
   const [entries, setEntries, synced] = useKV("diary_v1", []);
   const [text, setText] = useState("");
@@ -1759,6 +1848,7 @@ function DiaryPage() {
   const [tagFilter, setTagFilter] = useState("Todas");
   const [visibleDays, setVisibleDays] = useState(DIARY_PAGE_SIZE);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [showResumo, setShowResumo] = useState(false);
   const [calendarDate, setCalendarDate] = useState(null); // "YYYY-MM-DD" | null
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
@@ -1853,6 +1943,11 @@ function DiaryPage() {
           style={{background:showCalendar||calendarDate?"var(--accent)":"var(--bg-card)",border:`1px solid ${showCalendar||calendarDate?"var(--accent)":"var(--border)"}`,
             borderRadius:20,padding:"7px 14px",color:showCalendar||calendarDate?"#fff":"var(--text-2)",fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
           <Icon path={I.calendar} size={13}/> {calendarDate ? new Date(calendarDate+"T12:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "Calendário"}
+        </button>
+        <button onClick={()=>setShowResumo(true)}
+          style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:20,padding:"7px 14px",
+            color:"var(--text-2)",fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <Icon path={I.trend} size={13}/> Resumo
         </button>
         <div style={{position:"relative",marginLeft:"auto",minWidth:200,flex:"0 1 260px"}}>
           <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)"}}>
@@ -2005,6 +2100,8 @@ function DiaryPage() {
           Mostrar mais dias
         </button>
       )}
+
+      {showResumo && <DiaryResumoModal entries={entries} onClose={()=>setShowResumo(false)}/>}
     </div>
   );
 }
