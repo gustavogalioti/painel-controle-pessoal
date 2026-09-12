@@ -1,5 +1,6 @@
 export const config = { runtime: "edge" };
 import { neon } from "@neondatabase/serverless";
+import { getValidToken as getGoogleToken, ensureTable as ensureGoogleAuthTable } from "./google-calendar.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // PEDRO (Painel) — assistente IA do Painel de Controle Pessoal.
@@ -357,11 +358,41 @@ async function getWeatherReply(message, coords) {
   }
 }
 
+async function getGoogleEventsToday(sql, todayStr) {
+  try {
+    await ensureGoogleAuthTable(sql);
+    const token = await getGoogleToken(sql);
+    if (!token) return [];
+    const timeMin = new Date(`${todayStr}T00:00:00-03:00`).toISOString();
+    const timeMax = new Date(`${todayStr}T23:59:59-03:00`).toISOString();
+    const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=50`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.items || []).map(g => ({
+      title: g.summary || "(sem título)",
+      date: (g.start?.dateTime || g.start?.date || "").slice(0, 10),
+      time: g.start?.dateTime ? g.start.dateTime.slice(11, 16) : "",
+      local: g.location || "",
+      googleId: g.id,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function getEventsTodayMerged(sql) {
+  const todayStr = todayISO();
+  const localEvents = await getKvList(sql, "events_v1");
+  const googleEvents = await getGoogleEventsToday(sql, todayStr);
+  const linkedGoogleIds = new Set(localEvents.filter(e => e.googleId).map(e => e.googleId));
+  const dedupedGoogle = googleEvents.filter(g => !linkedGoogleIds.has(g.googleId));
+  return [...localEvents, ...dedupedGoogle].filter(e => e.date === todayStr).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+}
+
 async function getAgendaHojeReply(sql) {
   try {
-    const events = await getKvList(sql, "events_v1");
-    const todayStr = todayISO();
-    const hoje = events.filter(e => e.date === todayStr).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+    const hoje = await getEventsTodayMerged(sql);
     if (!hoje.length) return "Hoje sua agenda tá livre! Aproveita pra respirar um pouco 🐾😌";
     const lista = hoje.slice(0, 5).map(e => `• ${e.time ? e.time + " — " : ""}${e.title}`).join("\n");
     return `Hoje você tem:\n${lista}\n\nQuer que eu te avise antes de cada um? 🐾`;
@@ -419,10 +450,9 @@ async function getFinanceSummaryReply(sql) {
 async function getResumoDiaReply(sql) {
   try {
     const todayStr = todayISO();
-    const [events, tasks, finance] = await Promise.all([
-      getKvList(sql, "events_v1"), getKvList(sql, "tasks_v1"), getKvList(sql, "finance_v1"),
+    const [hojeEventos, tasks, finance] = await Promise.all([
+      getEventsTodayMerged(sql), getKvList(sql, "tasks_v1"), getKvList(sql, "finance_v1"),
     ]);
-    const hojeEventos = events.filter(e => e.date === todayStr).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
     const pendTasks = tasks.filter(t => (t.status || (t.done ? "done" : "todo")) !== "done");
     const hojeTasks = pendTasks.filter(t => t.status === "today");
     const dia = +todayStr.slice(-2);
