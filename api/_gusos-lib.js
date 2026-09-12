@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { ensureTable as ensureGoogleAuthTable, getValidToken as getValidGoogleToken } from "./google-calendar.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Biblioteca compartilhada do Gus OS — usada pelo endpoint genérico
@@ -127,8 +128,8 @@ export function makeHandler(actionName, fn) {
         result: "ok",
         summary: result.item ? { id: result.item.id } : { count: result.count },
       });
-      if (result.items !== undefined) return ok({ action: actionName, count: result.count, items: result.items });
-      return ok({ action: actionName, item: result.item, deduplicated: !!result.deduplicated });
+      const { fieldError, ...rest } = result;
+      return ok({ action: actionName, ...rest, ...(rest.item ? { deduplicated: !!rest.deduplicated } : {}) });
     } catch (e) {
       try {
         const sql = neon(process.env.DATABASE_URL);
@@ -246,5 +247,132 @@ export async function anotarDiario(sql, params = {}) {
     ...(type ? { type } : {}),
   };
   await setKvList(sql, "diary_v1", [item, ...entries]);
+  return { item };
+}
+
+// ---------- Agenda (local events_v1 + Google Calendar ao vivo) ----------
+//
+// A Agenda do painel não é só sync_kv: ela funde eventos locais
+// (events_v1) com eventos vivos do Google Calendar via OAuth (token
+// guardado na tabela google_auth, mesma usada por api/google-calendar.js).
+// Reaproveitamos exatamente essa lógica aqui, em vez de duplicar.
+
+function todayStrBR() {
+  // Data de "hoje" no fuso do Gustavo (America/Sao_Paulo), não em UTC —
+  // relevante porque o servidor roda em UTC e a virada de dia diverge.
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+}
+
+function toGoogleEvent(evt) {
+  if (evt.time) {
+    const start = new Date(`${evt.date}T${evt.time}:00`);
+    const end = new Date(start.getTime() + 60 * 60 * 1000);
+    const toISO = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:00`;
+    return {
+      summary: evt.title, location: evt.local || undefined, description: evt.notes || undefined,
+      start: { dateTime: toISO(start), timeZone: "America/Sao_Paulo" },
+      end: { dateTime: toISO(end), timeZone: "America/Sao_Paulo" },
+    };
+  }
+  const d = new Date(evt.date + "T12:00:00");
+  d.setDate(d.getDate() + 1);
+  const nextDay = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return {
+    summary: evt.title, location: evt.local || undefined, description: evt.notes || undefined,
+    start: { date: evt.date }, end: { date: nextDay },
+  };
+}
+
+function fromGoogleEvent(g) {
+  const isAllDay = !!g.start?.date;
+  return {
+    id: "g_" + g.id,
+    googleId: g.id,
+    title: g.summary || "(Sem título)",
+    date: isAllDay ? g.start.date : g.start.dateTime.slice(0, 10),
+    time: isAllDay ? "" : g.start.dateTime.slice(11, 16),
+    local: g.location || "",
+    notes: g.description || "",
+    cat: "Google",
+    source: "google",
+  };
+}
+
+async function fetchLiveGoogleEvents(sql) {
+  await ensureGoogleAuthTable(sql);
+  const token = await getValidGoogleToken(sql);
+  if (!token) return { connected: false, events: [] };
+  const timeMin = new Date(Date.now() - 60 * 86400000).toISOString();
+  const timeMax = new Date(Date.now() + 365 * 86400000).toISOString();
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=250`;
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) return { connected: true, events: [] };
+  const d = await r.json();
+  return { connected: true, events: (d.items || []).map(fromGoogleEvent) };
+}
+
+export async function lerAgenda(sql, params = {}) {
+  const localEvents = await getKvList(sql, "events_v1");
+  const { connected, events: googleEvents } = await fetchLiveGoogleEvents(sql);
+
+  const linkedGoogleIds = new Set(localEvents.filter(e => e.googleId).map(e => e.googleId));
+  const deduped = googleEvents.filter(g => !linkedGoogleIds.has(g.googleId));
+  let all = [...localEvents, ...deduped];
+
+  const { data, data_inicio, data_fim, busca } = params;
+  const day = data || (!data_inicio && !data_fim ? todayStrBR() : null);
+  if (day) all = all.filter(e => e.date === day);
+  if (data_inicio) all = all.filter(e => e.date >= data_inicio);
+  if (data_fim) all = all.filter(e => e.date <= data_fim);
+  if (busca) {
+    const nq = normalize(busca);
+    all = all.filter(e => normalize(e.title).includes(nq));
+  }
+  all.sort((a, b) => new Date(a.date + "T" + (a.time || "00:00")) - new Date(b.date + "T" + (b.time || "00:00")));
+  return { items: all, count: all.length, googleConnected: connected };
+}
+
+export async function criarEvento(sql, params = {}) {
+  const title = (params.title || "").toString().trim();
+  const date = (params.date || "").toString().trim();
+  if (!title) return { fieldError: "Campo obrigatório ausente: title" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { fieldError: "Campo obrigatório ausente ou inválido: date (formato YYYY-MM-DD)" };
+
+  const time = /^\d{2}:\d{2}$/.test(params.time || "") ? params.time : "";
+  const local = typeof params.local === "string" ? params.local : "";
+  const notes = typeof params.notes === "string" ? params.notes : "";
+  const cats = ["Pessoal", "Médico", "Reunião", "Viagem", "Aniversário", "Outros"];
+  const cat = cats.includes(params.cat) ? params.cat : "Pessoal";
+
+  const events = await getKvList(sql, "events_v1");
+  const dup = events.find(e => normalize(e.title) === normalize(title) && e.date === date && (e.time || "") === time);
+  if (dup) return { item: dup, deduplicated: true };
+
+  let googleId = null;
+  const { connected } = await fetchLiveGoogleEvents(sql);
+  if (connected) {
+    try {
+      const token = await getValidGoogleToken(sql);
+      const gBody = toGoogleEvent({ title, date, time, local, notes });
+      const r = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(gBody),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        googleId = d.id || null;
+      }
+    } catch {
+      // Falha ao sincronizar com o Google não deve impedir salvar localmente.
+    }
+  }
+
+  const item = {
+    id: Date.now(), // gerado sempre no servidor
+    title, date, time, local, cat, notes,
+    ...(googleId ? { googleId } : {}),
+  };
+  await setKvList(sql, "events_v1", [...events, item]);
   return { item };
 }

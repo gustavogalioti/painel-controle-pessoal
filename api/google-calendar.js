@@ -8,7 +8,7 @@ const CORS = {
   "Content-Type": "application/json",
 };
 
-async function ensureTable(sql) {
+export async function ensureTable(sql) {
   await sql`CREATE TABLE IF NOT EXISTS google_auth (
     id INT PRIMARY KEY DEFAULT 1,
     access_token TEXT,
@@ -18,7 +18,7 @@ async function ensureTable(sql) {
   )`;
 }
 
-async function getValidToken(sql) {
+export async function getValidToken(sql) {
   const rows = await sql`SELECT * FROM google_auth WHERE id=1`;
   const row = rows[0];
   if (!row || !row.access_token) return null;
