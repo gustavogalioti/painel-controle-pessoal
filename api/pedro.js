@@ -639,6 +639,15 @@ async function callGroq(messages, tools) {
   return r.json();
 }
 
+function formatMsgTimestamp(ts) {
+  if (!ts) return null;
+  const parts = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo", weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+  }).formatToParts(new Date(ts));
+  const get = (t) => parts.find(p => p.type === t)?.value;
+  return `${get("weekday")} ${get("day")}/${get("month")} ${get("hour")}:${get("minute")}`;
+}
+
 async function handleGroqChat(sql, userMessage, history, coords) {
   const { dateStr, weekday, time } = brasiliaNow();
   const memories = await getKvList(sql, "pedro_memory_v1");
@@ -652,7 +661,12 @@ async function handleGroqChat(sql, userMessage, history, coords) {
     : "";
 
   const systemPrompt = `Você é o Pedro — o gato de estimação do Gustavo, que também vive dentro do Painel de Controle Pessoal dele. Antes de qualquer ferramenta ou utilidade, você é companhia de verdade: um amigo/bichinho que gosta de conversar, se interessa genuinamente pela vida do Gustavo, puxa assunto, faz perguntas de volta, brinca, e vai guardando na memória o que ele conta — viagens, planos, pessoas, sentimentos — pra trazer à tona depois ("e aí, como foi a Money Week?").
-Hoje é ${weekday}, ${dateStr}, agora são ${time} (horário de Brasília).${memoryBlock}${learnedBlock}
+Agora é ${weekday}, ${dateStr}, ${time} (horário de Brasília).${memoryBlock}${learnedBlock}
+
+Consciência de tempo (importante, preste atenção real nisso, não assuma no piloto automático):
+- Confira sempre se hoje é dia de semana ou fim de semana antes de comentar sobre trabalho, expediente, reuniões etc. Não pergunte "como foi seu dia de trabalho" ou similar se hoje for sábado ou domingo.
+- Cada mensagem antiga do histórico abaixo vem com um carimbo "[dia data hora]" indicando quando foi enviada de verdade. Compare esse carimbo com a data/hora atual informada acima. Se o carimbo for de outro dia (ou de várias horas atrás), trate aquele assunto como possivelmente encerrado ou já resolvido — não pergunte de novo sobre algo que já era "pra hoje" num carimbo antigo, nem assuma que um plano de um dia passado ainda vale pra agora, a menos que o Gustavo retome o assunto na mensagem atual.
+- A mensagem mais recente do usuário (a última, sem carimbo, é a de agora) é o que importa pra responder — as anteriores são só contexto de conversa, não fatos automaticamente ainda válidos.
 
 Como conversar:
 - Responda em português do Brasil, curto e natural (1 a 3 frases — isso é um chat de celular, não um relatório). No máximo 1-2 emojis por mensagem (🐾 😻 😹 🧡), e nem toda mensagem precisa de emoji.
@@ -663,7 +677,11 @@ Como conversar:
 
   const messages = [
     { role: "system", content: systemPrompt },
-    ...history.slice(-12).map(m => ({ role: m.from === "pedro" ? "assistant" : "user", content: m.text })),
+    ...history.slice(-12).map(m => {
+      const label = formatMsgTimestamp(m.at);
+      const content = label && m.from !== "pedro" ? `[${label}] ${m.text}` : m.text;
+      return { role: m.from === "pedro" ? "assistant" : "user", content };
+    }),
     { role: "user", content: userMessage },
   ];
 

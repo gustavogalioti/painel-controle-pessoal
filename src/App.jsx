@@ -6869,7 +6869,7 @@ function PedroWidget({ page }) {
   const send = async () => {
     const text = input.trim();
     if (!text) return;
-    const historyForRequest = messages.slice(-12).map(m => ({ from: m.from, text: m.text }));
+    const historyForRequest = messages.slice(-12).map(m => ({ from: m.from, text: m.text, at: m.at }));
     setMessages(prev => [...prev, { from: "user", text, at: Date.now() }]);
     setInput("");
     setThinking(true);
