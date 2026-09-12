@@ -425,7 +425,7 @@ async function getResumoDiaReply(sql) {
     const hojeEventos = events.filter(e => e.date === todayStr).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
     const pendTasks = tasks.filter(t => (t.status || (t.done ? "done" : "todo")) !== "done");
     const hojeTasks = pendTasks.filter(t => t.status === "today");
-    const dia = new Date().getDate();
+    const dia = +todayStr.slice(-2);
     const contasVencendo = finance.filter(e => FIN_RECURRENT_TYPES.includes(e.type) && !finIsPaid(e) && +e.dueDay >= dia && +e.dueDay <= dia + 5);
 
     const partes = [];
