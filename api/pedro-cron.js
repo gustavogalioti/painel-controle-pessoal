@@ -2,6 +2,7 @@
 // Runtime Node.js normal (não edge) porque a lib web-push precisa de crypto do Node.
 import { neon } from "@neondatabase/serverless";
 import webpush from "web-push";
+import { getValidToken as getGoogleToken, ensureTable as ensureGoogleAuthTable } from "./google-calendar.js";
 
 async function getKvList(sql, key) {
   const rows = await sql`SELECT value FROM sync_kv WHERE key=${key}`;
@@ -14,6 +15,30 @@ async function setKvList(sql, key, list) {
   const ts = new Date().toISOString();
   await sql`INSERT INTO sync_kv (key, value, updated_at) VALUES (${key}, ${value}, ${ts})
             ON CONFLICT (key) DO UPDATE SET value=${value}, updated_at=${ts}`;
+}
+
+async function getGoogleEventsForDay(sql, dateStr) {
+  try {
+    await ensureGoogleAuthTable(sql);
+    const token = await getGoogleToken(sql);
+    if (!token) return [];
+    const timeMin = new Date(`${dateStr}T00:00:00-03:00`).toISOString();
+    const timeMax = new Date(`${dateStr}T23:59:59-03:00`).toISOString();
+    const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=50`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.items || []).map(g => ({
+      id: `g_${g.id}`,
+      title: g.summary || "(sem título)",
+      date: (g.start?.dateTime || g.start?.date || "").slice(0, 10),
+      time: g.start?.dateTime ? g.start.dateTime.slice(11, 16) : "",
+      local: g.location || "",
+      googleId: g.id,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function nowInSaoPaulo() {
@@ -76,7 +101,11 @@ export default async function handler(req, res) {
 
   // ── Lembretes de compromissos próximos (próximos 20 min) ──────────────────
   try {
-    const events = await getKvList(sql, "events_v1");
+    const localEvents = await getKvList(sql, "events_v1");
+    const googleEvents = await getGoogleEventsForDay(sql, todayStr);
+    const linkedGoogleIds = new Set(localEvents.filter(e => e.googleId).map(e => e.googleId));
+    const dedupedGoogle = googleEvents.filter(g => !linkedGoogleIds.has(g.googleId));
+    const events = [...localEvents, ...dedupedGoogle];
     const remindedIds = await getKvList(sql, "pedro_reminded_events_server");
     const now = new Date();
     const nowSP = new Date(now.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));

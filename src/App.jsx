@@ -6712,6 +6712,7 @@ function PedroWidget({ page }) {
   const [events] = useKV("events_v1", []);
   const [tasks] = useKV("tasks_v1", []);
   const [bills] = useKV("bills_v1", []);
+  const [googleEvents, setGoogleEvents] = useState([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [unread, setUnread] = useState(false);
@@ -6791,12 +6792,41 @@ function PedroWidget({ page }) {
     return () => clearTimeout(t);
   }, [pState.lastGreetedDate]);
 
-  // Lembretes proativos de compromissos próximos (AGENDA)
+  // Busca eventos do Google Calendar de hoje (se conectado), pro lembrete também valer pra eles
+  useEffect(() => {
+    const fetchGoogle = async () => {
+      try {
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+        const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+        const r = await fetch(`/api/google-calendar?timeMin=${encodeURIComponent(start.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}`);
+        if (!r.ok) { setGoogleEvents([]); return; }
+        const items = await r.json();
+        const parsed = (items || []).map(g => ({
+          id: `g_${g.id}`,
+          title: g.summary || "(sem título)",
+          date: (g.start?.dateTime || g.start?.date || "").slice(0, 10),
+          time: g.start?.dateTime ? g.start.dateTime.slice(11, 16) : "",
+          local: g.location || "",
+          googleId: g.id,
+        }));
+        setGoogleEvents(parsed);
+      } catch { setGoogleEvents([]); }
+    };
+    fetchGoogle();
+    const id = setInterval(fetchGoogle, 5 * 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Lembretes proativos de compromissos próximos (AGENDA local + Google Calendar)
   useEffect(() => {
     const check = () => {
       const now = new Date();
       const todayStr = pedroTodayStr();
-      (events || []).forEach(ev => {
+      const linkedGoogleIds = new Set((events || []).filter(e => e.googleId).map(e => e.googleId));
+      const dedupedGoogle = (googleEvents || []).filter(g => !linkedGoogleIds.has(g.googleId));
+      const allEvents = [...(events || []), ...dedupedGoogle];
+      allEvents.forEach(ev => {
         if (ev.date !== todayStr || !ev.time || remindedRef.current.has(ev.id)) return;
         const [h, m] = ev.time.split(":").map(Number);
         const evDate = new Date(); evDate.setHours(h || 0, m || 0, 0, 0);
@@ -6811,7 +6841,7 @@ function PedroWidget({ page }) {
     check();
     const id = setInterval(check, 60000);
     return () => clearInterval(id);
-  }, [events]);
+  }, [events, googleEvents]);
 
   // Check-in no fim do dia — se ainda sobrou tarefa "De Hoje" não concluída
   useEffect(() => {
