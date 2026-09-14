@@ -1,5 +1,6 @@
 export const config = { runtime: "edge" };
 import { neon } from "@neondatabase/serverless";
+import { getValidToken } from "./google-calendar.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // JARBAS — ponte entre o companheiro de voz (Jarbas, repo separado) e os
@@ -27,8 +28,27 @@ function normalize(text) {
 }
 
 function todayISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  // Data de "hoje" no fuso de Brasília, independente do fuso do servidor da função edge.
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+async function getGoogleEventosHoje(sql, todayStr) {
+  try {
+    const token = await getValidToken(sql);
+    if (!token) return [];
+    const timeMin = `${todayStr}T00:00:00-03:00`;
+    const timeMax = `${todayStr}T23:59:59-03:00`;
+    const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=20`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.items || []).map(ev => ({
+      title: ev.summary || "(sem título)",
+      time: ev.start?.dateTime ? ev.start.dateTime.slice(11, 16) : "",
+    }));
+  } catch {
+    return [];
+  }
 }
 
 async function getKvList(sql, key) {
@@ -51,11 +71,12 @@ function finIsPaid(e) { return e.recurrent ? (e.paidMonths || []).includes(finCu
 // ---------- Leitura (o que o Jarbas "sabe") ----------
 async function getSnapshotText(sql) {
   const todayStr = todayISO();
-  const [events, tasks, finance] = await Promise.all([
-    getKvList(sql, "events_v1"), getKvList(sql, "tasks_v1"), getKvList(sql, "finance_v1"),
+  const [events, tasks, finance, googleEventos] = await Promise.all([
+    getKvList(sql, "events_v1"), getKvList(sql, "tasks_v1"), getKvList(sql, "finance_v1"), getGoogleEventosHoje(sql, todayStr),
   ]);
 
-  const hojeEventos = events.filter(e => e.date === todayStr).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  const localHoje = events.filter(e => e.date === todayStr).map(e => ({ title: e.title, time: e.time || "" }));
+  const hojeEventos = [...localHoje, ...googleEventos].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
   const pendTasks = tasks.filter(t => (t.status || (t.done ? "done" : "todo")) !== "done");
   const pendBills = finance.filter(e => FIN_RECURRENT_TYPES.includes(e.type) && !finIsPaid(e));
 
