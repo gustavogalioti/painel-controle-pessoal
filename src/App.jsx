@@ -2954,14 +2954,13 @@ function RascunhoCard({ item, onOpen }) {
         </div>
       )}
       <div style={{padding:14}}>
-        <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{item.title}</div>
         {item.notes && (
-          <div style={{fontSize:11,color:"var(--text-3)",marginBottom:6,lineHeight:1.4,
-            display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{item.notes}</div>
+          <div style={{fontSize:12.5,color:"var(--text-1)",marginBottom:6,lineHeight:1.5,
+            display:"-webkit-box",WebkitLineClamp:4,WebkitBoxOrient:"vertical",overflow:"hidden",whiteSpace:"pre-wrap"}}>{item.notes}</div>
         )}
         {item.tags?.length>0 && (
           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
-            {item.tags.map(t=><span key={t} style={{fontSize:9,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 7px",fontWeight:600}}>{t}</span>)}
+            {item.tags.map(t=><span key={t} style={{fontSize:9,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 7px",fontWeight:600}}>#{t}</span>)}
           </div>
         )}
         <div style={{fontSize:10,color:"var(--text-3)",marginTop:8}}>{item.date}</div>
@@ -3008,7 +3007,7 @@ function RascunhoDetailModal({ item, onClose, onEdit, onDelete }) {
         {item.notes && <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{item.notes}</div>}
         {item.tags?.length>0 && (
           <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-            {item.tags.map(t=><span key={t} style={{fontSize:10,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 8px",fontWeight:600}}>{t}</span>)}
+            {item.tags.map(t=><span key={t} style={{fontSize:10,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 8px",fontWeight:600}}>#{t}</span>)}
           </div>
         )}
         <div style={{fontSize:10,color:"var(--text-3)"}}>{item.date}</div>
@@ -3036,10 +3035,13 @@ function RascunhosPage() {
   const [modal, setModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [detailId, setDetailId] = useState(null);
-  const [form, setForm] = useState({title:"",tags:"",notes:""});
+  const [text, setText] = useState("");
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [newTag, setNewTag] = useState("");
   const [imgData, setImgData] = useState(null);
   const [imgName, setImgName] = useState("");
   const [tagFilter, setTagFilter] = useState("Todos");
+  const [search, setSearch] = useState("");
   const fileRef = useRef(null);
 
   const allTags = Array.from(new Set(items.flatMap(i=>i.tags||[]))).sort();
@@ -3052,48 +3054,68 @@ function RascunhosPage() {
     reader.readAsDataURL(file);
   };
 
-  const openNew = () => { setEditingId(null); setForm({title:"",tags:"",notes:""}); setImgData(null); setImgName(""); setModal(true); };
+  const openNew = () => { setEditingId(null); setText(""); setSelectedTags([]); setNewTag(""); setImgData(null); setImgName(""); setModal(true); };
   const openEdit = (item) => {
     setEditingId(item.id);
-    setForm({title:item.title, tags:(item.tags||[]).join(", "), notes:item.notes||""});
+    setText(item.notes || item.title || "");
+    setSelectedTags(item.tags || []);
+    setNewTag("");
     setImgData(null); setImgName(item.imgName||"");
     setDetailId(null);
     setModal(true);
   };
 
+  const toggleTag = (t) => setSelectedTags(prev => prev.includes(t) ? prev.filter(x=>x!==t) : [...prev, t]);
+  const addNewTag = () => {
+    const t = newTag.trim();
+    if (!t) return;
+    if (!selectedTags.includes(t)) setSelectedTags(prev => [...prev, t]);
+    setNewTag("");
+  };
+
+  const deriveTitle = (t) => {
+    const firstLine = t.split("\n")[0].trim();
+    return firstLine.length > 60 ? firstLine.slice(0,60)+"…" : (firstLine || "Sem título");
+  };
+
   const save = async () => {
-    if (!form.title.trim()) return;
-    const tags = form.tags.split(",").map(t=>t.trim()).filter(Boolean);
+    if (!text.trim() && !imgData) return;
+    const title = deriveTitle(text);
     if (editingId) {
       if (imgData?.data) await KV.set("rascunho_img_"+editingId, imgData.data);
-      setItems(prev => prev.map(i=>i.id===editingId?{...i,...form,tags,
+      setItems(prev => prev.map(i=>i.id===editingId?{...i, title, notes:text.trim(), tags:selectedTags,
         hasImage:!!(imgData||i.hasImage), imgName:imgData?.name||i.imgName, imgType:imgData?.type||i.imgType, imgSize:imgData?.size||i.imgSize}:i));
     } else {
       const id = Date.now();
       if (imgData?.data) await KV.set("rascunho_img_"+id, imgData.data);
-      setItems(prev => [{id,date:now(),...form,tags,
+      setItems(prev => [{id, date:now(), title, notes:text.trim(), tags:selectedTags,
         hasImage:!!imgData?.data, imgName:imgData?.name||"", imgType:imgData?.type||"", imgSize:imgData?.size||0}, ...prev]);
     }
-    setModal(false); setEditingId(null); setImgData(null); setImgName("");
-    setForm({title:"",tags:"",notes:""});
+    setModal(false); setEditingId(null); setImgData(null); setImgName(""); setText(""); setSelectedTags([]);
   };
 
   const del = (id) => { setItems(prev=>prev.filter(i=>i.id!==id)); KV.del("rascunho_img_"+id); setDetailId(null); };
 
-  const filtered = tagFilter==="Todos" ? items : items.filter(i=>(i.tags||[]).includes(tagFilter));
+  let filtered = tagFilter==="Todos" ? items : items.filter(i=>(i.tags||[]).includes(tagFilter));
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    filtered = filtered.filter(i=>
+      (i.title||"").toLowerCase().includes(q) ||
+      (i.notes||"").toLowerCase().includes(q) ||
+      (i.tags||[]).some(t=>t.toLowerCase().includes(q))
+    );
+  }
   const detailItem = items.find(i=>i.id===detailId);
 
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {["Todos",...allTags].map(t=>(
-            <button key={t} onClick={()=>setTagFilter(t)}
-              style={{background:tagFilter===t?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"6px 14px",
-                color:tagFilter===t?"#fff":"var(--text-2)",fontSize:12,cursor:"pointer",fontWeight:600}}>
-              {t}
-            </button>
-          ))}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <div style={{position:"relative",flex:"1 1 280px",maxWidth:360}}>
+          <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)"}}>
+            <Icon path={I.search} size={14} color="var(--text-3)"/>
+          </span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por palavra-chave..."
+            style={{...inp,paddingLeft:36}}/>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <span style={{fontSize:10,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"syncing..."}</span>
@@ -3101,24 +3123,71 @@ function RascunhosPage() {
         </div>
       </div>
 
+      {allTags.length>0 && (
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
+          {["Todos",...allTags].map(t=>(
+            <button key={t} onClick={()=>setTagFilter(t)}
+              style={{background:tagFilter===t?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"6px 14px",
+                color:tagFilter===t?"#fff":"var(--text-2)",fontSize:12,cursor:"pointer",fontWeight:600}}>
+              {t==="Todos"?t:`#${t}`}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14}}>
         {filtered.map(item=><RascunhoCard key={item.id} item={item} onOpen={()=>setDetailId(item.id)}/>)}
       </div>
-      {filtered.length===0 && <Empty text="Nenhum card encontrado."/>}
+      {filtered.length===0 && <Empty text={search||tagFilter!=="Todos" ? "Nada encontrado." : "Nada por aqui ainda — adicione o que quiser."}/>}
 
       {modal && (
-        <Modal title={editingId?"Editar Card":"Novo Card"} onClose={()=>{setModal(false);setEditingId(null);setImgData(null);setImgName("");}}>
+        <Modal title={editingId?"Editar":"Adicionar"} onClose={()=>{setModal(false);setEditingId(null);setImgData(null);setImgName("");}}>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <textarea style={{...inp,resize:"vertical",fontSize:14}} rows={5} autoFocus
+              placeholder="Escreva o que quiser — uma ideia, um link, uma anotação..."
+              value={text} onChange={e=>setText(e.target.value)}/>
+
             <div onClick={()=>fileRef.current?.click()}
-              style={{border:"2px dashed var(--border)",borderRadius:12,padding:20,textAlign:"center",cursor:"pointer",
+              style={{border:"2px dashed var(--border)",borderRadius:12,padding:16,textAlign:"center",cursor:"pointer",
                 backgroundImage:imgData?`url(${imgData.data})`:"none",backgroundSize:"cover",backgroundPosition:"center",
-                minHeight:120,display:"flex",alignItems:"center",justifyContent:"center"}}>
-              {!imgData && <div style={{fontSize:13,color:"var(--text-3)"}}>{imgName || "Clique para anexar uma imagem"}</div>}
+                minHeight:90,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {!imgData && <div style={{fontSize:12.5,color:"var(--text-3)",display:"flex",alignItems:"center",gap:6}}>
+                <Icon path={I.image} size={14}/> {imgName || "Anexar imagem (opcional)"}
+              </div>}
             </div>
             <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleImg}/>
-            <input style={inp} placeholder="Título" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/>
-            <input style={inp} placeholder="Tags (separadas por vírgula)" value={form.tags} onChange={e=>setForm({...form,tags:e.target.value})}/>
-            <textarea style={{...inp,resize:"vertical"}} rows={3} placeholder="Descrição" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
+
+            <div>
+              <label style={{fontSize:11,color:"var(--text-3)",display:"block",marginBottom:6}}>Tags</label>
+              {allTags.length>0 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                  {allTags.map(t=>(
+                    <button key={t} onClick={()=>toggleTag(t)}
+                      style={{background:selectedTags.includes(t)?"var(--accent)":"var(--bg-input)",border:"none",borderRadius:14,
+                        padding:"4px 12px",color:selectedTags.includes(t)?"#fff":"var(--text-2)",fontSize:11.5,cursor:"pointer",fontWeight:600}}>
+                      #{t}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div style={{display:"flex",gap:8}}>
+                <input value={newTag} onChange={e=>setNewTag(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addNewTag();}}}
+                  placeholder="Nova tag..." style={{...inp,fontSize:12,flex:1}}/>
+                <button onClick={addNewTag} style={{...btn("var(--bg-input)"),color:"var(--text-2)",padding:"0 16px"}}>+</button>
+              </div>
+              {selectedTags.filter(t=>!allTags.includes(t)).length>0 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
+                  {selectedTags.filter(t=>!allTags.includes(t)).map(t=>(
+                    <span key={t} onClick={()=>toggleTag(t)}
+                      style={{background:"var(--accent)",color:"#fff",borderRadius:14,padding:"4px 12px",fontSize:11.5,cursor:"pointer",fontWeight:600}}>
+                      #{t} ×
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <button onClick={save} style={btn()}>Salvar</button>
           </div>
         </Modal>
