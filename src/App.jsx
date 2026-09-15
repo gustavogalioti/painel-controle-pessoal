@@ -4806,8 +4806,10 @@ function HomePage({ onNavigate }) {
   const [layout, setLayout] = useKV("home_dash_layout_v1", { order: DASH_DEFAULT_ORDER, sizes: {} });
   const [editMode, setEditMode] = useState(false);
   const [dragId, setDragId] = useState(null);
+  const [ghostRect, setGhostRect] = useState(null); // {left,top,width,height}
   const slotRefs = useRef({});
   const drag = useRef(null);
+  const ghostElRef = useRef(null);
   const market = useMarketData();
   const today = new Date();
   const dateLabel = today.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
@@ -4841,7 +4843,13 @@ function HomePage({ onNavigate }) {
     if (!editMode) return;
     if (e.button !== undefined && e.button !== 0) return;
     const point = e.touches ? e.touches[0] : e;
-    drag.current = { id, startX: point.clientX, startY: point.clientY, moved:false };
+    const el = slotRefs.current[id];
+    const rect = el ? el.getBoundingClientRect() : null;
+    drag.current = {
+      id, startX: point.clientX, startY: point.clientY,
+      offsetX: rect ? point.clientX-rect.left : 0, offsetY: rect ? point.clientY-rect.top : 0,
+      rect, moved:false,
+    };
   };
 
   useEffect(() => {
@@ -4850,9 +4858,18 @@ function HomePage({ onNavigate }) {
       const d = drag.current; if (!d) return;
       const point = e.touches ? e.touches[0] : e;
       const dx = point.clientX-d.startX, dy = point.clientY-d.startY;
-      if (!d.moved && Math.hypot(dx,dy)>8) { d.moved=true; setDragId(d.id); }
+      if (!d.moved && Math.hypot(dx,dy)>8) {
+        d.moved=true;
+        setDragId(d.id);
+        setGhostRect(d.rect);
+      }
       if (!d.moved) return;
       if (e.cancelable) e.preventDefault();
+      // Move the ghost with the pointer directly (no React re-render needed per pixel)
+      if (ghostElRef.current && d.rect) {
+        ghostElRef.current.style.left = (point.clientX - d.offsetX) + "px";
+        ghostElRef.current.style.top = (point.clientY - d.offsetY) + "px";
+      }
       const overId = findSlotAt(point.clientX, point.clientY);
       if (overId && overId !== d.id) {
         setLayout(prev => {
@@ -4865,7 +4882,7 @@ function HomePage({ onNavigate }) {
         });
       }
     };
-    const onUp = () => { drag.current = null; setDragId(null); };
+    const onUp = () => { drag.current = null; setDragId(null); setGhostRect(null); };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     window.addEventListener('touchmove', onMove, { passive:false });
@@ -4890,6 +4907,9 @@ function HomePage({ onNavigate }) {
     });
   };
 
+  const dragDef = dragId ? DASH_CARD_DEFS.find(c=>c.id===dragId) : null;
+  const DragComp = dragId ? DASH_COMPONENTS[dragId] : null;
+
   return (
     <div style={{padding:"24px 24px 40px", minHeight:"calc(100vh - 148px)"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,flexWrap:"wrap",gap:10}}>
@@ -4906,7 +4926,7 @@ function HomePage({ onNavigate }) {
       </div>
       {editMode && (
         <div style={{fontSize:12,color:"var(--text-3)",marginBottom:14}}>
-          Arraste os cards para reordenar · toque no ⤢ para mudar o tamanho
+          Segure e arraste os cards para reordenar · toque no ⤢ para mudar o tamanho
         </div>
       )}
 
@@ -4926,6 +4946,18 @@ function HomePage({ onNavigate }) {
           );
         })}
       </div>
+
+      {dragId && ghostRect && DragComp && createPortal(
+        <div ref={ghostElRef} style={{
+          position:"fixed", left:ghostRect.left, top:ghostRect.top,
+          width:ghostRect.width, height:ghostRect.height,
+          pointerEvents:"none", zIndex:2000, transform:"scale(1.04)",
+          boxShadow:"0 16px 36px rgba(0,0,0,0.4)", borderRadius:20, overflow:"hidden",
+        }}>
+          <DragComp {...(dragId==="mercado" ? {market} : {})}/>
+        </div>,
+        document.body
+      )}
 
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:20,alignItems:"center"}}>
         {extraTiles.map(t=>(
