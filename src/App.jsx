@@ -5168,9 +5168,10 @@ const DASH_CARD_DEFS = [
 const DASH_DEFAULT_ORDER = DASH_CARD_DEFS.map(c=>c.id);
 const DASH_SIZE_CYCLE = [{c:1,r:1},{c:2,r:1},{c:1,r:2},{c:2,r:2}];
 
-function DashSlot({ id, col, row, orderIdx, editMode, isDragging, onPointerDown, onResize, children }) {
+function DashSlot({ tileRef, id, col, row, orderIdx, editMode, isDragging, onPointerDown, onResize, children }) {
   return (
     <div
+      ref={tileRef}
       className={`dash-slot${editMode?" edit-mode":""}${isDragging?" dragging":""}`}
       style={{ gridColumn:`span ${col}`, gridRow:`span ${row}`, order: orderIdx,
         touchAction: editMode?"none":"auto", cursor: editMode?(isDragging?"grabbing":"grab"):"default" }}
@@ -5311,7 +5312,7 @@ function HomePage({ onNavigate }) {
           const Comp = DASH_COMPONENTS[id];
           const extraProps = id==="mercado" ? {market} : {};
           return (
-            <DashSlot key={id} id={id} col={size.c} row={size.r} orderIdx={idx}
+            <DashSlot key={id} tileRef={el=>slotRefs.current[id]=el} id={id} col={size.c} row={size.r} orderIdx={idx}
               editMode={editMode} isDragging={dragId===id}
               onPointerDown={(e)=>onSlotPointerDown(e,id)}
               onResize={()=>cycleSize(id)}>
