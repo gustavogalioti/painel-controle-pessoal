@@ -32,14 +32,27 @@ function todayISO() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
 
+async function fetchWithTimeout(url, opts, ms){
+  const controller = new AbortController();
+  const t = setTimeout(()=>controller.abort(), ms);
+  try{
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function getGoogleEventosHoje(sql, todayStr) {
   try {
-    const token = await getValidToken(sql);
+    const token = await Promise.race([
+      getValidToken(sql),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("google_token_timeout")), 4000)),
+    ]);
     if (!token) return [];
     const timeMin = `${todayStr}T00:00:00-03:00`;
     const timeMax = `${todayStr}T23:59:59-03:00`;
     const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=20`;
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const r = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } }, 4000);
     if (!r.ok) return [];
     const d = await r.json();
     return (d.items || []).map(ev => ({
