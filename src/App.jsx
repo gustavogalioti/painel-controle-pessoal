@@ -1880,18 +1880,18 @@ function TasksPage() {
           background:"var(--bg-card)",
           border:`1px solid ${prioColor[t.prio]}33`,
           borderLeft:`3px solid ${prioColor[t.prio]}`,
-          borderRadius:16, padding:"12px 14px", marginBottom:10,
+          borderRadius:14, padding:"10px 12px", marginBottom:8,
           cursor: isDragging ? "grabbing" : "pointer",
           opacity: isDragging ? 0.4 : 1,
-          touchAction:"none", userSelect:"none",
+          touchAction:"pan-y", userSelect:"none",
           transition: isDragging ? "none" : "opacity .15s",
           boxShadow: isDragging ? "0 8px 24px #0003" : "0 1px 4px #0001",
-          height:190, overflow:"hidden", display:"flex", flexDirection:"column",
+          height:140, overflow:"hidden", display:"flex", flexDirection:"column",
         }}
       >
         <p style={{
-          margin:0,fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:8,pointerEvents:"none",
-          display:"-webkit-box", WebkitLineClamp:5, WebkitBoxOrient:"vertical", overflow:"hidden",
+          margin:0,fontSize:12.5,color:"var(--text-1)",lineHeight:1.4,marginBottom:6,pointerEvents:"none",
+          display:"-webkit-box", WebkitLineClamp:3, WebkitBoxOrient:"vertical", overflow:"hidden",
         }}>{t.text}</p>
         <div style={{marginTop:"auto"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"var(--text-3)",pointerEvents:"none"}}>
@@ -2044,15 +2044,15 @@ function TasksPage() {
             style={{
               background: overCol===col.id ? "var(--accent-dim)" : "var(--bg-card)",
               border: `2px ${overCol===col.id ? "dashed var(--accent)" : "solid var(--border)"}`,
-              borderRadius:20, padding:12, minHeight:300,
+              borderRadius:18, padding:10, minHeight:220,
               transition:"background .15s, border-color .15s",
               display:"flex", flexDirection:"column",
             }}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,
-                background:col.color, borderRadius:14, padding:"9px 14px", cursor:"pointer"}}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,
+                background:col.color, borderRadius:12, padding:"7px 12px", cursor:"pointer"}}
               onClick={()=>setFocusedCol(col.id)}>
-              <span style={{fontSize:12.5,fontWeight:800,color:"#fff"}}>{col.label}</span>
-              <span style={{fontSize:11,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.25)",borderRadius:10,padding:"2px 8px"}}>{grouped[col.id].length}</span>
+              <span style={{fontSize:11.5,fontWeight:800,color:"#fff"}}>{col.label}</span>
+              <span style={{fontSize:10,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.25)",borderRadius:10,padding:"2px 7px"}}>{grouped[col.id].length}</span>
             </div>
             <div style={{flex:1}}>
               {(col.id==="done" ? grouped[col.id].slice(0,DONE_PREVIEW) : grouped[col.id]).map(t => <TaskCard key={t.id} t={t}/>)}
@@ -2073,17 +2073,14 @@ function TasksPage() {
         ))}
       </div>
       <style>{`
-        @media (max-width: 760px) {
+        @media (max-width: 599px) {
           .kanban-grid { grid-template-columns: 1fr !important; }
         }
-        @media (min-width:761px) and (max-width:1100px) {
-          .kanban-grid { grid-template-columns: repeat(2,1fr) !important; }
-        }
-        @media (min-width:1101px) and (max-width:1450px) {
-          .kanban-grid { grid-template-columns: repeat(3,1fr) !important; }
-        }
-        @media (min-width:1451px) and (max-width:1750px) {
+        @media (min-width:600px) and (max-width:1300px) {
           .kanban-grid { grid-template-columns: repeat(4,1fr) !important; }
+        }
+        @media (min-width:1301px) and (max-width:1750px) {
+          .kanban-grid { grid-template-columns: repeat(6,1fr) !important; }
         }
       `}</style>
 
