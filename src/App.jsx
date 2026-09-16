@@ -54,6 +54,14 @@ const I = {
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const now     = () => new Date().toLocaleString("pt-BR");
 const nowISO  = () => new Date().toISOString();
+const daysSinceLabel = (dateStr) => {
+  const created = new Date(dateStr);
+  const diffMs = Date.now() - created.getTime();
+  const days = Math.floor(diffMs / 86400000);
+  if (days <= 0) return "Criada hoje";
+  if (days === 1) return "Criada há 1 dia";
+  return `Criada há ${days} dias`;
+};
 const fmtMoney= (v) => Number(v).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const fmtNum  = (v, dec=2) => Number(v).toLocaleString("pt-BR",{minimumFractionDigits:dec,maximumFractionDigits:dec});
 const fmtPct  = (v) => v!=null&&!isNaN(v) ? `${Number(v)>=0?"+":""}${Number(v).toFixed(2)}%` : "--";
@@ -1680,7 +1688,7 @@ function TasksPage() {
   const COLS = [
     { id:"now",     label:"🔥 Para Agora",   color:"#dc2626" },
     { id:"today",   label:"🌟 De Hoje",      color:"var(--accent)" },
-    { id:"todo",    label:"📋 A Fazer",     color:"var(--text-3)" },
+    { id:"todo",    label:"📋 Pendente",     color:"var(--text-3)" },
     { id:"doing",   label:"⚡ Em Andamento", color:"var(--yellow)" },
     { id:"standby", label:"⏸ Stand By",     color:"var(--purple)" },
     { id:"done",    label:"✅ Concluído",    color:"var(--green)"  },
@@ -1897,6 +1905,9 @@ function TasksPage() {
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10,color:"var(--text-3)",pointerEvents:"none"}}>
             <span style={{color:prioColor[t.prio],fontWeight:700}}>{prioLabel[t.prio]}</span>
             <span>{new Date(t.date).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</span>
+          </div>
+          <div style={{fontSize:9.5,color:"var(--text-3)",marginTop:3,pointerEvents:"none"}}>
+            {daysSinceLabel(t.date)}
           </div>
           {t.dueDate && (
             <div style={{fontSize:10.5,fontWeight:700,marginTop:6,pointerEvents:"none",color: isOverdue(t) ? "var(--red)" : "var(--text-2)"}}>
