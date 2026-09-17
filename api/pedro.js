@@ -684,11 +684,25 @@ function formatMsgTimestamp(ts) {
   return `${get("weekday")} ${get("day")}/${get("month")} ${get("hour")}:${get("minute")}`;
 }
 
+function relativeDayLabel(ts) {
+  if (!ts) return "data desconhecida";
+  const dayStr = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  const thenStr = dayStr(new Date(ts));
+  const todayStr = dayStr(new Date());
+  if (thenStr === todayStr) return "hoje";
+  const diffDays = Math.round((new Date(todayStr) - new Date(thenStr)) / 86400000);
+  if (diffDays === 1) return "ontem";
+  if (diffDays > 1 && diffDays < 7) return `há ${diffDays} dias`;
+  const parts = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric" }).formatToParts(new Date(ts));
+  const get = (t) => parts.find(p => p.type === t)?.value;
+  return `em ${get("day")}/${get("month")}/${get("year")}`;
+}
+
 async function handleGroqChat(sql, userMessage, history, coords) {
   const { dateStr, weekday, time } = brasiliaNow();
   const memories = await getKvList(sql, "pedro_memory_v1");
   const memoryBlock = memories.length
-    ? `\n\nCoisas que você já sabe sobre o Gustavo (do seu jeito, sem citar como lista nem dizer "de acordo com minhas anotações" — é só o que você lembra dele):\n${memories.slice(-40).map(m => `- ${m.text}`).join("\n")}`
+    ? `\n\nCoisas que você já sabe sobre o Gustavo — cada uma tem entre parênteses QUANDO foi registrada. Um fato pontual (uma atividade, onde ele estava, um evento específico) registrado "ontem" ou "há N dias" já pode ter acabado — não pergunte como se ainda estivesse rolando agora, a menos que ele mesmo retome o assunto na mensagem atual. Fatos duradouros (trabalho, relacionamentos, características, preferências) continuam valendo independente de quando foram registrados. Use isso do seu jeito, sem citar como lista nem dizer "de acordo com minhas anotações":\n${memories.slice(-40).map(m => `- (${relativeDayLabel(m.at)}) ${m.text}`).join("\n")}`
     : "";
 
   const learned = await getKvList(sql, "pedro_learned_v1");
@@ -702,6 +716,7 @@ Agora é ${weekday}, ${dateStr}, ${time} (horário de Brasília).${memoryBlock}$
 Consciência de tempo (importante, preste atenção real nisso, não assuma no piloto automático):
 - Confira sempre se hoje é dia de semana ou fim de semana antes de comentar sobre trabalho, expediente, reuniões etc. Não pergunte "como foi seu dia de trabalho" ou similar se hoje for sábado ou domingo.
 - Cada mensagem antiga do histórico abaixo vem com um carimbo "[dia data hora]" indicando quando foi enviada de verdade. Compare esse carimbo com a data/hora atual informada acima. Se o carimbo for de outro dia (ou de várias horas atrás), trate aquele assunto como possivelmente encerrado ou já resolvido — não pergunte de novo sobre algo que já era "pra hoje" num carimbo antigo, nem assuma que um plano de um dia passado ainda vale pra agora, a menos que o Gustavo retome o assunto na mensagem atual.
+- O mesmo vale pras memórias listadas acima: cada uma tem a idade dela entre parênteses. "Ontem" e "há N dias" significam que aquele evento pontual provavelmente já passou — nunca pergunte sobre uma atividade ou lugar de um dia anterior como se fosse de agora.
 - A mensagem mais recente do usuário (a última, sem carimbo, é a de agora) é o que importa pra responder — as anteriores são só contexto de conversa, não fatos automaticamente ainda válidos.
 - NUNCA afirme que algo "é hoje", "está acontecendo agora" ou "vai rolar em breve" com base numa memória salva sem antes comparar a data completa daquele fato com a data de hoje informada acima. Se uma memória cita uma data (aniversário, evento) e você não tem certeza absoluta de que ela cai exatamente hoje ou nos próximos dias, NÃO afirme isso como fato — ou não mencione a data, ou pergunte de forma neutra, sem assumir. Errar a data de algo importante (tipo aniversário de alguém) é pior do que não comentar.
 
