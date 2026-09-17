@@ -143,7 +143,7 @@ function useKV(key, def) {
 
   // Poll every 5s so other devices' changes appear without reload
   useEffect(() => {
-    const id = setInterval(pull, 5000);
+    const id = setInterval(pull, 20000);
     return () => clearInterval(id);
   }, [key]);
 
@@ -216,7 +216,7 @@ function useDB(table, localKey, def=[]) {
 
   // Poll a cada 5s
   useEffect(() => {
-    const id = setInterval(() => pullRef.current(), 5000);
+    const id = setInterval(() => pullRef.current(), 20000);
     return () => clearInterval(id);
   }, [table]);
 
@@ -4808,10 +4808,24 @@ const DASH_COMPONENTS = {
   djmix: DJMixCard, mercado: MercadoCard, tempo: TempoCard,
 };
 
+const DESKTOP_BREAKPOINT = 1200; // matches the .dash-grid CSS breakpoint
+
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== "undefined" ? window.innerWidth >= DESKTOP_BREAKPOINT : true);
+  useEffect(() => {
+    const onResize = () => setIsDesktop(window.innerWidth >= DESKTOP_BREAKPOINT);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return isDesktop;
+}
+
 function HomePage({ onNavigate }) {
   const [customTiles, setCustomTiles] = useKV("custom_tiles_home_v1", []);
   const [showAddTile, setShowAddTile] = useState(false);
-  const [layout, setLayout] = useKV("home_dash_layout_v1", { order: DASH_DEFAULT_ORDER, sizes: {} });
+  const isDesktop = useIsDesktop();
+  const layoutKey = isDesktop ? "home_dash_layout_desktop_v1" : "home_dash_layout_mobile_v1";
+  const [layout, setLayout] = useKV(layoutKey, { order: DASH_DEFAULT_ORDER, sizes: {} });
   const [editMode, setEditMode] = useState(false);
   const [dragId, setDragId] = useState(null);
   const [ghostRect, setGhostRect] = useState(null); // {left,top,width,height}
@@ -4934,7 +4948,7 @@ function HomePage({ onNavigate }) {
       </div>
       {editMode && (
         <div style={{fontSize:12,color:"var(--text-3)",marginBottom:14}}>
-          Segure e arraste os cards para reordenar · toque no ⤢ para mudar o tamanho
+          Editando layout de <b style={{color:"var(--text-2)"}}>{isDesktop?"Desktop":"Tablet/Celular"}</b> · segure e arraste os cards para reordenar · toque no ⤢ para mudar o tamanho
         </div>
       )}
 
