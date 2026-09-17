@@ -1690,8 +1690,8 @@ function TasksPage() {
     { id:"today",   label:"🌟 De Hoje",      color:"var(--accent)" },
     { id:"todo",    label:"📋 Pendente",     color:"var(--text-3)" },
     { id:"doing",   label:"⚡ Em Andamento", color:"var(--yellow)" },
-    { id:"standby", label:"⏸ Stand By",     color:"var(--purple)" },
     { id:"done",    label:"✅ Concluído",    color:"var(--green)"  },
+    { id:"standby", label:"⏸ Stand By",     color:"var(--purple)" },
   ];
 
   const getStatus = (t) => t.status || (t.done ? "done" : "todo");
@@ -4577,15 +4577,36 @@ function IdeiasCard({ onClick }) {
 
 function TarefasCard({ onClick }) {
   const [tasks] = useKV("tasks_v1", []);
-  const today = tasks.filter(t=>(t.status||(t.done?"done":"todo"))==="today").length;
-  const doing = tasks.filter(t=>(t.status||(t.done?"done":"todo"))==="doing").length;
+  const getStatus = t => t.status || (t.done?"done":"todo");
+  const nowTasks = tasks.filter(t=>getStatus(t)==="now");
+  const todayCount = tasks.filter(t=>getStatus(t)==="today").length;
+  const doingCount = tasks.filter(t=>getStatus(t)==="doing").length;
   return (
     <div onClick={onClick} style={{...homeCardStyle("#7c3aed"), height:"100%"}}>
       <CardHeader icon="checkSq" label="Tarefas"/>
-      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.checkSq} size={40} color="rgba(255,255,255,0.85)"/></div>
-      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{today}</div>
-      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>hoje</div>
-      <div style={{fontSize:11,color:"rgba(255,255,255,0.65)",marginTop:2}}>{doing} em andamento</div>
+      {nowTasks.length>0 ? (
+        <div style={{marginBottom:"auto"}}>
+          <div style={{fontSize:10,fontWeight:800,color:"rgba(255,255,255,0.7)",letterSpacing:0.6,marginBottom:6}}>🔥 PARA AGORA</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {nowTasks.slice(0,3).map(t=>(
+              <div key={t.id} style={{fontSize:12,color:"#fff",lineHeight:1.35,
+                display:"-webkit-box",WebkitLineClamp:1,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
+                • {t.text}
+              </div>
+            ))}
+            {nowTasks.length>3 && (
+              <div style={{fontSize:10.5,color:"rgba(255,255,255,0.65)"}}>+{nowTasks.length-3} outra{nowTasks.length-3===1?"":"s"}</div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.checkSq} size={40} color="rgba(255,255,255,0.85)"/></div>
+      )}
+      <div style={{marginTop:nowTasks.length>0?12:0}}>
+        <div style={{fontSize:nowTasks.length>0?22:36,fontWeight:800,lineHeight:1}}>{todayCount}</div>
+        <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>hoje</div>
+        <div style={{fontSize:11,color:"rgba(255,255,255,0.65)",marginTop:2}}>{doingCount} em andamento</div>
+      </div>
     </div>
   );
 }
