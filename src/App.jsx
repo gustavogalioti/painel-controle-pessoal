@@ -49,6 +49,7 @@ const I = {
   weather: "M17 18a4 4 0 0 0 0-8 5 5 0 0 0-9.6-1.5A4.5 4.5 0 0 0 7 18h10z M12 2v2 M4.2 4.2l1.4 1.4 M2 11h2",
   skipBack:"M19 20 9 12l10-8v16z M5 19V5",
   skipFwd: "M5 4l10 8-10 8V4z M19 5v14",
+  pin:     "M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7z M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
 };
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -1633,30 +1634,482 @@ function TemasPage() {
   );
 }
 
-function DiaryPage() {
-  const [active, setActive] = useState("diary");
-  const tabs = [
-    {id:"dia",       label:"📌 Dia",       color:"#e67e22"},
-    {id:"diary",     label:"📓 Diário",    color:"var(--accent)"},
-    {id:"temas",     label:"📋 Temas",     color:"#0891b2"},
-    {id:"reminders", label:"🔔 Lembretes", color:"var(--yellow)"},
-  ];
+// ─── DIÁRIO V2 — timeline pessoal ──────────────────────────────────────────────
+const DIARY_SECRET_PATTERNS = [
+  /gh[pousr]_[A-Za-z0-9]{20,}/g,           // GitHub tokens
+  /sk-[A-Za-z0-9]{20,}/g,                  // OpenAI-style keys
+  /AIza[0-9A-Za-z\-_]{30,}/g,              // Google API keys
+  /xox[baprs]-[A-Za-z0-9-]{10,}/g,         // Slack tokens
+  /\b[A-Za-z0-9+/]{40,}={0,2}\b/g,         // long base64-like blobs
+  /\b(?=[A-Za-z0-9]{32,}\b)(?=[a-zA-Z]*[0-9])(?=[0-9]*[a-zA-Z])[A-Za-z0-9]{32,}\b/g, // long alnum mixed strings
+];
+function maskDiarySecrets(text) {
+  let masked = text, found = false;
+  DIARY_SECRET_PATTERNS.forEach(re => {
+    masked = masked.replace(re, () => { found = true; return "••••••••••••"; });
+  });
+  return { masked, found };
+}
+
+function computeStreak(entries) {
+  const days = new Set(entries.map(e=>toDateStr(new Date(e.date))));
+  let streak = 0, d = new Date();
+  while (days.has(toDateStr(d))) { streak++; d.setDate(d.getDate()-1); }
+  return streak;
+}
+
+const DIARY_MOODS = ["😄","🙂","😐","😔","😤","🤔","🎉"];
+const DIARY_PAGE_SIZE = 15; // day-groups per page
+
+const DIARY_TYPES = [
+  { id:"pensamento",    icon:"💭", label:"Pensamento" },
+  { id:"acontecimento", icon:"📍", label:"Acontecimento" },
+  { id:"ideia",         icon:"💡", label:"Ideia" },
+  { id:"conquista",     icon:"🏆", label:"Conquista" },
+  { id:"viagem",        icon:"✈️", label:"Viagem" },
+  { id:"trabalho",      icon:"💼", label:"Trabalho" },
+  { id:"link",          icon:"🔗", label:"Link" },
+  { id:"nota_tecnica",  icon:"💻", label:"Nota técnica" },
+];
+
+function DiaryEntryRow({ e, isToday, onEdit, onDelete, onPin }) {
+  const [expanded, setExpanded] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(e.text);
+  const { masked, found } = maskDiarySecrets(e.text);
+  const showText = found && !revealed ? masked : e.text;
+  const time = new Date(e.date).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  const typeDef = DIARY_TYPES.find(t=>t.id===e.type);
+
+  const saveEdit = () => {
+    if (!editText.trim()) return;
+    onEdit(e.id, editText.trim());
+    setEditing(false);
+  };
+
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-      <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setActive(t.id)}
-            style={{background:active===t.id?t.color:"var(--bg-card)",border:`1px solid ${active===t.id?t.color:"var(--border)"}`,borderRadius:24,padding:"10px 24px",color:active===t.id?t.id==="reminders"?"#000":"#fff":"var(--text-2)",fontSize:14,fontWeight:700,cursor:"pointer",transition:"all .2s"}}>
-            {t.label}
+    <div style={{display:"flex",gap:12,position:"relative"}}>
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",width:44,flexShrink:0}}>
+        <span style={{fontSize:10,color:"var(--text-3)",whiteSpace:"nowrap"}}>{time}</span>
+        <div style={{width:8,height:8,borderRadius:"50%",background:isToday?"var(--accent)":"var(--border-2)",margin:"4px 0"}}/>
+        <div style={{width:2,flex:1,background:"var(--border-2)",minHeight:14}}/>
+      </div>
+      <div style={{flex:1,minWidth:0,paddingBottom:16}}>
+        <div onClick={()=>!editing && setExpanded(x=>!x)}
+          style={{cursor:editing?"default":"pointer",display:"flex",gap:8,alignItems:"flex-start"}}>
+          <span style={{fontSize:16,flexShrink:0,lineHeight:1.4}}>{e.mood}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+              {e.pinned && <Icon path={I.pin} size={11} color="var(--yellow)"/>}
+              {typeDef && <span style={{fontSize:11,color:"var(--text-3)"}}>{typeDef.icon} {typeDef.label}</span>}
+            </div>
+            {editing ? (
+              <textarea value={editText} onChange={ev=>setEditText(ev.target.value)} rows={3}
+                onClick={ev=>ev.stopPropagation()}
+                style={{...inp,fontSize:13,resize:"vertical",marginBottom:6}}/>
+            ) : (
+              <p style={{margin:0,color:"var(--text-1)",lineHeight:1.55,fontSize:13,whiteSpace:"pre-wrap",wordBreak:"break-word",
+                display: expanded?"block":"-webkit-box", WebkitLineClamp: expanded?"unset":1, WebkitBoxOrient:"vertical", overflow: expanded?"visible":"hidden"}}>
+                {showText}
+              </p>
+            )}
+            {found && !editing && (
+              <button onClick={ev=>{ev.stopPropagation();setRevealed(r=>!r);}}
+                style={{display:"flex",alignItems:"center",gap:4,background:"none",border:"none",color:"var(--text-3)",
+                  fontSize:10,cursor:"pointer",padding:0,marginTop:4}}>
+                <Icon path={I.lock} size={10}/> {revealed?"Ocultar":"🔐 Informação técnica protegida — mostrar"}
+              </button>
+            )}
+            {e.tag && !editing && (
+              <span style={{display:"inline-block",fontSize:10,color:"var(--accent)",background:"var(--accent-dim)",
+                borderRadius:8,padding:"1px 8px",marginTop:6}}>#{e.tag}</span>
+            )}
+            {expanded && !editing && (
+              <div style={{display:"flex",gap:14,marginTop:8,flexWrap:"wrap"}}>
+                <button onClick={ev=>{ev.stopPropagation();onPin(e.id);}}
+                  style={{background:"none",border:"none",color:e.pinned?"var(--yellow)":"var(--text-3)",fontSize:11,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+                  <Icon path={I.pin} size={11}/> {e.pinned?"Desafixar":"Fixar"}
+                </button>
+                <button onClick={ev=>{ev.stopPropagation();setEditText(e.text);setEditing(true);}}
+                  style={{background:"none",border:"none",color:"var(--text-3)",fontSize:11,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+                  <Icon path={I.edit} size={11}/> Editar
+                </button>
+                <button onClick={ev=>{ev.stopPropagation();onDelete(e.id);}}
+                  style={{background:"none",border:"none",color:"var(--red)",fontSize:11,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+                  <Icon path={I.trash} size={11}/> Excluir
+                </button>
+              </div>
+            )}
+            {editing && (
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={saveEdit} style={{...btn(),padding:"5px 14px",fontSize:12}}>Salvar</button>
+                <button onClick={()=>setEditing(false)} style={{background:"none",border:"1px solid var(--border)",borderRadius:10,padding:"5px 14px",fontSize:12,color:"var(--text-2)",cursor:"pointer"}}>Cancelar</button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DiaryStatBar({ label, count, max, color }) {
+  const pct = max>0 ? Math.round((count/max)*100) : 0;
+  return (
+    <div style={{marginBottom:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+        <span style={{color:"var(--text-2)"}}>{label}</span>
+        <span style={{color:"var(--text-3)",fontWeight:700}}>{count}</span>
+      </div>
+      <div style={{height:8,borderRadius:4,background:"var(--bg-input)",overflow:"hidden"}}>
+        <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:4}}/>
+      </div>
+    </div>
+  );
+}
+
+function DiaryResumoModal({ entries, onClose }) {
+  const total = entries.length;
+
+  const typeCounts = {};
+  entries.forEach(e=>{ const t = e.type || "outros"; typeCounts[t] = (typeCounts[t]||0)+1; });
+  const typeLabel = (id) => id==="outros" ? "Sem tipo" : (DIARY_TYPES.find(t=>t.id===id)?.label || id);
+  const typeList = Object.entries(typeCounts).sort((a,b)=>b[1]-a[1]);
+  const maxType = typeList[0]?.[1] || 1;
+
+  const moodCounts = {};
+  entries.forEach(e=>{ moodCounts[e.mood] = (moodCounts[e.mood]||0)+1; });
+  const moodList = Object.entries(moodCounts).sort((a,b)=>b[1]-a[1]);
+  const maxMood = moodList[0]?.[1] || 1;
+
+  const dayCounts = {};
+  entries.forEach(e=>{ const k=toDateStr(new Date(e.date)); dayCounts[k]=(dayCounts[k]||0)+1; });
+  const topDays = Object.entries(dayCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const maxDay = topDays[0]?.[1] || 1;
+
+  const tagCounts = {};
+  entries.forEach(e=>{ if (e.tag) tagCounts[e.tag] = (tagCounts[e.tag]||0)+1; });
+  const topTags = Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  const firstDate = entries.length ? new Date(Math.min(...entries.map(e=>new Date(e.date).getTime()))) : null;
+
+  return (
+    <Modal title="Resumo do Diário" onClose={onClose} wide>
+      <div style={{fontSize:12,color:"var(--text-3)",marginBottom:20}}>
+        {total} registro{total!==1?"s":""}{firstDate?` desde ${firstDate.toLocaleDateString("pt-BR",{day:"2-digit",month:"long",year:"numeric"})}`:""}
+      </div>
+
+      {total===0 ? <Empty text="Ainda não há registros suficientes para gerar um resumo."/> : (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:28}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"var(--text-3)",letterSpacing:1,marginBottom:12}}>TIPOS DE REGISTRO</div>
+            {typeList.map(([id,count])=>(
+              <DiaryStatBar key={id} label={typeLabel(id)} count={count} max={maxType} color="var(--accent)"/>
+            ))}
+          </div>
+
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"var(--text-3)",letterSpacing:1,marginBottom:12}}>HUMOR</div>
+            {moodList.map(([m,count])=>(
+              <DiaryStatBar key={m} label={m} count={count} max={maxMood} color="var(--yellow)"/>
+            ))}
+          </div>
+
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"var(--text-3)",letterSpacing:1,marginBottom:12}}>DIAS MAIS ATIVOS</div>
+            {topDays.map(([d,count])=>(
+              <DiaryStatBar key={d} label={new Date(d+"T12:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})} count={count} max={maxDay} color="var(--green)"/>
+            ))}
+          </div>
+
+          <div>
+            <div style={{fontSize:11,fontWeight:800,color:"var(--text-3)",letterSpacing:1,marginBottom:12}}>TAGS RECORRENTES</div>
+            {topTags.length===0
+              ? <div style={{fontSize:12,color:"var(--text-3)"}}>Nenhuma tag usada ainda.</div>
+              : (
+                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                  {topTags.map(([t,count])=>(
+                    <span key={t} style={{fontSize:11,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:12,padding:"4px 12px",fontWeight:600}}>
+                      #{t} <span style={{opacity:0.7}}>({count})</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function DiaryPage() {
+  const [entries, setEntries, synced] = useKV("diary_v1", []);
+  const [text, setText] = useState("");
+  const [mood, setMood] = useState("🙂");
+  const [tag, setTag] = useState("");
+  const [type, setType] = useState("");
+  const [showTagInput, setShowTagInput] = useState(false);
+  const [showTypePicker, setShowTypePicker] = useState(false);
+  const [period, setPeriod] = useState("hoje");
+  const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState("Todas");
+  const [visibleDays, setVisibleDays] = useState(DIARY_PAGE_SIZE);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarDate, setCalendarDate] = useState(null); // "YYYY-MM-DD" | null
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [showResumo, setShowResumo] = useState(false);
+
+  const todayStr = toDateStr(new Date());
+
+  const add = () => {
+    if (!text.trim()) return;
+    const e = { id:Date.now(), text:text.trim(), mood, date:nowISO(),
+      ...(tag.trim()?{tag:tag.trim()}:{}), ...(type?{type}:{}) };
+    setEntries(prev => [e, ...prev]);
+    setText(""); setTag(""); setType(""); setShowTagInput(false); setShowTypePicker(false);
+  };
+  const editEntry = (id, newText) => setEntries(prev => prev.map(e=>e.id===id?{...e,text:newText}:e));
+  const delEntry = (id) => setEntries(prev => prev.filter(e=>e.id!==id));
+  const pinEntry = (id) => setEntries(prev => prev.map(e=>e.id===id?{...e,pinned:!e.pinned}:e));
+
+  const hojeCount = entries.filter(e=>toDateStr(new Date(e.date))===todayStr).length;
+  const streak = computeStreak(entries);
+  const pinned = entries.filter(e=>e.pinned);
+  const allTags = Array.from(new Set(entries.filter(e=>e.tag).map(e=>e.tag))).sort();
+
+  // Stats
+  const moodCounts = {};
+  entries.forEach(e=>{ moodCounts[e.mood] = (moodCounts[e.mood]||0)+1; });
+  const topMood = Object.entries(moodCounts).sort((a,b)=>b[1]-a[1])[0];
+  const dayCounts = {};
+  entries.forEach(e=>{ const k=toDateStr(new Date(e.date)); dayCounts[k]=(dayCounts[k]||0)+1; });
+  const topDay = Object.entries(dayCounts).sort((a,b)=>b[1]-a[1])[0];
+  const entryDaySet = new Set(Object.keys(dayCounts));
+
+  // Period / calendar filter
+  const now = new Date();
+  const weekAgo = new Date(now.getTime()-7*86400000);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  let filtered = entries;
+  if (calendarDate) filtered = entries.filter(e=>toDateStr(new Date(e.date))===calendarDate);
+  else if (period==="hoje") filtered = entries.filter(e=>toDateStr(new Date(e.date))===todayStr);
+  else if (period==="semana") filtered = entries.filter(e=>new Date(e.date)>=weekAgo);
+  else if (period==="mes") filtered = entries.filter(e=>new Date(e.date)>=monthStart);
+
+  if (tagFilter!=="Todas") filtered = filtered.filter(e=>e.tag===tagFilter);
+
+  // Search filter
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    filtered = filtered.filter(e=>e.text.toLowerCase().includes(q) || (e.tag||"").toLowerCase().includes(q));
+  }
+
+  // Group by day (already roughly sorted desc since entries are prepended)
+  const sorted = [...filtered].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const groups = [];
+  const groupIndex = {};
+  sorted.forEach(e=>{
+    const key = toDateStr(new Date(e.date));
+    if (groupIndex[key]===undefined) { groupIndex[key]=groups.length; groups.push({key,date:new Date(e.date),items:[]}); }
+    groups[groupIndex[key]].items.push(e);
+  });
+  const visibleGroups = groups.slice(0, visibleDays);
+
+  const periods = [["hoje","Hoje"],["semana","Semana"],["mes","Mês"],["todos","Todos"]];
+  const selectPeriod = (id) => { setCalendarDate(null); setPeriod(id); };
+  const calCells = buildMonthGrid(calYear, calMonth);
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{display:"flex",flexWrap:"wrap",justifyContent:"space-between",alignItems:"flex-end",gap:16,marginBottom:18}}>
+        <div>
+          <div style={{fontSize:26,fontWeight:800,color:"var(--text-1)"}}>Diário</div>
+          <div style={{fontSize:13,color:"var(--text-3)",textTransform:"capitalize",marginTop:2}}>
+            {now.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:20}}>
+          <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:800,color:"var(--text-1)"}}>{entries.length}</div><div style={{fontSize:10,color:"var(--text-3)"}}>registros</div></div>
+          <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:800,color:"var(--accent)"}}>{hojeCount}</div><div style={{fontSize:10,color:"var(--text-3)"}}>hoje</div></div>
+          <div style={{textAlign:"center"}}><div style={{fontSize:20,fontWeight:800,color:"var(--green)"}}>{streak}</div><div style={{fontSize:10,color:"var(--text-3)"}}>dias seguidos</div></div>
+        </div>
+      </div>
+
+      {/* Period + search + calendar toggle */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12,alignItems:"center"}}>
+        {periods.map(([id,label])=>(
+          <button key={id} onClick={()=>selectPeriod(id)}
+            style={{background:(!calendarDate&&period===id)?"var(--accent)":"var(--bg-card)",border:`1px solid ${(!calendarDate&&period===id)?"var(--accent)":"var(--border)"}`,
+              borderRadius:20,padding:"7px 16px",color:(!calendarDate&&period===id)?"#fff":"var(--text-2)",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+            {label}
           </button>
         ))}
+        <button onClick={()=>setShowCalendar(s=>!s)}
+          style={{background:showCalendar||calendarDate?"var(--accent)":"var(--bg-card)",border:`1px solid ${showCalendar||calendarDate?"var(--accent)":"var(--border)"}`,
+            borderRadius:20,padding:"7px 14px",color:showCalendar||calendarDate?"#fff":"var(--text-2)",fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <Icon path={I.calendar} size={13}/> {calendarDate ? new Date(calendarDate+"T12:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}) : "Calendário"}
+        </button>
+        <button onClick={()=>setShowResumo(true)}
+          style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:20,padding:"7px 14px",
+            color:"var(--text-2)",fontSize:12.5,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <Icon path={I.trend} size={13}/> Resumo
+        </button>
+        <div style={{position:"relative",marginLeft:"auto",minWidth:200,flex:"0 1 260px"}}>
+          <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)"}}>
+            <Icon path={I.search} size={13} color="var(--text-3)"/>
+          </span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar no diário..."
+            style={{...inp,paddingLeft:34,fontSize:13}}/>
+        </div>
       </div>
-      <div style={{flex:1,animation:"fadeIn .2s ease",overflow:"hidden"}}>
-        {active==="dia"       && <DayBoardPage/>}
-        {active==="diary"     && <NoteColumn storageKey="diary" title="Diário" placeholder="O que está em sua mente hoje?" accent="var(--accent)" emoji="📓"/>}
-        {active==="temas"     && <TemasPage/>}
-        {active==="reminders" && <RemindersCards/>}
+
+      {showCalendar && (
+        <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,padding:16,marginBottom:16,maxWidth:320}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <button onClick={()=>{ if(calMonth===0){setCalMonth(11);setCalYear(y=>y-1);} else setCalMonth(m=>m-1); }}
+              style={{background:"none",border:"none",cursor:"pointer",color:"var(--text-2)"}}><Icon path={I.back} size={14}/></button>
+            <span style={{fontSize:13,fontWeight:700,textTransform:"capitalize"}}>{new Date(calYear,calMonth,1).toLocaleDateString("pt-BR",{month:"long",year:"numeric"})}</span>
+            <button onClick={()=>{ if(calMonth===11){setCalMonth(0);setCalYear(y=>y+1);} else setCalMonth(m=>m+1); }}
+              style={{background:"none",border:"none",cursor:"pointer",color:"var(--text-2)"}}><Icon path={I.next} size={14}/></button>
+          </div>
+          <div className="cal-grid">
+            {["D","S","T","Q","Q","S","S"].map((d,i)=><div key={i} className="cal-weekday">{d}</div>)}
+            {calCells.map((c,i)=>{
+              const ds = toDateStr(c.date);
+              const has = entryDaySet.has(ds);
+              return (
+                <div key={i}
+                  className={`cal-day${c.inMonth?"":" other-month"}${ds===todayStr?" today":""}${ds===calendarDate?" selected":""}${has?" has-events":""}`}
+                  onClick={()=>{ setCalendarDate(ds); setShowCalendar(false); }}>
+                  {c.date.getDate()}
+                </div>
+              );
+            })}
+          </div>
+          {calendarDate && (
+            <button onClick={()=>setCalendarDate(null)}
+              style={{marginTop:10,background:"none",border:"none",color:"var(--text-3)",fontSize:11,cursor:"pointer",padding:0,textDecoration:"underline"}}>
+              Limpar seleção
+            </button>
+          )}
+        </div>
+      )}
+
+      {allTags.length>0 && (
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:18}}>
+          {["Todas",...allTags].map(t=>(
+            <button key={t} onClick={()=>setTagFilter(t)}
+              style={{background:tagFilter===t?"var(--accent)":"var(--bg-input)",border:"none",borderRadius:16,padding:"4px 12px",
+                color:tagFilter===t?"#fff":"var(--text-3)",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+              {t==="Todas"?"Todas":`#${t}`}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Composer (compact) */}
+      <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,padding:14,marginBottom:22}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+            {DIARY_MOODS.map(m=>(
+              <button key={m} onClick={()=>setMood(m)}
+                style={{fontSize:17,background:mood===m?"var(--bg-input)":"none",border:mood===m?"1px solid var(--accent)":"1px solid transparent",
+                  borderRadius:8,padding:"2px 6px",cursor:"pointer"}}>{m}</button>
+            ))}
+          </div>
+          <span style={{fontSize:9,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"syncing..."}</span>
+        </div>
+        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="O que está em sua mente hoje?" rows={2}
+          style={{...inp,resize:"vertical",marginBottom:8,fontSize:13}}
+          onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
+        {showTagInput && (
+          <input value={tag} onChange={e=>setTag(e.target.value)} placeholder="tag (opcional)"
+            style={{...inp,fontSize:12,marginBottom:8,maxWidth:200}}/>
+        )}
+        {showTypePicker && (
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+            {DIARY_TYPES.map(t=>(
+              <button key={t.id} onClick={()=>setType(type===t.id?"":t.id)}
+                style={{background:type===t.id?"var(--accent)":"var(--bg-input)",border:"none",borderRadius:14,padding:"4px 10px",
+                  color:type===t.id?"#fff":"var(--text-2)",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",gap:4}}>
+                {t.icon} {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",gap:14}}>
+            <button onClick={()=>setShowTagInput(s=>!s)}
+              style={{background:"none",border:"none",color:"var(--text-3)",fontSize:11.5,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+              <Icon path={I.plus} size={11}/> Tag
+            </button>
+            <button onClick={()=>setShowTypePicker(s=>!s)}
+              style={{background:"none",border:"none",color:"var(--text-3)",fontSize:11.5,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+              <Icon path={I.plus} size={11}/> Tipo
+            </button>
+          </div>
+          <button onClick={add} style={{...btn("var(--accent)"),padding:"7px 20px",fontSize:13}}>+ Salvar</button>
+        </div>
       </div>
+
+      {/* Quick stats */}
+      {entries.length>0 && (topMood || topDay) && (
+        <div style={{display:"flex",gap:20,flexWrap:"wrap",marginBottom:22,fontSize:12,color:"var(--text-3)"}}>
+          {topMood && <span>Emoji mais usado: <b style={{color:"var(--text-1)"}}>{topMood[0]}</b> ({topMood[1]})</span>}
+          {topDay && <span>Dia mais ativo: <b style={{color:"var(--text-1)"}}>{new Date(topDay[0]+"T12:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"short"})}</b> — {topDay[1]} registros</span>}
+        </div>
+      )}
+
+      {/* Pinned */}
+      {pinned.length>0 && (
+        <div style={{marginBottom:26}}>
+          <div style={{fontSize:13,fontWeight:800,color:"var(--yellow)",marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
+            <Icon path={I.pin} size={13}/> FIXADOS
+          </div>
+          {pinned.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(e=>(
+            <DiaryEntryRow key={e.id} e={e} isToday={toDateStr(new Date(e.date))===todayStr} onEdit={editEntry} onDelete={delEntry} onPin={pinEntry}/>
+          ))}
+          <div style={{height:1,background:"var(--border-2)",marginTop:4}}/>
+        </div>
+      )}
+
+      {/* Timeline */}
+      {visibleGroups.length===0 && <Empty text={search||calendarDate?"Nenhum registro encontrado.":"Nenhum registro ainda."}/>}
+      {visibleGroups.map(g=>{
+        const isToday = g.key===todayStr;
+        const dayLabel = g.date.toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}).toUpperCase().replace(".","");
+        const weekday = g.date.toLocaleDateString("pt-BR",{weekday:"long"});
+        return (
+          <div key={g.key} style={{marginBottom:20}}>
+            <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:4}}>
+              <span style={{fontSize:13,fontWeight:800,color:isToday?"var(--accent)":"var(--text-1)",letterSpacing:0.5}}>
+                {isToday?"HOJE · ":""}{dayLabel}
+              </span>
+            </div>
+            <div style={{fontSize:11.5,color:"var(--text-3)",textTransform:"capitalize",marginBottom:12}}>
+              {weekday} · {g.items.length} {g.items.length===1?"momento":"momentos"}
+            </div>
+            <div>
+              {g.items.map((e,i)=>(
+                <DiaryEntryRow key={e.id} e={e} isToday={isToday} onEdit={editEntry} onDelete={delEntry} onPin={pinEntry}/>
+              ))}
+            </div>
+            <div style={{height:1,background:"var(--border-2)",marginTop:4}}/>
+          </div>
+        );
+      })}
+      {groups.length>visibleDays && (
+        <button onClick={()=>setVisibleDays(v=>v+DIARY_PAGE_SIZE)}
+          style={{display:"block",margin:"0 auto",background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:20,
+            padding:"9px 22px",color:"var(--text-2)",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+          Mostrar mais dias
+        </button>
+      )}
+
+      {showResumo && <DiaryResumoModal entries={entries} onClose={()=>setShowResumo(false)}/>}
     </div>
   );
 }
@@ -2509,14 +2962,13 @@ function RascunhoCard({ item, onOpen }) {
         </div>
       )}
       <div style={{padding:14}}>
-        <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{item.title}</div>
         {item.notes && (
-          <div style={{fontSize:11,color:"var(--text-3)",marginBottom:6,lineHeight:1.4,
-            display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{item.notes}</div>
+          <div style={{fontSize:12.5,color:"var(--text-1)",marginBottom:6,lineHeight:1.5,
+            display:"-webkit-box",WebkitLineClamp:4,WebkitBoxOrient:"vertical",overflow:"hidden",whiteSpace:"pre-wrap"}}>{item.notes}</div>
         )}
         {item.tags?.length>0 && (
           <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
-            {item.tags.map(t=><span key={t} style={{fontSize:9,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 7px",fontWeight:600}}>{t}</span>)}
+            {item.tags.map(t=><span key={t} style={{fontSize:9,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 7px",fontWeight:600}}>#{t}</span>)}
           </div>
         )}
         <div style={{fontSize:10,color:"var(--text-3)",marginTop:8}}>{item.date}</div>
@@ -2563,7 +3015,7 @@ function RascunhoDetailModal({ item, onClose, onEdit, onDelete }) {
         {item.notes && <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{item.notes}</div>}
         {item.tags?.length>0 && (
           <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-            {item.tags.map(t=><span key={t} style={{fontSize:10,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 8px",fontWeight:600}}>{t}</span>)}
+            {item.tags.map(t=><span key={t} style={{fontSize:10,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 8px",fontWeight:600}}>#{t}</span>)}
           </div>
         )}
         <div style={{fontSize:10,color:"var(--text-3)"}}>{item.date}</div>
@@ -2591,10 +3043,13 @@ function RascunhosPage() {
   const [modal, setModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [detailId, setDetailId] = useState(null);
-  const [form, setForm] = useState({title:"",tags:"",notes:""});
+  const [text, setText] = useState("");
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [newTag, setNewTag] = useState("");
   const [imgData, setImgData] = useState(null);
   const [imgName, setImgName] = useState("");
   const [tagFilter, setTagFilter] = useState("Todos");
+  const [search, setSearch] = useState("");
   const fileRef = useRef(null);
 
   const allTags = Array.from(new Set(items.flatMap(i=>i.tags||[]))).sort();
@@ -2607,48 +3062,68 @@ function RascunhosPage() {
     reader.readAsDataURL(file);
   };
 
-  const openNew = () => { setEditingId(null); setForm({title:"",tags:"",notes:""}); setImgData(null); setImgName(""); setModal(true); };
+  const openNew = () => { setEditingId(null); setText(""); setSelectedTags([]); setNewTag(""); setImgData(null); setImgName(""); setModal(true); };
   const openEdit = (item) => {
     setEditingId(item.id);
-    setForm({title:item.title, tags:(item.tags||[]).join(", "), notes:item.notes||""});
+    setText(item.notes || item.title || "");
+    setSelectedTags(item.tags || []);
+    setNewTag("");
     setImgData(null); setImgName(item.imgName||"");
     setDetailId(null);
     setModal(true);
   };
 
+  const toggleTag = (t) => setSelectedTags(prev => prev.includes(t) ? prev.filter(x=>x!==t) : [...prev, t]);
+  const addNewTag = () => {
+    const t = newTag.trim();
+    if (!t) return;
+    if (!selectedTags.includes(t)) setSelectedTags(prev => [...prev, t]);
+    setNewTag("");
+  };
+
+  const deriveTitle = (t) => {
+    const firstLine = t.split("\n")[0].trim();
+    return firstLine.length > 60 ? firstLine.slice(0,60)+"…" : (firstLine || "Sem título");
+  };
+
   const save = async () => {
-    if (!form.title.trim()) return;
-    const tags = form.tags.split(",").map(t=>t.trim()).filter(Boolean);
+    if (!text.trim() && !imgData) return;
+    const title = deriveTitle(text);
     if (editingId) {
       if (imgData?.data) await KV.set("rascunho_img_"+editingId, imgData.data);
-      setItems(prev => prev.map(i=>i.id===editingId?{...i,...form,tags,
+      setItems(prev => prev.map(i=>i.id===editingId?{...i, title, notes:text.trim(), tags:selectedTags,
         hasImage:!!(imgData||i.hasImage), imgName:imgData?.name||i.imgName, imgType:imgData?.type||i.imgType, imgSize:imgData?.size||i.imgSize}:i));
     } else {
       const id = Date.now();
       if (imgData?.data) await KV.set("rascunho_img_"+id, imgData.data);
-      setItems(prev => [{id,date:now(),...form,tags,
+      setItems(prev => [{id, date:now(), title, notes:text.trim(), tags:selectedTags,
         hasImage:!!imgData?.data, imgName:imgData?.name||"", imgType:imgData?.type||"", imgSize:imgData?.size||0}, ...prev]);
     }
-    setModal(false); setEditingId(null); setImgData(null); setImgName("");
-    setForm({title:"",tags:"",notes:""});
+    setModal(false); setEditingId(null); setImgData(null); setImgName(""); setText(""); setSelectedTags([]);
   };
 
   const del = (id) => { setItems(prev=>prev.filter(i=>i.id!==id)); KV.del("rascunho_img_"+id); setDetailId(null); };
 
-  const filtered = tagFilter==="Todos" ? items : items.filter(i=>(i.tags||[]).includes(tagFilter));
+  let filtered = tagFilter==="Todos" ? items : items.filter(i=>(i.tags||[]).includes(tagFilter));
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    filtered = filtered.filter(i=>
+      (i.title||"").toLowerCase().includes(q) ||
+      (i.notes||"").toLowerCase().includes(q) ||
+      (i.tags||[]).some(t=>t.toLowerCase().includes(q))
+    );
+  }
   const detailItem = items.find(i=>i.id===detailId);
 
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {["Todos",...allTags].map(t=>(
-            <button key={t} onClick={()=>setTagFilter(t)}
-              style={{background:tagFilter===t?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"6px 14px",
-                color:tagFilter===t?"#fff":"var(--text-2)",fontSize:12,cursor:"pointer",fontWeight:600}}>
-              {t}
-            </button>
-          ))}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <div style={{position:"relative",flex:"1 1 280px",maxWidth:360}}>
+          <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)"}}>
+            <Icon path={I.search} size={14} color="var(--text-3)"/>
+          </span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por palavra-chave..."
+            style={{...inp,paddingLeft:36}}/>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <span style={{fontSize:10,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"syncing..."}</span>
@@ -2656,24 +3131,71 @@ function RascunhosPage() {
         </div>
       </div>
 
+      {allTags.length>0 && (
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
+          {["Todos",...allTags].map(t=>(
+            <button key={t} onClick={()=>setTagFilter(t)}
+              style={{background:tagFilter===t?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"6px 14px",
+                color:tagFilter===t?"#fff":"var(--text-2)",fontSize:12,cursor:"pointer",fontWeight:600}}>
+              {t==="Todos"?t:`#${t}`}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14}}>
         {filtered.map(item=><RascunhoCard key={item.id} item={item} onOpen={()=>setDetailId(item.id)}/>)}
       </div>
-      {filtered.length===0 && <Empty text="Nenhum card encontrado."/>}
+      {filtered.length===0 && <Empty text={search||tagFilter!=="Todos" ? "Nada encontrado." : "Nada por aqui ainda — adicione o que quiser."}/>}
 
       {modal && (
-        <Modal title={editingId?"Editar Card":"Novo Card"} onClose={()=>{setModal(false);setEditingId(null);setImgData(null);setImgName("");}}>
+        <Modal title={editingId?"Editar":"Adicionar"} onClose={()=>{setModal(false);setEditingId(null);setImgData(null);setImgName("");}}>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <textarea style={{...inp,resize:"vertical",fontSize:14}} rows={5} autoFocus
+              placeholder="Escreva o que quiser — uma ideia, um link, uma anotação..."
+              value={text} onChange={e=>setText(e.target.value)}/>
+
             <div onClick={()=>fileRef.current?.click()}
-              style={{border:"2px dashed var(--border)",borderRadius:12,padding:20,textAlign:"center",cursor:"pointer",
+              style={{border:"2px dashed var(--border)",borderRadius:12,padding:16,textAlign:"center",cursor:"pointer",
                 backgroundImage:imgData?`url(${imgData.data})`:"none",backgroundSize:"cover",backgroundPosition:"center",
-                minHeight:120,display:"flex",alignItems:"center",justifyContent:"center"}}>
-              {!imgData && <div style={{fontSize:13,color:"var(--text-3)"}}>{imgName || "Clique para anexar uma imagem"}</div>}
+                minHeight:90,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {!imgData && <div style={{fontSize:12.5,color:"var(--text-3)",display:"flex",alignItems:"center",gap:6}}>
+                <Icon path={I.image} size={14}/> {imgName || "Anexar imagem (opcional)"}
+              </div>}
             </div>
             <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleImg}/>
-            <input style={inp} placeholder="Título" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/>
-            <input style={inp} placeholder="Tags (separadas por vírgula)" value={form.tags} onChange={e=>setForm({...form,tags:e.target.value})}/>
-            <textarea style={{...inp,resize:"vertical"}} rows={3} placeholder="Descrição" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
+
+            <div>
+              <label style={{fontSize:11,color:"var(--text-3)",display:"block",marginBottom:6}}>Tags</label>
+              {allTags.length>0 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                  {allTags.map(t=>(
+                    <button key={t} onClick={()=>toggleTag(t)}
+                      style={{background:selectedTags.includes(t)?"var(--accent)":"var(--bg-input)",border:"none",borderRadius:14,
+                        padding:"4px 12px",color:selectedTags.includes(t)?"#fff":"var(--text-2)",fontSize:11.5,cursor:"pointer",fontWeight:600}}>
+                      #{t}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div style={{display:"flex",gap:8}}>
+                <input value={newTag} onChange={e=>setNewTag(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addNewTag();}}}
+                  placeholder="Nova tag..." style={{...inp,fontSize:12,flex:1}}/>
+                <button onClick={addNewTag} style={{...btn("var(--bg-input)"),color:"var(--text-2)",padding:"0 16px"}}>+</button>
+              </div>
+              {selectedTags.filter(t=>!allTags.includes(t)).length>0 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
+                  {selectedTags.filter(t=>!allTags.includes(t)).map(t=>(
+                    <span key={t} onClick={()=>toggleTag(t)}
+                      style={{background:"var(--accent)",color:"#fff",borderRadius:14,padding:"4px 12px",fontSize:11.5,cursor:"pointer",fontWeight:600}}>
+                      #{t} ×
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <button onClick={save} style={btn()}>Salvar</button>
           </div>
         </Modal>
@@ -4575,6 +5097,31 @@ function IdeiasCard({ onClick }) {
   );
 }
 
+function LembretesCard({ onClick }) {
+  const [entries] = useKV("reminders_v1", []);
+  const pending = entries.filter(e=>!e.done).length;
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("var(--yellow)"), height:"100%"}}>
+      <CardHeader icon="bell" label="Lembretes"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.bell} size={40} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{pending}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>pendentes</div>
+    </div>
+  );
+}
+
+function InfosCard({ onClick }) {
+  const [fixedBoards] = useKV("temas_fixed_v1", []);
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("#0891b2"), height:"100%"}}>
+      <CardHeader icon="list" label="Infos"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.list} size={40} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{fixedBoards.length}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>fixados</div>
+    </div>
+  );
+}
+
 function TarefasCard({ onClick }) {
   const [tasks] = useKV("tasks_v1", []);
   const getStatus = t => t.status || (t.done?"done":"todo");
@@ -4799,6 +5346,8 @@ const DASH_CARD_DEFS = [
   { id:"djmix",      nav:"dj",        defC:1, defR:1 },
   { id:"mercado",    nav:"market",    defC:2, defR:1 },
   { id:"tempo",      nav:"weather",   defC:1, defR:1 },
+  { id:"lembretes",  nav:"reminders", defC:1, defR:1 },
+  { id:"infos",      nav:"infos",     defC:1, defR:1 },
 ];
 const DASH_DEFAULT_ORDER = DASH_CARD_DEFS.map(c=>c.id);
 const DASH_SIZE_CYCLE = [{c:1,r:1},{c:2,r:1},{c:1,r:2},{c:2,r:2}];
@@ -4827,6 +5376,7 @@ const DASH_COMPONENTS = {
   diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
   djmix: DJMixCard, mercado: MercadoCard, tempo: TempoCard,
+  lembretes: LembretesCard, infos: InfosCard,
 };
 
 const DESKTOP_BREAKPOINT = 1200; // matches the .dash-grid CSS breakpoint
@@ -5465,6 +6015,8 @@ const PAGE_META = {
   home:       {label:"Menu",                emoji:""},
   projects:   {label:"Projetos",            emoji:"🗂"},
   diary:      {label:"Diário",              emoji:"📓"},
+  reminders:  {label:"Lembretes",           emoji:"🔔"},
+  infos:      {label:"Infos",               emoji:"📋"},
   ideas:      {label:"Ideias",              emoji:"💡"},
   tasks:      {label:"Tarefas",             emoji:"✅"},
   docs:       {label:"Documentos",          emoji:"📁"},
@@ -6751,6 +7303,8 @@ export default function App() {
   const renderPage = () => {
     switch(page) {
       case "diary":      return <DiaryPage/>;
+      case "reminders":  return <RemindersCards/>;
+      case "infos":      return <TemasPage/>;
       case "ideas":      return <IdeasPage/>;
       case "tasks":      return <TasksPage/>;
       case "docs":       return <DocsPage/>;
