@@ -2739,6 +2739,189 @@ function ListsPage() {
   );
 }
 
+// ─── JARBAS — tile do companheiro de voz (Item 10, Evolução 2) ──────────────
+// Lê/escreve jarbas_memory_v1 (mesma memória que o companion de voz sincroniza,
+// migrada do Cloudflare KV) e jarbas_recados_v1. Nunca sobrescreve o blob
+// inteiro: sempre parte do que já existe (prev) e só atualiza o campo editado,
+// pra não perder history/memory/timeline/msgCount que o companion também guarda ali.
+const JARBAS_INGREDIENT_LABELS = { clima: "Clima", noticias: "Notícias", agenda: "Agenda", tarefas: "Tarefas", contas: "Contas" };
+const JARBAS_KNOWLEDGE_FIELDS = [
+  { id: "identidade", label: "Identidade" },
+  { id: "pessoas", label: "Pessoas" },
+  { id: "rotina", label: "Rotina & Preferências" },
+  { id: "trabalho", label: "Trabalho" },
+  { id: "outros", label: "Outros" },
+];
+
+function JarbasPage() {
+  const [mem, setMem, memSynced] = useKV("jarbas_memory_v1", null);
+  const [recados, setRecados] = useKV("jarbas_recados_v1", []);
+  const [tab, setTab] = useState("conhecimento");
+
+  const knowledge = mem?.knowledge || {};
+  const routines = mem?.routines || [];
+
+  const [kForm, setKForm] = useState(null);
+  useEffect(() => { if (memSynced && !kForm) setKForm(knowledge); }, [memSynced]);
+
+  const saveKnowledge = () => {
+    setMem(prev => ({ ...(prev || {}), knowledge: { ...(prev?.knowledge || {}), ...kForm } }));
+  };
+
+  const [routineForm, setRoutineForm] = useState(null);
+  const addRoutine = () => {
+    if (!routineForm?.trigger?.trim() || !routineForm.ingredients?.length) return;
+    const r = {
+      id: "r" + Date.now(),
+      trigger: routineForm.trigger.trim(),
+      ingredients: routineForm.ingredients,
+      links: (routineForm.linksText || "").split("\n").map(s => s.trim()).filter(Boolean),
+    };
+    setMem(prev => ({ ...(prev || {}), routines: [...(prev?.routines || []), r] }));
+    setRoutineForm(null);
+  };
+  const delRoutine = (id) => {
+    if (!confirm("Apagar essa rotina?")) return;
+    setMem(prev => ({ ...(prev || {}), routines: (prev?.routines || []).filter(r => r.id !== id) }));
+  };
+
+  const [recadoText, setRecadoText] = useState("");
+  const addRecado = () => {
+    if (!recadoText.trim()) return;
+    setRecados(prev => [{ id: Date.now(), text: recadoText.trim(), at: nowISO(), done: false }, ...prev]);
+    setRecadoText("");
+  };
+  const delRecado = (id) => setRecados(prev => prev.filter(r => r.id !== id));
+  const toggleRecado = (id) => setRecados(prev => prev.map(r => r.id === id ? { ...r, done: !r.done } : r));
+
+  const TABS = [
+    { id: "conhecimento", label: "Conhecimento" },
+    { id: "rotinas", label: "Rotinas" },
+    { id: "recados", label: "Recados" },
+    { id: "config", label: "Configuração" },
+  ];
+
+  if (!memSynced) return <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-3)", fontSize: 14 }}>Carregando memória do Jarbas...</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{
+              background: tab === t.id ? "var(--accent)" : "var(--bg-card)",
+              border: `1px solid ${tab === t.id ? "var(--accent)" : "var(--border)"}`,
+              color: tab === t.id ? "#fff" : "var(--text-2)",
+              borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "conhecimento" && kForm && (
+        <div style={{ maxWidth: 640, display: "flex", flexDirection: "column", gap: 14 }}>
+          <p style={{ color: "var(--text-3)", fontSize: 13 }}>Mesmo conteúdo da tela "Conhecimento" do companion de voz — sincroniza direto com o Jarbas.</p>
+          {JARBAS_KNOWLEDGE_FIELDS.map(f => (
+            <div key={f.id}>
+              <label style={{ fontSize: 12, color: "var(--text-3)", display: "block", marginBottom: 6 }}>{f.label}</label>
+              <textarea style={{ ...inp, resize: "vertical" }} rows={3} value={kForm[f.id] || ""}
+                onChange={e => setKForm({ ...kForm, [f.id]: e.target.value })} />
+            </div>
+          ))}
+          <button onClick={saveKnowledge} style={{ ...btn(), alignSelf: "flex-start" }}>Salvar</button>
+        </div>
+      )}
+
+      {tab === "rotinas" && (
+        <div style={{ maxWidth: 640 }}>
+          <p style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 16 }}>Gatilhos de voz que juntam várias fontes numa fala só (ex: "bom dia" → clima + notícias + agenda).</p>
+          {routines.length === 0 && <Empty text="Nenhuma rotina ainda." />}
+          {routines.map(r => (
+            <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>"{r.trigger}"</div>
+                <div style={{ fontSize: 12, color: "var(--text-3)" }}>
+                  {(r.ingredients || []).map(i => JARBAS_INGREDIENT_LABELS[i] || i).join(", ")}
+                  {r.links?.length ? ` + ${r.links.length} link(s)` : ""}
+                </div>
+              </div>
+              <button onClick={() => delRoutine(r.id)} style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer" }}><Icon path={I.trash} size={14} /></button>
+            </div>
+          ))}
+
+          {!routineForm ? (
+            <button onClick={() => setRoutineForm({ trigger: "", ingredients: [], linksText: "" })}
+              style={{ ...btn("var(--purple)"), marginTop: 16, display: "flex", alignItems: "center", gap: 6, width: "auto" }}>
+              <Icon path={I.plus} size={14} /> Nova rotina
+            </button>
+          ) : (
+            <div style={{ marginTop: 16, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              <input style={inp} placeholder="Gatilho (ex: bom dia)" value={routineForm.trigger} onChange={e => setRoutineForm({ ...routineForm, trigger: e.target.value })} />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                {Object.entries(JARBAS_INGREDIENT_LABELS).map(([id, label]) => (
+                  <label key={id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                    <input type="checkbox" checked={routineForm.ingredients.includes(id)}
+                      onChange={e => {
+                        const on = e.target.checked;
+                        setRoutineForm(f => ({ ...f, ingredients: on ? [...f.ingredients, id] : f.ingredients.filter(x => x !== id) }));
+                      }} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <textarea style={{ ...inp, resize: "vertical" }} rows={2} placeholder="Links pra verificar (opcional, um por linha)"
+                value={routineForm.linksText} onChange={e => setRoutineForm({ ...routineForm, linksText: e.target.value })} />
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={addRoutine} style={btn("var(--purple)")}>Salvar rotina</button>
+                <button onClick={() => setRoutineForm(null)} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 20px", color: "var(--text-3)", cursor: "pointer" }}>Cancelar</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "recados" && (
+        <div style={{ maxWidth: 640 }}>
+          <p style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 16 }}>Deixe recados pro Jarbas tratar numa conversa futura — ele lê e comenta sozinho, e marca como tratado depois.</p>
+          <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+            <input style={{ ...inp, flex: 1 }} placeholder="Escrever um recado..." value={recadoText}
+              onChange={e => setRecadoText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addRecado(); }} />
+            <button onClick={addRecado} style={{ ...btn(), padding: "10px 20px", whiteSpace: "nowrap" }}>+ Adicionar</button>
+          </div>
+          {recados.length === 0 && <Empty text="Nenhum recado ainda." />}
+          {recados.map(r => (
+            <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <button onClick={() => toggleRecado(r.id)}
+                  style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${r.done ? "var(--green)" : "var(--border)"}`, background: r.done ? "var(--green)" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {r.done && <Icon path={I.check} size={11} color="#fff" />}
+                </button>
+                <span style={{ fontSize: 14, textDecoration: r.done ? "line-through" : "none", opacity: r.done ? 0.6 : 1 }}>{r.text}</span>
+              </div>
+              <button onClick={() => delRecado(r.id)} style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer" }}><Icon path={I.trash} size={14} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === "config" && (
+        <div style={{ maxWidth: 640, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+            <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 6 }}>URL do Worker (Cloudflare)</div>
+            <div style={{ fontSize: 14, fontFamily: "monospace" }}>{mem?.workerUrl || "ainda não sincronizado"}</div>
+          </div>
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+            <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 6 }}>Localização atual</div>
+            <div style={{ fontSize: 14 }}>{mem?.location?.cidade || "ainda não configurada"}</div>
+          </div>
+          <p style={{ color: "var(--text-3)", fontSize: 12 }}>Pra trocar a URL do Worker ou a senha de sincronização, use o menu Configurações dentro do próprio app do Jarbas (companion).</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── WEATHER PAGE ─────────────────────────────────────────────────────────────
 function WeatherPage() {
   const w = useWeather();
@@ -5416,6 +5599,7 @@ function HomePage({ onNavigate }) {
   const extraTiles = [
     { id:"whiteboard", color:"var(--tile-white)", icon:"edit",    label:"Whiteboard" },
     { id:"letreiro",   color:"#1a0a2a",           icon:"marquee", label:"Letreiro" },
+    { id:"jarbas",     color:"#0a2a1a",           icon:"headphones", label:"Jarbas" },
   ];
 
   const order = (layout.order && layout.order.length) ? layout.order.filter(id=>DASH_DEFAULT_ORDER.includes(id)) : DASH_DEFAULT_ORDER;
@@ -7319,6 +7503,7 @@ export default function App() {
       case "letreiro":      return <LetreirPage/>;
       case "dj":         return <DJPage/>;
       case "projects":   return <ProjectsPage/>;
+      case "jarbas":     return <JarbasPage/>;
       default:           return <HomePage onNavigate={setPage}/>;
     }
   };
