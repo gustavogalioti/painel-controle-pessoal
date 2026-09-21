@@ -193,6 +193,88 @@ async function getListsText(sql) {
   return lists.slice(0, 10).map(l => `- ${l.title} (${(l.items || []).length} itens)`).join("\n");
 }
 
+// ---------- Item 6: e-mail, só leitura (Gmail + Outlook Pessoal/Corporativo) ----------
+// Nunca busca corpo completo nem anexos — só metadados (remetente, assunto, data, trecho).
+async function getGoogleEmailsResumo(sql, filtro, remetente, assunto) {
+  try {
+    const token = await Promise.race([
+      getValidToken(sql),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("google_token_timeout")), 4000)),
+    ]);
+    if (!token) return [];
+    let q = filtro === "nao_lidos" ? "is:unread" : "in:inbox";
+    if (remetente) q += ` from:${remetente}`;
+    if (assunto) q += ` subject:${assunto}`;
+    const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=8&q=${encodeURIComponent(q)}`;
+    const listRes = await fetchWithTimeout(listUrl, { headers: { Authorization: `Bearer ${token}` } }, 4000);
+    if (!listRes.ok) return [];
+    const listData = await listRes.json();
+    const ids = (listData.messages || []).map(m => m.id);
+    const msgs = await Promise.all(ids.map(async id => {
+      const r = await fetchWithTimeout(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+        { headers: { Authorization: `Bearer ${token}` } }, 4000
+      );
+      if (!r.ok) return null;
+      const d = await r.json();
+      const h = Object.fromEntries((d.payload?.headers || []).map(x => [x.name, x.value]));
+      return {
+        fonte: "Gmail",
+        de: h.From || "",
+        assunto: h.Subject || "",
+        data: h.Date ? new Date(h.Date).toISOString() : "",
+        trecho: d.snippet || "",
+        lido: !(d.labelIds || []).includes("UNREAD"),
+      };
+    }));
+    return msgs.filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function getOutlookEmailsResumo(sql, account, filtro, remetente, assunto) {
+  try {
+    const token = await Promise.race([
+      getOutlookToken(sql, account),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("outlook_token_timeout")), 4000)),
+    ]);
+    if (!token) return [];
+    const filters = [];
+    if (filtro === "nao_lidos") filters.push("isRead eq false");
+    if (remetente) filters.push(`contains(from/emailAddress/address,'${remetente.replace(/'/g, "")}')`);
+    if (assunto) filters.push(`contains(subject,'${assunto.replace(/'/g, "")}')`);
+    const filterQ = filters.length ? `&$filter=${encodeURIComponent(filters.join(" and "))}` : "";
+    const url = `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=8&$orderby=receivedDateTime desc&$select=subject,from,receivedDateTime,bodyPreview,isRead${filterQ}`;
+    const r = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } }, 4000);
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.value || []).map(m => ({
+      fonte: account === "corporate" ? "Outlook Corporativo" : "Outlook Pessoal",
+      de: m.from?.emailAddress?.address || m.from?.emailAddress?.name || "",
+      assunto: m.subject || "",
+      data: m.receivedDateTime || "",
+      trecho: m.bodyPreview || "",
+      lido: !!m.isRead,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function getEmailsText(sql, filtro, remetente, assunto) {
+  const [gmail, outlookPessoal, outlookCorp] = await Promise.all([
+    getGoogleEmailsResumo(sql, filtro, remetente, assunto),
+    getOutlookEmailsResumo(sql, "personal", filtro, remetente, assunto),
+    getOutlookEmailsResumo(sql, "corporate", filtro, remetente, assunto),
+  ]);
+  const all = [...gmail, ...outlookPessoal, ...outlookCorp]
+    .sort((a, b) => new Date(b.data) - new Date(a.data))
+    .slice(0, 10);
+  if (!all.length) return filtro === "nao_lidos" ? "Nenhum e-mail não lido." : "Nenhum e-mail encontrado com esse filtro.";
+  return all.map(m => `- [${m.fonte}]${m.lido ? "" : " (não lido)"} de ${m.de} — "${m.assunto}": ${m.trecho}`).join("\n");
+}
+
 // Item 5 (comentário espontâneo): itens mais recentes de Ideias/Compromissos, com id/data
 // crus (não texto formatado), pro Worker comparar com o que já viu e não repetir aviso.
 async function getNovidades(sql) {
@@ -398,6 +480,15 @@ export default async function handler(req) {
     if (req.method === "GET" && searchParams.get("action") === "jarbas_memory") {
       const data = await getKvJson(sql, JARBAS_MEMORY_KEY);
       return new Response(JSON.stringify({ data }), { headers: CORS });
+    }
+    if (req.method === "GET" && searchParams.get("action") === "emails") {
+      const texto = await getEmailsText(
+        sql,
+        searchParams.get("filtro") || "",
+        searchParams.get("remetente") || "",
+        searchParams.get("assunto") || ""
+      );
+      return new Response(JSON.stringify({ texto }), { headers: CORS });
     }
 
     if (req.method === "POST") {

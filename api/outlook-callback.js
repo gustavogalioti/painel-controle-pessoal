@@ -27,7 +27,7 @@ export default async function handler(req) {
         client_secret: clientSecret,
         redirect_uri: redirectUri,
         grant_type: "authorization_code",
-        scope: "offline_access User.Read Calendars.ReadWrite",
+        scope: "offline_access User.Read Calendars.ReadWrite Mail.Read",
       }),
     });
     const tokens = await tokenRes.json();
