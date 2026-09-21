@@ -107,6 +107,24 @@ async function setKvList(sql, key, list) {
             ON CONFLICT (key) DO UPDATE SET value=${value}, updated_at=${ts}`;
 }
 
+// Igual getKvList/setKvList, mas pra um valor JSON qualquer (não necessariamente array) —
+// usado pra guardar a memória inteira do Jarbas (mem.knowledge/timeline/routines/location).
+async function getKvJson(sql, key) {
+  const rows = await sql`SELECT value FROM sync_kv WHERE key=${key}`;
+  if (!rows[0]) return null;
+  try { return JSON.parse(rows[0].value); } catch { return null; }
+}
+
+async function setKvJson(sql, key, obj) {
+  const value = JSON.stringify(obj);
+  const ts = new Date().toISOString();
+  await sql`INSERT INTO sync_kv (key, value, updated_at) VALUES (${key}, ${value}, ${ts})
+            ON CONFLICT (key) DO UPDATE SET value=${value}, updated_at=${ts}`;
+}
+
+const JARBAS_MEMORY_KEY = "jarbas_memory_v1";
+const JARBAS_RECADOS_KEY = "jarbas_recados_v1";
+
 const FIN_RECURRENT_TYPES = ["fixed", "subscription", "income"];
 function finCurMonth() { return todayISO().slice(0, 7); }
 function finIsPaid(e) { return e.recurrent ? (e.paidMonths || []).includes(finCurMonth()) : !!e.paid; }
@@ -140,6 +158,49 @@ async function getSnapshotText(sql) {
     partes.push("Contas pendentes: nenhuma, tudo pago.");
   }
   return partes.join("\n");
+}
+
+// Item 12: filtro de tarefas por coluna real (o mesmo campo `status` usado nas colunas do painel).
+const TASK_STATUS_LABELS = { now: "🔥 Para Agora", today: "🌟 De Hoje", todo: "📋 Pendente", doing: "⚡ Em Andamento", done: "✅ Concluído", standby: "⏸ Stand By" };
+const TASK_FILTER_STATUSES = { hoje: ["now", "today"], pendentes: ["todo"], andamento: ["doing"] };
+function getTaskStatus(t) { return t.status || (t.done ? "done" : "todo"); }
+
+async function getTasksFilteredText(sql, filtro) {
+  const tasks = await getKvList(sql, "tasks_v1");
+  const wanted = TASK_FILTER_STATUSES[filtro];
+  const list = wanted ? tasks.filter(t => wanted.includes(getTaskStatus(t))) : tasks.filter(t => getTaskStatus(t) !== "done");
+  if (!list.length) return "Nenhuma tarefa encontrada com esse filtro.";
+  return list.map(t => `- ${t.text}${t.prio === "alta" ? " [alta prioridade]" : ""} (${TASK_STATUS_LABELS[getTaskStatus(t)] || getTaskStatus(t)})`).join("\n");
+}
+
+// Item 5: Ideias, Lembretes e Listas — mesmas chaves sync_kv que as telas do painel usam.
+async function getIdeasText(sql) {
+  const ideas = await getKvList(sql, "ideas_v1");
+  if (!ideas.length) return "Nenhuma ideia anotada ainda.";
+  return ideas.slice(0, 10).map(i => `- ${i.text}${i.tag ? ` [${i.tag}]` : ""}`).join("\n");
+}
+
+async function getRemindersText(sql) {
+  const list = await getKvList(sql, "reminders_v1");
+  const pend = list.filter(r => !r.done);
+  if (!pend.length) return "Nenhum lembrete pendente.";
+  return pend.slice(0, 10).map(r => `- ${r.text}`).join("\n");
+}
+
+async function getListsText(sql) {
+  const lists = await getKvList(sql, "lists_v1");
+  if (!lists.length) return "Nenhuma lista criada ainda.";
+  return lists.slice(0, 10).map(l => `- ${l.title} (${(l.items || []).length} itens)`).join("\n");
+}
+
+// Item 5 (comentário espontâneo): itens mais recentes de Ideias/Compromissos, com id/data
+// crus (não texto formatado), pro Worker comparar com o que já viu e não repetir aviso.
+async function getNovidades(sql) {
+  const [ideas, events] = await Promise.all([getKvList(sql, "ideas_v1"), getKvList(sql, "events_v1")]);
+  return {
+    ideas: ideas.slice(0, 5).map(i => ({ id: i.id, text: i.text, date: i.date })),
+    events: events.slice(0, 5).map(e => ({ id: e.id, title: e.title, date: e.date })),
+  };
 }
 
 // ---------- Ações (o que o Jarbas pode "fazer") ----------
@@ -218,6 +279,86 @@ async function cmdAnotarDiario(sql, { texto, humor }) {
   return { reply: "" }; // ação de bastidor, não vira fala
 }
 
+// ---------- Item 5: Ideias, Lembretes, Listas ----------
+async function cmdAddIdea(sql, texto) {
+  if (!texto) return { reply: "Faltou o texto da ideia." };
+  const ideas = await getKvList(sql, "ideas_v1");
+  const idea = { id: Date.now(), text: texto, tag: "", mood: "💡", date: new Date().toISOString() };
+  await setKvList(sql, "ideas_v1", [idea, ...ideas]);
+  return { reply: `Anotei a ideia: "${texto}".` };
+}
+
+async function cmdDeleteIdea(sql, texto) {
+  const ideas = await getKvList(sql, "ideas_v1");
+  const nq = normalize(texto);
+  const match = ideas.find(i => normalize(i.text).includes(nq));
+  if (!match) return { reply: `Não achei nenhuma ideia parecida com "${texto}".` };
+  await setKvList(sql, "ideas_v1", ideas.filter(i => i.id !== match.id));
+  return { reply: `Apaguei a ideia "${match.text}".` };
+}
+
+async function cmdAddReminder(sql, texto) {
+  if (!texto) return { reply: "Faltou o texto do lembrete." };
+  const list = await getKvList(sql, "reminders_v1");
+  const item = { id: Date.now(), text: texto, mood: "🔔", done: false, date: new Date().toISOString() };
+  await setKvList(sql, "reminders_v1", [item, ...list]);
+  return { reply: `Criei o lembrete "${texto}".` };
+}
+
+async function cmdCompleteReminder(sql, texto) {
+  const list = await getKvList(sql, "reminders_v1");
+  const nq = normalize(texto);
+  const match = list.find(r => !r.done && normalize(r.text).includes(nq));
+  if (!match) return { reply: `Não achei nenhum lembrete pendente parecido com "${texto}".` };
+  const updated = list.map(r => r.id === match.id ? { ...r, done: true } : r);
+  await setKvList(sql, "reminders_v1", updated);
+  return { reply: `Marquei o lembrete "${match.text}" como feito.` };
+}
+
+async function cmdDeleteReminder(sql, texto) {
+  const list = await getKvList(sql, "reminders_v1");
+  const nq = normalize(texto);
+  const match = list.find(r => normalize(r.text).includes(nq));
+  if (!match) return { reply: `Não achei nenhum lembrete parecido com "${texto}".` };
+  await setKvList(sql, "reminders_v1", list.filter(r => r.id !== match.id));
+  return { reply: `Apaguei o lembrete "${match.text}".` };
+}
+
+async function cmdAddList(sql, titulo) {
+  if (!titulo) return { reply: "Faltou o título da lista." };
+  const lists = await getKvList(sql, "lists_v1");
+  const l = { id: Date.now(), title: titulo, text: "", items: [], created: new Date().toLocaleString("pt-BR") };
+  await setKvList(sql, "lists_v1", [l, ...lists]);
+  return { reply: `Criei a lista "${titulo}".` };
+}
+
+async function cmdDeleteList(sql, titulo) {
+  const lists = await getKvList(sql, "lists_v1");
+  const nq = normalize(titulo);
+  const match = lists.find(l => normalize(l.title).includes(nq));
+  if (!match) return { reply: `Não achei nenhuma lista parecida com "${titulo}".` };
+  await setKvList(sql, "lists_v1", lists.filter(l => l.id !== match.id));
+  return { reply: `Apaguei a lista "${match.title}".` };
+}
+
+// ---------- Item 10: Recados pro Jarbas tratar depois ----------
+async function cmdConcluirRecado(sql, texto) {
+  const recados = await getKvList(sql, JARBAS_RECADOS_KEY);
+  const nq = normalize(texto || "");
+  const match = recados.find(r => !r.done && normalize(r.text).includes(nq));
+  if (!match) return { reply: "" };
+  const updated = recados.map(r => r.id === match.id ? { ...r, done: true } : r);
+  await setKvList(sql, JARBAS_RECADOS_KEY, updated);
+  return { reply: "" }; // ação de bastidor, não vira fala
+}
+
+// ---------- Migração de armazenamento: memória do Jarbas (Cloudflare KV -> Postgres) ----------
+async function cmdSaveJarbasMemory(sql, data) {
+  if (!data) return { reply: "" };
+  await setKvJson(sql, JARBAS_MEMORY_KEY, data);
+  return { reply: "" };
+}
+
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
@@ -234,6 +375,30 @@ export default async function handler(req) {
       const texto = await getSnapshotText(sql);
       return new Response(JSON.stringify({ texto }), { headers: CORS });
     }
+    if (req.method === "GET" && searchParams.get("action") === "tasks") {
+      const texto = await getTasksFilteredText(sql, searchParams.get("filtro") || "");
+      return new Response(JSON.stringify({ texto }), { headers: CORS });
+    }
+    if (req.method === "GET" && searchParams.get("action") === "ideias") {
+      return new Response(JSON.stringify({ texto: await getIdeasText(sql) }), { headers: CORS });
+    }
+    if (req.method === "GET" && searchParams.get("action") === "lembretes") {
+      return new Response(JSON.stringify({ texto: await getRemindersText(sql) }), { headers: CORS });
+    }
+    if (req.method === "GET" && searchParams.get("action") === "listas") {
+      return new Response(JSON.stringify({ texto: await getListsText(sql) }), { headers: CORS });
+    }
+    if (req.method === "GET" && searchParams.get("action") === "recados") {
+      const recados = await getKvList(sql, JARBAS_RECADOS_KEY);
+      return new Response(JSON.stringify({ recados: recados.filter(r => !r.done) }), { headers: CORS });
+    }
+    if (req.method === "GET" && searchParams.get("action") === "novidades") {
+      return new Response(JSON.stringify(await getNovidades(sql)), { headers: CORS });
+    }
+    if (req.method === "GET" && searchParams.get("action") === "jarbas_memory") {
+      const data = await getKvJson(sql, JARBAS_MEMORY_KEY);
+      return new Response(JSON.stringify({ data }), { headers: CORS });
+    }
 
     if (req.method === "POST") {
       const { comando, arg } = await req.json();
@@ -246,6 +411,15 @@ export default async function handler(req) {
       else if (comando === "criar_compromisso") result = await cmdAddEvent(sql, arg || {});
       else if (comando === "apagar_compromisso") result = await cmdDeleteEvent(sql, arg?.titulo);
       else if (comando === "anotar_diario") result = await cmdAnotarDiario(sql, arg || {});
+      else if (comando === "criar_ideia") result = await cmdAddIdea(sql, arg?.texto);
+      else if (comando === "apagar_ideia") result = await cmdDeleteIdea(sql, arg?.texto);
+      else if (comando === "criar_lembrete") result = await cmdAddReminder(sql, arg?.texto);
+      else if (comando === "concluir_lembrete") result = await cmdCompleteReminder(sql, arg?.texto);
+      else if (comando === "apagar_lembrete") result = await cmdDeleteReminder(sql, arg?.texto);
+      else if (comando === "criar_lista") result = await cmdAddList(sql, arg?.titulo);
+      else if (comando === "apagar_lista") result = await cmdDeleteList(sql, arg?.titulo);
+      else if (comando === "concluir_recado") result = await cmdConcluirRecado(sql, arg?.texto);
+      else if (comando === "jarbas_memory_save") result = await cmdSaveJarbasMemory(sql, arg?.data);
       else result = { reply: "Comando desconhecido." };
       return new Response(JSON.stringify(result), { headers: CORS });
     }
