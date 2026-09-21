@@ -16,7 +16,7 @@ export default async function handler(req) {
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("response_mode", "query");
-  url.searchParams.set("scope", "offline_access User.Read Calendars.ReadWrite");
+  url.searchParams.set("scope", "offline_access User.Read Calendars.ReadWrite Mail.Read");
   url.searchParams.set("state", account);
   url.searchParams.set("prompt", "select_account");
 

@@ -35,7 +35,7 @@ export async function getValidToken(sql, account) {
       client_secret: process.env.OUTLOOK_CLIENT_SECRET,
       refresh_token: row.refresh_token,
       grant_type: "refresh_token",
-      scope: "offline_access User.Read Calendars.ReadWrite",
+      scope: "offline_access User.Read Calendars.ReadWrite Mail.Read",
     }),
   });
   const data = await res.json();

@@ -3973,7 +3973,7 @@ function AgendaPage() {
             <button onClick={connectGoogle}
               style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:20,padding:"8px 16px",
                 color:"var(--text-2)",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-              <Icon path={I.link} size={13}/> Conectar Google Agenda
+              <Icon path={I.link} size={13}/> Conectar Google (Agenda + E-mail)
             </button>
           )}
 
@@ -3991,7 +3991,7 @@ function AgendaPage() {
             <button onClick={()=>connectOutlook("personal")}
               style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:20,padding:"8px 16px",
                 color:"var(--text-2)",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-              <Icon path={I.link} size={13}/> Conectar Outlook Pessoal
+              <Icon path={I.link} size={13}/> Conectar Outlook Pessoal (Agenda + E-mail)
             </button>
           )}
 
@@ -4009,7 +4009,7 @@ function AgendaPage() {
             <button onClick={()=>connectOutlook("corporate")}
               style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:20,padding:"8px 16px",
                 color:"var(--text-2)",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
-              <Icon path={I.link} size={13}/> Conectar Outlook Corporativo
+              <Icon path={I.link} size={13}/> Conectar Outlook Corporativo (Agenda + E-mail)
             </button>
           )}
         </div>
