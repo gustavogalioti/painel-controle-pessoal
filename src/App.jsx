@@ -2141,8 +2141,8 @@ function TasksPage() {
   const COLS = [
     { id:"now",     label:"🔥 Para Agora",   color:"#dc2626" },
     { id:"today",   label:"🌟 De Hoje",      color:"var(--accent)" },
-    { id:"todo",    label:"📋 Pendente",     color:"var(--text-3)" },
     { id:"doing",   label:"⚡ Em Andamento", color:"var(--yellow)" },
+    { id:"todo",    label:"📋 Pendente",     color:"var(--text-3)" },
     { id:"done",    label:"✅ Concluído",    color:"var(--green)"  },
     { id:"standby", label:"⏸ Stand By",     color:"var(--purple)" },
   ];
