@@ -2329,7 +2329,7 @@ function TasksPage() {
   const grouped = Object.fromEntries(COLS.map(c=>[c.id,[]]));
   tasks.filter(t=>matchesTagFilter(t) && matchesDateFilter(t)).forEach(t => { const s = getStatus(t); (grouped[s] || grouped.todo).push(t); });
   grouped.done = [...grouped.done].sort((a,b) => new Date(b.doneAt||b.date) - new Date(a.doneAt||a.date));
-  const DONE_PREVIEW = 3;
+  const COL_PREVIEW_LIMIT = 6;
 
   const TaskCard = ({ t }) => {
     const isDragging = dragId === t.id;
@@ -2519,13 +2519,13 @@ function TasksPage() {
               <span style={{fontSize:10,fontWeight:700,color:"#fff",background:"rgba(255,255,255,0.25)",borderRadius:10,padding:"2px 7px"}}>{grouped[col.id].length}</span>
             </div>
             <div style={{flex:1}}>
-              {(col.id==="done" ? grouped[col.id].slice(0,DONE_PREVIEW) : grouped[col.id]).map(t => <TaskCard key={t.id} t={t}/>)}
-              {col.id==="done" && grouped[col.id].length>DONE_PREVIEW && (
-                <button onClick={()=>setFocusedCol("done")} style={{
+              {grouped[col.id].slice(0,COL_PREVIEW_LIMIT).map(t => <TaskCard key={t.id} t={t}/>)}
+              {grouped[col.id].length>COL_PREVIEW_LIMIT && (
+                <button onClick={()=>setFocusedCol(col.id)} style={{
                   width:"100%", background:"var(--bg-input)", border:"1px solid var(--border)",
                   borderRadius:10, padding:"10px", color:"var(--text-2)", fontSize:12, fontWeight:700,
                   cursor:"pointer", marginTop:4,
-                }}>Ver mais ({grouped[col.id].length - DONE_PREVIEW})</button>
+                }}>Ver mais ({grouped[col.id].length - COL_PREVIEW_LIMIT})</button>
               )}
               {grouped[col.id].length===0 && (
                 <div style={{textAlign:"center",color:"var(--text-3)",fontSize:12,padding:"30px 0",opacity:.6}}>
