@@ -5458,6 +5458,19 @@ function DJMixCard({ onClick }) {
   );
 }
 
+function JarbasCard({ onClick }) {
+  const [recados] = useKV("jarbas_recados_v1", []);
+  const pending = recados.filter(r=>!r.done).length;
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("#0a2a1a"), height:"100%"}}>
+      <CardHeader icon="headphones" label="Jarbas"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.headphones} size={40} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{pending}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>recado{pending===1?"":"s"} pendente{pending===1?"":"s"}</div>
+    </div>
+  );
+}
+
 function MercadoCard({ market, onClick }) {
   const [tab, setTab] = useState("ibov");
   const tabs = [["ibov","IBOV"],["dolar","DÓLAR"],["btc","BITCOIN"],["ouro","OURO"]];
@@ -5531,6 +5544,7 @@ const DASH_CARD_DEFS = [
   { id:"tempo",      nav:"weather",   defC:1, defR:1 },
   { id:"lembretes",  nav:"reminders", defC:1, defR:1 },
   { id:"infos",      nav:"infos",     defC:1, defR:1 },
+  { id:"jarbas",     nav:"jarbas",    defC:1, defR:1 },
 ];
 const DASH_DEFAULT_ORDER = DASH_CARD_DEFS.map(c=>c.id);
 const DASH_SIZE_CYCLE = [{c:1,r:1},{c:2,r:1},{c:1,r:2},{c:2,r:2}];
@@ -5559,7 +5573,7 @@ const DASH_COMPONENTS = {
   diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
   djmix: DJMixCard, mercado: MercadoCard, tempo: TempoCard,
-  lembretes: LembretesCard, infos: InfosCard,
+  lembretes: LembretesCard, infos: InfosCard, jarbas: JarbasCard,
 };
 
 const DESKTOP_BREAKPOINT = 1200; // matches the .dash-grid CSS breakpoint
@@ -5599,7 +5613,6 @@ function HomePage({ onNavigate }) {
   const extraTiles = [
     { id:"whiteboard", color:"var(--tile-white)", icon:"edit",    label:"Whiteboard" },
     { id:"letreiro",   color:"#1a0a2a",           icon:"marquee", label:"Letreiro" },
-    { id:"jarbas",     color:"#0a2a1a",           icon:"headphones", label:"Jarbas" },
   ];
 
   const order = (layout.order && layout.order.length) ? layout.order.filter(id=>DASH_DEFAULT_ORDER.includes(id)) : DASH_DEFAULT_ORDER;
