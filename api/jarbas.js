@@ -43,54 +43,60 @@ async function fetchWithTimeout(url, opts, ms){
   }
 }
 
-async function getGoogleEventosHoje(sql, todayStr) {
+// Um único orçamento de tempo pra token+chamada da agenda (em vez de 4s pro token +
+// 4s pra chamada, empilhados = até 8s por provedor) — corta o pior caso pela metade.
+async function withDeadline(fn, ms, fallback) {
   try {
-    const token = await Promise.race([
-      getValidToken(sql),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("google_token_timeout")), 4000)),
+    return await Promise.race([
+      fn(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("deadline_exceeded")), ms)),
     ]);
+  } catch {
+    return fallback;
+  }
+}
+
+function addDaysISO(dateStr, days) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+async function getGoogleEventosDia(sql, dateStr) {
+  return withDeadline(async () => {
+    const token = await getValidToken(sql);
     if (!token) return [];
-    const timeMin = `${todayStr}T00:00:00-03:00`;
-    const timeMax = `${todayStr}T23:59:59-03:00`;
+    const timeMin = `${dateStr}T00:00:00-03:00`;
+    const timeMax = `${dateStr}T23:59:59-03:00`;
     const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=20`;
-    const r = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${token}` } }, 4000);
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (!r.ok) return [];
     const d = await r.json();
     return (d.items || []).map(ev => ({
       title: ev.summary || "(sem título)",
       time: ev.start?.dateTime ? ev.start.dateTime.slice(11, 16) : "",
     }));
-  } catch {
-    return [];
-  }
+  }, 4500, []);
 }
 
-async function getOutlookEventosHoje(sql, todayStr) {
-  const start = new Date(`${todayStr}T00:00:00-03:00`);
+async function getOutlookEventosDia(sql, dateStr) {
+  const start = new Date(`${dateStr}T00:00:00-03:00`);
   const timeMin = start.toISOString();
   const timeMax = new Date(start.getTime() + 24 * 3600 * 1000 - 1000).toISOString();
 
-  const contas = await Promise.all(["personal", "corporate"].map(async (account) => {
-    try {
-      const token = await Promise.race([
-        getOutlookToken(sql, account),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("outlook_token_timeout")), 4000)),
-      ]);
-      if (!token) return [];
-      const url = `https://graph.microsoft.com/v1.0/me/calendarview?startDateTime=${encodeURIComponent(timeMin)}&endDateTime=${encodeURIComponent(timeMax)}&$orderby=start/dateTime&$top=50`;
-      const r = await fetchWithTimeout(url, {
-        headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.timezone="America/Sao_Paulo"' },
-      }, 4000);
-      if (!r.ok) return [];
-      const d = await r.json();
-      return (d.value || []).map(ev => ({
-        title: ev.subject || "(sem título)",
-        time: ev.start?.dateTime ? ev.start.dateTime.slice(11, 16) : "",
-      }));
-    } catch {
-      return [];
-    }
-  }));
+  const contas = await Promise.all(["personal", "corporate"].map((account) => withDeadline(async () => {
+    const token = await getOutlookToken(sql, account);
+    if (!token) return [];
+    const url = `https://graph.microsoft.com/v1.0/me/calendarview?startDateTime=${encodeURIComponent(timeMin)}&endDateTime=${encodeURIComponent(timeMax)}&$orderby=start/dateTime&$top=50`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Prefer: 'outlook.timezone="America/Sao_Paulo"' } });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.value || []).map(ev => ({
+      title: ev.subject || "(sem título)",
+      time: ev.start?.dateTime ? ev.start.dateTime.slice(11, 16) : "",
+    }));
+  }, 4500, [])));
   return contas.flat();
 }
 
@@ -130,22 +136,24 @@ function finCurMonth() { return todayISO().slice(0, 7); }
 function finIsPaid(e) { return e.recurrent ? (e.paidMonths || []).includes(finCurMonth()) : !!e.paid; }
 
 // ---------- Leitura (o que o Jarbas "sabe") ----------
-async function getSnapshotText(sql) {
+async function getSnapshotText(sql, dia) {
   const todayStr = todayISO();
+  const targetStr = dia === "amanha" ? addDaysISO(todayStr, 1) : todayStr;
+  const diaLabel = dia === "amanha" ? "amanhã" : "hoje";
   const [events, tasks, finance, googleEventos, outlookEventos] = await Promise.all([
     getKvList(sql, "events_v1"), getKvList(sql, "tasks_v1"), getKvList(sql, "finance_v1"),
-    getGoogleEventosHoje(sql, todayStr), getOutlookEventosHoje(sql, todayStr),
+    getGoogleEventosDia(sql, targetStr), getOutlookEventosDia(sql, targetStr),
   ]);
 
-  const localHoje = events.filter(e => e.date === todayStr).map(e => ({ title: e.title, time: e.time || "" }));
-  const hojeEventos = [...localHoje, ...googleEventos, ...outlookEventos].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  const localDia = events.filter(e => e.date === targetStr).map(e => ({ title: e.title, time: e.time || "" }));
+  const diaEventos = [...localDia, ...googleEventos, ...outlookEventos].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
   const pendTasks = tasks.filter(t => (t.status || (t.done ? "done" : "todo")) !== "done");
   const pendBills = finance.filter(e => FIN_RECURRENT_TYPES.includes(e.type) && !finIsPaid(e));
 
   const partes = [];
-  partes.push(hojeEventos.length
-    ? `Agenda de hoje: ${hojeEventos.map(e => `${e.time ? e.time + " " : ""}${e.title}`).join("; ")}`
-    : "Agenda de hoje: livre, nenhum compromisso.");
+  partes.push(diaEventos.length
+    ? `Agenda de ${diaLabel}: ${diaEventos.map(e => `${e.time ? e.time + " " : ""}${e.title}`).join("; ")}`
+    : `Agenda de ${diaLabel}: livre, nenhum compromisso.`);
   partes.push(pendTasks.length
     ? `Tarefas pendentes (${pendTasks.length}): ${pendTasks.slice(0, 8).map(t => t.text + (t.prio === "alta" ? " [alta prioridade]" : "")).join("; ")}`
     : "Tarefas pendentes: nenhuma, tudo em dia.");
@@ -454,7 +462,7 @@ export default async function handler(req) {
     const { searchParams } = new URL(req.url);
 
     if (req.method === "GET" && searchParams.get("action") === "snapshot") {
-      const texto = await getSnapshotText(sql);
+      const texto = await getSnapshotText(sql, searchParams.get("dia") || "");
       return new Response(JSON.stringify({ texto }), { headers: CORS });
     }
     if (req.method === "GET" && searchParams.get("action") === "tasks") {
