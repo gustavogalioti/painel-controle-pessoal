@@ -136,24 +136,41 @@ function finCurMonth() { return todayISO().slice(0, 7); }
 function finIsPaid(e) { return e.recurrent ? (e.paidMonths || []).includes(finCurMonth()) : !!e.paid; }
 
 // ---------- Leitura (o que o Jarbas "sabe") ----------
-async function getSnapshotText(sql, dia) {
+// Item: "qual minha agenda" e "consultar_painel" precisavam ser separados — pedir só
+// a agenda não devia vir empacotado com tarefas e contas (relatado como confuso/errado).
+async function getAgendaDiaData(sql, dia) {
   const todayStr = todayISO();
   const targetStr = dia === "amanha" ? addDaysISO(todayStr, 1) : todayStr;
   const diaLabel = dia === "amanha" ? "amanhã" : "hoje";
-  const [events, tasks, finance, googleEventos, outlookEventos] = await Promise.all([
-    getKvList(sql, "events_v1"), getKvList(sql, "tasks_v1"), getKvList(sql, "finance_v1"),
+  const [events, googleEventos, outlookEventos] = await Promise.all([
+    getKvList(sql, "events_v1"),
     getGoogleEventosDia(sql, targetStr), getOutlookEventosDia(sql, targetStr),
   ]);
-
   const localDia = events.filter(e => e.date === targetStr).map(e => ({ title: e.title, time: e.time || "" }));
   const diaEventos = [...localDia, ...googleEventos, ...outlookEventos].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  return { diaLabel, diaEventos };
+}
+
+function agendaLine(diaLabel, diaEventos) {
+  return diaEventos.length
+    ? `Agenda de ${diaLabel}: ${diaEventos.map(e => `${e.time ? e.time + " " : ""}${e.title}`).join("; ")}`
+    : `Agenda de ${diaLabel}: livre, nenhum compromisso.`;
+}
+
+async function getAgendaOnlyText(sql, dia) {
+  const { diaLabel, diaEventos } = await getAgendaDiaData(sql, dia);
+  return agendaLine(diaLabel, diaEventos);
+}
+
+async function getSnapshotText(sql, dia) {
+  const [{ diaLabel, diaEventos }, tasks, finance] = await Promise.all([
+    getAgendaDiaData(sql, dia), getKvList(sql, "tasks_v1"), getKvList(sql, "finance_v1"),
+  ]);
   const pendTasks = tasks.filter(t => (t.status || (t.done ? "done" : "todo")) !== "done");
   const pendBills = finance.filter(e => FIN_RECURRENT_TYPES.includes(e.type) && !finIsPaid(e));
 
   const partes = [];
-  partes.push(diaEventos.length
-    ? `Agenda de ${diaLabel}: ${diaEventos.map(e => `${e.time ? e.time + " " : ""}${e.title}`).join("; ")}`
-    : `Agenda de ${diaLabel}: livre, nenhum compromisso.`);
+  partes.push(agendaLine(diaLabel, diaEventos));
   partes.push(pendTasks.length
     ? `Tarefas pendentes (${pendTasks.length}): ${pendTasks.slice(0, 8).map(t => t.text + (t.prio === "alta" ? " [alta prioridade]" : "")).join("; ")}`
     : "Tarefas pendentes: nenhuma, tudo em dia.");
@@ -463,6 +480,10 @@ export default async function handler(req) {
 
     if (req.method === "GET" && searchParams.get("action") === "snapshot") {
       const texto = await getSnapshotText(sql, searchParams.get("dia") || "");
+      return new Response(JSON.stringify({ texto }), { headers: CORS });
+    }
+    if (req.method === "GET" && searchParams.get("action") === "agenda") {
+      const texto = await getAgendaOnlyText(sql, searchParams.get("dia") || "");
       return new Response(JSON.stringify({ texto }), { headers: CORS });
     }
     if (req.method === "GET" && searchParams.get("action") === "tasks") {

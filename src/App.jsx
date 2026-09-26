@@ -2753,6 +2753,17 @@ const JARBAS_KNOWLEDGE_FIELDS = [
   { id: "outros", label: "Outros" },
 ];
 
+const JARBAS_ATALHO_ACOES = [
+  { id: "agenda_hoje", label: "Agenda de hoje" },
+  { id: "agenda_amanha", label: "Agenda de amanhã" },
+  { id: "tarefas_hoje", label: "Tarefas de hoje" },
+  { id: "tarefas_pendentes", label: "Tarefas pendentes" },
+  { id: "tarefas_andamento", label: "Tarefas em andamento" },
+  { id: "tarefas_geral", label: "Todas as tarefas" },
+  { id: "contas", label: "Contas pendentes" },
+  { id: "resposta_fixa", label: "Resposta fixa (texto livre)" },
+];
+
 function JarbasPage() {
   const [mem, setMem, memSynced] = useKV("jarbas_memory_v1", null);
   const [recados, setRecados] = useKV("jarbas_recados_v1", []);
@@ -2760,6 +2771,8 @@ function JarbasPage() {
 
   const knowledge = mem?.knowledge || {};
   const routines = mem?.routines || [];
+  const learned = mem?.learned || [];
+  const shortcuts = mem?.shortcuts || [];
 
   const [kForm, setKForm] = useState(null);
   useEffect(() => { if (memSynced && !kForm) setKForm(knowledge); }, [memSynced]);
@@ -2794,9 +2807,34 @@ function JarbasPage() {
   const delRecado = (id) => setRecados(prev => prev.filter(r => r.id !== id));
   const toggleRecado = (id) => setRecados(prev => prev.map(r => r.id === id ? { ...r, done: !r.done } : r));
 
+  const [learnedText, setLearnedText] = useState("");
+  const addLearned = () => {
+    if (!learnedText.trim()) return;
+    setMem(prev => ({ ...(prev || {}), learned: [...(prev?.learned || []), { id: Date.now(), text: learnedText.trim(), at: nowISO() }] }));
+    setLearnedText("");
+  };
+  const delLearned = (id) => setMem(prev => ({ ...(prev || {}), learned: (prev?.learned || []).filter(r => r.id !== id) }));
+
+  const [shortcutForm, setShortcutForm] = useState(null);
+  const addShortcut = () => {
+    if (!shortcutForm?.gatilho?.trim() || !shortcutForm?.acao) return;
+    if (shortcutForm.acao === "resposta_fixa" && !shortcutForm.texto?.trim()) return;
+    const s = {
+      id: "atl" + Date.now(),
+      gatilho: shortcutForm.gatilho.trim(),
+      acao: shortcutForm.acao,
+      texto: shortcutForm.acao === "resposta_fixa" ? shortcutForm.texto.trim() : "",
+    };
+    setMem(prev => ({ ...(prev || {}), shortcuts: [...(prev?.shortcuts || []), s] }));
+    setShortcutForm(null);
+  };
+  const delShortcut = (id) => setMem(prev => ({ ...(prev || {}), shortcuts: (prev?.shortcuts || []).filter(s => s.id !== id) }));
+
   const TABS = [
     { id: "conhecimento", label: "Conhecimento" },
     { id: "rotinas", label: "Rotinas" },
+    { id: "regras", label: "Regras" },
+    { id: "atalhos", label: "Atalhos" },
     { id: "recados", label: "Recados" },
     { id: "config", label: "Configuração" },
   ];
@@ -2875,6 +2913,66 @@ function JarbasPage() {
               <div style={{ display: "flex", gap: 10 }}>
                 <button onClick={addRoutine} style={btn("var(--purple)")}>Salvar rotina</button>
                 <button onClick={() => setRoutineForm(null)} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 20px", color: "var(--text-3)", cursor: "pointer" }}>Cancelar</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "regras" && (
+        <div style={{ maxWidth: 640 }}>
+          <p style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 16 }}>Regras de comportamento que o Jarbas aprendeu (por voz, dizendo "Jarbas, aprenda que...") ou que você escreve aqui direto — ele segue à risca em toda conversa futura.</p>
+          <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+            <input style={{ ...inp, flex: 1 }} placeholder="Ex: quando eu perguntar da agenda, responder só a agenda" value={learnedText}
+              onChange={e => setLearnedText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addLearned(); }} />
+            <button onClick={addLearned} style={{ ...btn(), padding: "10px 20px", whiteSpace: "nowrap" }}>+ Adicionar</button>
+          </div>
+          {learned.length === 0 && <Empty text="Nenhuma regra ensinada ainda." />}
+          {[...learned].reverse().map(r => (
+            <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
+              <span style={{ fontSize: 14 }}>{r.text}</span>
+              <button onClick={() => delLearned(r.id)} style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer", flexShrink: 0, marginLeft: 10 }}><Icon path={I.trash} size={14} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === "atalhos" && (
+        <div style={{ maxWidth: 640 }}>
+          <p style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 16 }}>Atalhos sem IA: quando a frase gatilho aparecer no que você disser, o Jarbas responde direto (agenda, tarefas, contas ou um texto fixo), sem depender do modelo — mais rápido e nunca falha.</p>
+          {shortcuts.length === 0 && <Empty text="Nenhum atalho criado ainda." />}
+          {shortcuts.map(s => (
+            <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>"{s.gatilho}"</div>
+                <div style={{ fontSize: 12, color: "var(--text-3)" }}>
+                  {JARBAS_ATALHO_ACOES.find(a => a.id === s.acao)?.label || s.acao}
+                  {s.acao === "resposta_fixa" && s.texto ? `: "${s.texto}"` : ""}
+                </div>
+              </div>
+              <button onClick={() => delShortcut(s.id)} style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer", flexShrink: 0, marginLeft: 10 }}><Icon path={I.trash} size={14} /></button>
+            </div>
+          ))}
+
+          {!shortcutForm ? (
+            <button onClick={() => setShortcutForm({ gatilho: "", acao: "agenda_hoje", texto: "" })}
+              style={{ ...btn("var(--purple)"), marginTop: 16, display: "flex", alignItems: "center", gap: 6, width: "auto" }}>
+              <Icon path={I.plus} size={14} /> Novo atalho
+            </button>
+          ) : (
+            <div style={{ marginTop: 16, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              <input style={inp} placeholder='Gatilho (ex: "início do dia")' value={shortcutForm.gatilho}
+                onChange={e => setShortcutForm({ ...shortcutForm, gatilho: e.target.value })} />
+              <select style={inp} value={shortcutForm.acao} onChange={e => setShortcutForm({ ...shortcutForm, acao: e.target.value })}>
+                {JARBAS_ATALHO_ACOES.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+              </select>
+              {shortcutForm.acao === "resposta_fixa" && (
+                <textarea style={{ ...inp, resize: "vertical" }} rows={2} placeholder="Texto que o Jarbas deve responder"
+                  value={shortcutForm.texto} onChange={e => setShortcutForm({ ...shortcutForm, texto: e.target.value })} />
+              )}
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={addShortcut} style={btn("var(--purple)")}>Salvar atalho</button>
+                <button onClick={() => setShortcutForm(null)} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 20px", color: "var(--text-3)", cursor: "pointer" }}>Cancelar</button>
               </div>
             </div>
           )}
