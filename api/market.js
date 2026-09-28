@@ -13,17 +13,13 @@ const bcbSeries = (code) =>
 
 export default async function handler(req) {
   try {
-    const [usdR, ibovR, spR, nqR, djR, vixR, cgR, erR, cgXauR, brentR, selicR, ipca12R, ipcaAnoR] = await Promise.allSettled([
+    const [usdR, ibovR, spR, cgR, erR, cgXauR, selicR, ipca12R, ipcaAnoR] = await Promise.allSettled([
       fetch(`https://brapi.dev/api/quote/USDBRL%3DX?token=${BRAPI}`).then(r => r.json()),
       fetch(`https://brapi.dev/api/quote/%5EBVSP?token=${BRAPI}`).then(r => r.json()),
       fetch(`https://brapi.dev/api/quote/%5EGSPC?token=${BRAPI}`).then(r => r.json()),
-      fetch(`https://brapi.dev/api/quote/%5EIXIC?token=${BRAPI}`).then(r => r.json()),
-      fetch(`https://brapi.dev/api/quote/%5EDJI?token=${BRAPI}`).then(r => r.json()),
-      fetch(`https://brapi.dev/api/quote/%5EVIX?token=${BRAPI}`).then(r => r.json()),
       fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
       fetch("https://open.er-api.com/v6/latest/USD").then(r => r.json()),
       fetch("https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd&include_24hr_change=true").then(r => r.json()),
-      fetch(`https://brapi.dev/api/quote/BZ%3DF?token=${BRAPI}`).then(r => r.json()),
       bcbSeries(432),   // Meta Selic definida pelo Copom (% a.a.)
       bcbSeries(13522), // IPCA - variação % acumulada em 12 meses
       bcbSeries(13521), // IPCA - variação % acumulada no ano
@@ -63,21 +59,27 @@ export default async function handler(req) {
       dolar:  { price: usdBrl,               chg: usd?.regularMarketChangePercent       },
       ibov:   { price: q(ibovR)?.regularMarketPrice,  chg: q(ibovR)?.regularMarketChangePercent  },
       sp500:  { price: q(spR)?.regularMarketPrice,    chg: q(spR)?.regularMarketChangePercent    },
-      nasdaq: { price: q(nqR)?.regularMarketPrice,    chg: q(nqR)?.regularMarketChangePercent    },
-      dow:    { price: q(djR)?.regularMarketPrice,    chg: q(djR)?.regularMarketChangePercent    },
-      vix:    { price: q(vixR)?.regularMarketPrice,   chg: q(vixR)?.regularMarketChangePercent   },
+      nasdaq:   { price: null, chg: null }, // brapi removida (não usado) — poupa cota
+      dow:   { price: null, chg: null }, // brapi removida (não usado) — poupa cota
+      vix:   { price: null, chg: null }, // brapi removida (não usado) — poupa cota
       btc:    { price: cg?.bitcoin?.usd,              chg: cg?.bitcoin?.usd_24h_change            },
       eth:    { price: cg?.ethereum?.usd,             chg: cg?.ethereum?.usd_24h_change           },
       euro:   { price: eurBrl,                        chg: null                                   },
       ouro:   { price: xauBrl,                        chg: paxgChg                                },
       ouroUsd:{ price: paxg,                          chg: paxgChg                                },
-      brent:  { price: q(brentR)?.regularMarketPrice, chg: q(brentR)?.regularMarketChangePercent  },
+      brent:   { price: null, chg: null }, // brapi removida (não usado) — poupa cota
       selic:    { price: selicVal,   chg: delta(selicVal, selicPrev)     },
       ipca12m:  { price: ipca12Val,  chg: delta(ipca12Val, ipca12Prev)   },
       ipcaAno:  { price: ipcaAnoVal, chg: delta(ipcaAnoVal, ipcaAnoPrev) },
     };
 
-    return new Response(JSON.stringify(result), { headers: CORS });
+    // Cache no CDN: todas as abas/dispositivos compartilham a mesma resposta e a brapi (plano grátis) é chamada
+    // no máximo ~4x/hora. Se alguma cotação da brapi falhou (ex.: 429), cache curto para não martelar a API.
+    const brapiOk = !!(usdBrl && q(ibovR)?.regularMarketPrice != null && q(spR)?.regularMarketPrice != null);
+    const cache = brapiOk
+      ? "public, s-maxage=900, stale-while-revalidate=1800"
+      : "public, s-maxage=120";
+    return new Response(JSON.stringify(result), { headers: { ...CORS, "Cache-Control": cache } });
   } catch (e) {
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: CORS });
   }
