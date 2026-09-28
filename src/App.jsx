@@ -5195,13 +5195,12 @@ const TILE_DEFS = [
   { id:"events",    color:"var(--tile-events)", icon:"calendar", label:"Agenda",                sub:"Calendário e compromissos" },
   { id:"lists",     color:"var(--tile-lists)",  icon:"list",     label:"Listas",                sub:"Checklists e anotações" },
   { id:"weather",   color:"var(--tile-weather)",icon:null,       label:"Clima",                 sub:"" },
-  { id:"market",    color:"var(--tile-market)", icon:"trend",    label:"Mercado & Indicadores", sub:"Bolsas, câmbio, cripto, notícias" },
   { id:"whiteboard",color:"var(--tile-white)",  icon:"edit",     label:"Whiteboard",            sub:"Lousa digital" },
   { id:"letreiro",  color:"#1a0a2a",            icon:"marquee",  label:"Letreiro",              sub:"Mensagem em tela cheia" },
   { id:"dj",        color:"#2a0a3a",            icon:"disc",     label:"DJ Mix",                sub:"Pads, mixagem e efeitos" },
 ];
 const DEFAULT_ORDER = TILE_DEFS.map(t=>t.id);
-const DEFAULT_SIZES = { diary:"wide", market:"wide" };
+const DEFAULT_SIZES = { diary:"wide" };
 const SIZE_CYCLE = ["normal","wide","tall","large"];
 
 function TileFrame({ tileRef, children, color, size, editMode, isDragging, onPointerDown, onResize, onClick, onDelete }) {
@@ -5572,47 +5571,6 @@ function JarbasCard({ onClick }) {
   );
 }
 
-function MercadoCard({ market, onClick }) {
-  const [tab, setTab] = useState("ibov");
-  const tabs = [["ibov","IBOV"],["dolar","DÓLAR"],["btc","BITCOIN"],["ouro","OURO"]];
-  const d = market.data[tab] || {val:"--",chg:"--"};
-  const isUp = d.chg && !String(d.chg).startsWith("-") && d.chg!=="--";
-  const barColor = market.loading ? "rgba(255,255,255,0.3)" : isUp ? "#4ade80" : "#f87171";
-  return (
-    <div onClick={onClick} style={{...homeCardStyle("var(--tile-market)"), height:"100%"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <Icon path={I.trend} size={18} color="rgba(255,255,255,0.9)"/>
-          <span style={{fontSize:11,fontWeight:800,letterSpacing:1.2,color:"rgba(255,255,255,0.85)"}}>MERCADO &amp; INDICADORES</span>
-        </div>
-      </div>
-      <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
-        {tabs.map(([id,label])=>(
-          <button key={id} onClick={e=>{e.stopPropagation();setTab(id);}}
-            style={{background:tab===id?"rgba(255,255,255,0.22)":"transparent",border:"none",borderRadius:14,
-              padding:"4px 12px",color:"#fff",fontSize:10.5,fontWeight:700,cursor:"pointer"}}>
-            {label}
-          </button>
-        ))}
-      </div>
-      <div style={{display:"flex",alignItems:"flex-end",gap:16,flex:1}}>
-        <div>
-          <div style={{fontSize:30,fontWeight:800,fontFamily:"'DM Mono',monospace"}}>{market.loading?"···":d.val}</div>
-          <div style={{fontSize:13,color:barColor,fontWeight:700,marginTop:4}}>
-            {!market.loading && d.chg!=="--" && (isUp?"▲ ":"▼ ")}{d.chg}
-          </div>
-        </div>
-        <div style={{flex:1,height:4,borderRadius:4,background:"rgba(255,255,255,0.15)",overflow:"hidden",marginBottom:8}}>
-          <div style={{width: isUp?"70%":"35%",height:"100%",background:barColor}}/>
-        </div>
-      </div>
-      <CardFooter>
-        <span>Última atualização {new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</span>
-      </CardFooter>
-    </div>
-  );
-}
-
 function TempoCard({ onClick }) {
   const w = useWeather();
   return (
@@ -5641,7 +5599,6 @@ const DASH_CARD_DEFS = [
   { id:"agenda",     nav:"events",    defC:1, defR:1 },
   { id:"contas",     nav:"bills",     defC:1, defR:1 },
   { id:"djmix",      nav:"dj",        defC:1, defR:1 },
-  { id:"mercado",    nav:"market",    defC:2, defR:1 },
   { id:"tempo",      nav:"weather",   defC:1, defR:1 },
   { id:"lembretes",  nav:"reminders", defC:1, defR:1 },
   { id:"infos",      nav:"infos",     defC:1, defR:1 },
@@ -5673,7 +5630,7 @@ function DashSlot({ tileRef, id, col, row, orderIdx, editMode, isDragging, onPoi
 const DASH_COMPONENTS = {
   diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
-  djmix: DJMixCard, mercado: MercadoCard, tempo: TempoCard,
+  djmix: DJMixCard, tempo: TempoCard,
   lembretes: LembretesCard, infos: InfosCard, jarbas: JarbasCard,
 };
 
@@ -5701,7 +5658,6 @@ function HomePage({ onNavigate }) {
   const slotRefs = useRef({});
   const drag = useRef(null);
   const ghostElRef = useRef(null);
-  const market = useMarketData();
   const today = new Date();
   const dateLabel = today.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
 
@@ -5826,13 +5782,12 @@ function HomePage({ onNavigate }) {
           const def = DASH_CARD_DEFS.find(c=>c.id===id);
           const size = sizes[id] || {c:def.defC, r:def.defR};
           const Comp = DASH_COMPONENTS[id];
-          const extraProps = id==="mercado" ? {market} : {};
           return (
             <DashSlot key={id} tileRef={el=>slotRefs.current[id]=el} id={id} col={size.c} row={size.r} orderIdx={idx}
               editMode={editMode} isDragging={dragId===id}
               onPointerDown={(e)=>onSlotPointerDown(e,id)}
               onResize={()=>cycleSize(id)}>
-              <Comp onClick={editMode?undefined:()=>onNavigate(def.nav)} {...extraProps}/>
+              <Comp onClick={editMode?undefined:()=>onNavigate(def.nav)}/>
             </DashSlot>
           );
         })}
@@ -5845,7 +5800,7 @@ function HomePage({ onNavigate }) {
           pointerEvents:"none", zIndex:2000, transform:"scale(1.04)",
           boxShadow:"0 16px 36px rgba(0,0,0,0.4)", borderRadius:20, overflow:"hidden",
         }}>
-          <DragComp {...(dragId==="mercado" ? {market} : {})}/>
+          <DragComp/>
         </div>,
         document.body
       )}
