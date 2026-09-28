@@ -5251,6 +5251,21 @@ function ContasCard({ onClick }) {
   );
 }
 
+const PANORAMA_URL = "https://jonasesteves.com/personalizado/";
+
+function PanoramaCard({ onClick }) {
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("var(--tile-market)"), height:"100%"}}>
+      <CardHeader icon="trend" label="Panorama Mercado"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.trend} size={40} color="rgba(255,255,255,0.85)"/></div>
+      <div style={{fontSize:13,fontWeight:800}}>Jonas Esteves</div>
+      <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:4,display:"flex",alignItems:"center",gap:5}}>
+        <Icon path={I.link} size={11}/> Abrir em nova aba
+      </div>
+    </div>
+  );
+}
+
 function DJMixCard({ onClick }) {
   return (
     <div onClick={onClick} style={{...homeCardStyle("#4a1030"), height:"100%", alignItems:"center", justifyContent:"center", textAlign:"center"}}>
@@ -5306,6 +5321,7 @@ const DASH_CARD_DEFS = [
   { id:"lembretes",  nav:"reminders", defC:1, defR:1 },
   { id:"infos",      nav:"infos",     defC:1, defR:1 },
   { id:"jarbas",     nav:"jarbas",    defC:1, defR:1 },
+  { id:"panorama",   nav:null, href:PANORAMA_URL, defC:1, defR:1 },
 ];
 const DASH_DEFAULT_ORDER = DASH_CARD_DEFS.map(c=>c.id);
 const DASH_SIZE_CYCLE = [{c:1,r:1},{c:2,r:1},{c:1,r:2},{c:2,r:2}];
@@ -5334,7 +5350,7 @@ const DASH_COMPONENTS = {
   diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
   djmix: DJMixCard, tempo: TempoCard,
-  lembretes: LembretesCard, infos: InfosCard, jarbas: JarbasCard,
+  lembretes: LembretesCard, infos: InfosCard, jarbas: JarbasCard, panorama: PanoramaCard,
 };
 
 const DESKTOP_BREAKPOINT = 1200; // matches the .dash-grid CSS breakpoint
@@ -5490,7 +5506,7 @@ function HomePage({ onNavigate }) {
               editMode={editMode} isDragging={dragId===id}
               onPointerDown={(e)=>onSlotPointerDown(e,id)}
               onResize={()=>cycleSize(id)}>
-              <Comp onClick={editMode?undefined:()=>onNavigate(def.nav)}/>
+              <Comp onClick={editMode?undefined:(def.href ? ()=>window.open(def.href,"_blank","noopener,noreferrer") : ()=>onNavigate(def.nav))}/>
             </DashSlot>
           );
         })}
@@ -5967,41 +5983,9 @@ function LetreirPage() {
 }
 
 // ─── PAGE TITLES ─────────────────────────────────────────────────────────────
-// ─── PANORAMA (Jonas Esteves) — site espelhado dentro do painel via iframe ────
-const PANORAMA_URL = "https://jonasesteves.com/personalizado/";
-
-function PanoramaPage({ onBack }) {
-  const ctl = { width:34, height:34, borderRadius:"50%", background:"rgba(0,0,0,0.38)", border:"1px solid rgba(255,255,255,0.35)",
-    display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:"#fff", textDecoration:"none", padding:0 };
-  return (
-    <div className="pano-wrap">
-      <style>{`
-        .pano-wrap{position:relative;width:100%;height:calc(100vh - 64px);height:calc(100dvh - 64px);background:var(--bg-card);overflow:hidden;animation:panoSlideUp .35s ease-out}
-        @keyframes panoSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
-        .pano-ctl{opacity:.6;transition:opacity .15s}
-        .pano-ctl:hover{opacity:1}
-      `}</style>
-      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",padding:32,textAlign:"center",fontSize:13,color:"var(--text-3)",lineHeight:1.6}}>
-        Carregando o Panorama… se esta tela ficar em branco, o site pode não permitir abrir dentro de outra página — use o botão de abrir em nova aba (no topo).
-      </div>
-      <iframe src={PANORAMA_URL} title="Panorama" allow="fullscreen"
-        style={{position:"absolute",inset:0,width:"100%",height:"100%",border:0,background:"transparent"}}/>
-      <div className="pano-ctl" style={{position:"absolute",top:10,left:"50%",transform:"translateX(-50%)",display:"flex",gap:8,zIndex:5}}>
-        <button onClick={onBack} title="Voltar ao Menu" style={ctl}>
-          <span style={{display:"inline-flex",transform:"rotate(-90deg)"}}><Icon path={I.next} size={16}/></span>
-        </button>
-        <a href={PANORAMA_URL} target="_blank" rel="noopener noreferrer" title="Abrir em nova aba" style={ctl}>
-          <Icon path={I.link} size={14}/>
-        </a>
-      </div>
-    </div>
-  );
-}
-
 const PAGE_META = {
   home:       {label:"Menu",                emoji:""},
   projects:   {label:"Projetos",            emoji:"🗂"},
-  panorama:   {label:"Panorama",            emoji:"🌐"},
   diary:      {label:"Diário",              emoji:"📓"},
   reminders:  {label:"Lembretes",           emoji:"🔔"},
   infos:      {label:"Infos",               emoji:"📋"},
@@ -7291,7 +7275,6 @@ export default function App() {
     switch(page) {
       case "diary":      return <DiaryPage/>;
       case "reminders":  return <RemindersCards/>;
-      case "panorama":   return <PanoramaPage onBack={()=>setPage("home")}/>;
       case "infos":      return <TemasPage/>;
       case "ideas":      return <IdeasPage/>;
       case "tasks":      return <TasksPage/>;
@@ -7336,7 +7319,7 @@ export default function App() {
       </header>
 
       {/* BREADCRUMB BAR */}
-      {page!=="home" && page!=="panorama" && (
+      {page!=="home" && (
       <div style={{background:"var(--bg-sub)",borderBottom:"1px solid var(--border-2)",padding:"0 20px",height:40,display:"flex",alignItems:"center",gap:10}}>
         <button onClick={()=>setPage("home")} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontSize:12}}>
           <Icon path={I.back} size={14}/> Menu
@@ -7352,17 +7335,11 @@ export default function App() {
       )}
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="panorama")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="panorama"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="panorama")?"hidden":"visible",position:"relative"}}>
+      <main style={{flex:1,padding: (page==="home"||page==="projects")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects")?"hidden":"visible",position:"relative"}}>
         {(page==="home"||page==="projects") ? (
           <div style={{display:"flex",width:"200%",transform:`translateX(${page==="home"?"0%":"-50%"})`,transition:"transform .35s ease"}}>
-            <div style={{width:"50%",flexShrink:0,position:"relative",paddingBottom:56}}>
+            <div style={{width:"50%",flexShrink:0,position:"relative"}}>
               <HomePage onNavigate={setPage}/>
-              <button onClick={()=>setPage("panorama")} title="Abrir Panorama (Jonas Esteves)"
-                style={{position:"absolute",left:"50%",bottom:8,transform:"translateX(-50%)",zIndex:20,
-                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
-                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
-                <span style={{display:"inline-flex",transform:"rotate(90deg)"}}><Icon path={I.next} size={18}/></span>
-              </button>
               <button onClick={()=>setPage("projects")} title="Ir para Projetos"
                 style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
                   width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
