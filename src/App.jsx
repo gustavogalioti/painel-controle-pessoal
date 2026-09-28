@@ -64,9 +64,6 @@ const daysSinceLabel = (dateStr) => {
   return `Criada há ${days} dias`;
 };
 const fmtMoney= (v) => Number(v).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
-const fmtNum  = (v, dec=2) => Number(v).toLocaleString("pt-BR",{minimumFractionDigits:dec,maximumFractionDigits:dec});
-const fmtPct  = (v) => v!=null&&!isNaN(v) ? `${Number(v)>=0?"+":""}${Number(v).toFixed(2)}%` : "--";
-const fmt$    = (v,pre="",dec=2) => v!=null&&!isNaN(v) ? `${pre}${fmtNum(v,dec)}` : "--";
 
 // ─── STORAGE ─────────────────────────────────────────────────────────────────
 const S = {
@@ -269,39 +266,6 @@ const LiveBadge = ({label="LIVE"})=>(
   </div>
 );
 
-// ─── MARKET DATA ─────────────────────────────────────────────────────────────
-function useMarketData() {
-  const [data, setData] = useState({
-    dolar:{val:"--",chg:"--"}, ibov:{val:"--",chg:"--"},
-    sp500:{val:"--",chg:"--"}, ouro:{val:"--",chg:"--"},
-    btc:  {val:"--",chg:"--"}, euro:{val:"--",chg:"--"},
-    selic:{val:"--",chg:"--"}, ipca12m:{val:"--",chg:"--"}, ipcaAno:{val:"--",chg:"--"},
-  });
-  const [loading, setLoading] = useState(true);
-
-  const fetch_ = async () => {
-    try {
-      const r = await fetch("/api/market");
-      const d = await r.json();
-      setData({
-        dolar:{val:fmt$(d.dolar?.price,"R$ "),  chg:fmtPct(d.dolar?.chg)},
-        ibov: {val:fmt$(d.ibov?.price,"",0),    chg:fmtPct(d.ibov?.chg)},
-        sp500:{val:fmt$(d.sp500?.price,"",0),   chg:fmtPct(d.sp500?.chg)},
-        ouro: {val:fmt$(d.ouroUsd?.price,"$ ",0), chg:fmtPct(d.ouroUsd?.chg)},
-        btc:  {val:fmt$(d.btc?.price,"$ ",0),   chg:fmtPct(d.btc?.chg)},
-        euro: {val:fmt$(d.euro?.price,"R$ "),   chg:fmtPct(d.euro?.chg)},
-        selic:  {val: d.selic?.price!=null   ? `${fmtNum(d.selic.price,2)}%`   : "--", chg:fmtPct(d.selic?.chg)},
-        ipca12m:{val: d.ipca12m?.price!=null ? `${fmtNum(d.ipca12m.price,2)}%` : "--", chg:fmtPct(d.ipca12m?.chg)},
-        ipcaAno:{val: d.ipcaAno?.price!=null ? `${fmtNum(d.ipcaAno.price,2)}%` : "--", chg:fmtPct(d.ipcaAno?.chg)},
-      });
-      setLoading(false);
-    } catch {}
-  };
-
-  useEffect(()=>{ fetch_(); const id=setInterval(()=>{ if(!document.hidden) fetch_(); },90000); return()=>clearInterval(id); },[]);
-  return {data,loading,refresh:fetch_};
-}
-
 // ─── WEATHER ─────────────────────────────────────────────────────────────────
 const WEATHER_CACHE_KEY = "weather_cache_v1";
 const WEATHER_TTL = 20*60*1000;        // refresh temperature every 20min
@@ -378,76 +342,6 @@ function useWeather() {
     }, ()=>{ const d={error:"Permissão negada"}; saveWeatherCache(d); setWeather(d); });
   },[]);
   return weather;
-}
-
-// ─── TICKER STRIP ────────────────────────────────────────────────────────────
-function TickerPill({ icon, label, value, chg, color, loading }) {
-  const isUp = chg && !String(chg).startsWith("-") && chg!=="--";
-  return (
-    <div style={{display:"flex",alignItems:"center",gap:10,background:"var(--bg-card)",border:"1px solid var(--border)",
-      borderRadius:24,padding:"6px 16px 6px 6px",flexShrink:0}}>
-      <div style={{width:26,height:26,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-        {icon}
-      </div>
-      <div style={{display:"flex",flexDirection:"column",lineHeight:1.15}}>
-        <span style={{fontSize:9,fontWeight:800,letterSpacing:0.8,color:"var(--text-3)"}}>{label}</span>
-        <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)",fontFamily:"'DM Mono',monospace"}}>{loading?"···":value}</span>
-      </div>
-      {!loading && chg!=="--" && (
-        <Icon path={isUp?I.up:I.down} size={13} color={isUp?"var(--green)":"var(--red)"}/>
-      )}
-    </div>
-  );
-}
-
-function TopTickerRow({ market }) {
-  const { data, loading } = market;
-  return (
-    <div style={{display:"flex",gap:10,overflowX:"auto"}}>
-      <TickerPill label="DÓLAR" value={data.dolar.val} chg={data.dolar.chg} loading={loading} color="#16a34a"
-        icon={<span style={{color:"#fff",fontWeight:800,fontSize:13}}>$</span>}/>
-      <TickerPill label="IBOV" value={data.ibov.val} chg={data.ibov.chg} loading={loading} color="var(--accent)"
-        icon={<Icon path={I.trend} size={13} color="#fff"/>}/>
-      <TickerPill label="BITCOIN" value={data.btc.val} chg={data.btc.chg} loading={loading} color="#f7931a"
-        icon={<span style={{color:"#fff",fontWeight:800,fontSize:12}}>₿</span>}/>
-      <TickerPill label="OURO" value={data.ouro.val} chg={data.ouro.chg} loading={loading} color="var(--yellow)"
-        icon={<span style={{color:"#fff",fontWeight:800,fontSize:12}}>Au</span>}/>
-      <TickerPill label="EURO" value={data.euro.val} chg={data.euro.chg} loading={loading} color="#3b5bdb"
-        icon={<span style={{color:"#fff",fontWeight:800,fontSize:13}}>€</span>}/>
-      <TickerPill label="SELIC HOJE" value={data.selic.val} chg={data.selic.chg} loading={loading} color="#0891b2"
-        icon={<Icon path={I.card} size={12} color="#fff"/>}/>
-      <TickerPill label="IPCA 12M" value={data.ipca12m.val} chg={data.ipca12m.chg} loading={loading} color="#be185d"
-        icon={<Icon path={I.trend} size={12} color="#fff"/>}/>
-      <TickerPill label="IPCA NO ANO" value={data.ipcaAno.val} chg={data.ipcaAno.chg} loading={loading} color="#9333ea"
-        icon={<Icon path={I.trend} size={12} color="#fff"/>}/>
-    </div>
-  );
-}
-
-function TickerStrip({ market }) {
-  const { data, loading } = market;
-  const items = [
-    {l:"DÓLAR",   v:data.dolar.val, c:data.dolar.chg, color:"var(--green)" },
-    {l:"IBOV",    v:data.ibov.val,  c:data.ibov.chg,  color:"var(--accent)"},
-    {l:"S&P 500", v:data.sp500.val, c:data.sp500.chg, color:"var(--purple)"},
-    {l:"OURO",    v:data.ouro.val,  c:data.ouro.chg,  color:"var(--yellow)"},
-    {l:"BITCOIN", v:data.btc.val,   c:data.btc.chg,   color:"var(--orange)"},
-    {l:"EURO",    v:data.euro.val,  c:data.euro.chg,  color:"var(--text-2)"},
-  ];
-  const isUp = c => c && !c.startsWith("-") && c!=="--";
-  return (
-    <div style={{display:"flex",gap:28,alignItems:"center",overflowX:"auto",paddingBottom:2}}>
-      {items.map(i=>(
-        <div key={i.l} style={{display:"flex",flexDirection:"column",flexShrink:0}}>
-          <span style={{fontSize:9,color:"var(--text-3)",letterSpacing:1,fontWeight:700}}>{i.l}</span>
-          <span style={{fontSize:13,fontWeight:700,color:loading?"var(--text-3)":i.color,fontFamily:"'DM Mono',monospace"}}>{loading?"···":i.v}</span>
-          <span style={{fontSize:10,color:isUp(i.c)?"var(--green)":i.c==="--"?"var(--text-3)":"var(--red)"}}>
-            {!loading&&i.c!=="--"?(isUp(i.c)?"▲":"▼")+" "+i.c:""}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 // ─── DIARY CARDS ─────────────────────────────────────────────────────────────
@@ -4387,351 +4281,6 @@ function WhiteboardPage() {
   );
 }
 
-// ─── TRADINGVIEW WIDGET ───────────────────────────────────────────────────────
-function TVWidget({ type, config, height=400 }) {
-  const ref = useRef(null);
-  useEffect(()=>{
-    if(!ref.current) return;
-    ref.current.innerHTML="";
-    const script=document.createElement("script");
-    script.src=`https://s3.tradingview.com/external-embedding/embed-widget-${type}.js`;
-    script.async=true;
-    script.innerHTML=JSON.stringify({...config,width:"100%",height});
-    ref.current.appendChild(script);
-  },[type]);
-  return <div ref={ref} style={{width:"100%",height,minHeight:height}}><div className="tradingview-widget-container__widget" style={{width:"100%",height:"100%"}}/></div>;
-}
-
-function TVCard({ title, children }) {
-  return (
-    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}>
-      {title&&<div style={{padding:"10px 16px",background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",fontSize:10,fontWeight:800,color:"var(--accent)",letterSpacing:2}}>{title}</div>}
-      {children}
-    </div>
-  );
-}
-
-// ─── MARKET & INDICATORS PAGE ─────────────────────────────────────────────────
-const NEWS_CATS=["GLOBAL/GEOPOLÍTICA","EUA","BRASIL","ECONOMIA","BOLSA","MOEDA","COMMODITIES","CRIPTO","GUERRAS","TECNOLOGIA","GERAL"];
-const gNewsCache={};
-async function fetchGNews(mode,q=""){
-  const key=mode+q;
-  if(gNewsCache[key]&&Date.now()-gNewsCache[key].ts<15*60*1000) return gNewsCache[key].data;
-  try{
-    const p=new URLSearchParams({mode}); if(q)p.set("q",q);
-    const r=await fetch(`/api/gnews?${p}`); const d=await r.json();
-    const items=d.items||[]; if(items.length)gNewsCache[key]={data:items,ts:Date.now()};
-    return items;
-  }catch{return[];}
-}
-function useGNews(mode,q){
-  const [news,setNews]=useState([]); const [loading,setLoading]=useState(true);
-  useEffect(()=>{ setLoading(true); setNews([]); fetchGNews(mode,q).then(i=>{setNews(i);setLoading(false);}); },[mode,q]);
-  return {news,loading};
-}
-function fmtTime(d){
-  if(!d) return ""; try{
-    const diff=Math.floor((Date.now()-new Date(d))/60000);
-    if(diff<60) return `há ${diff}min`; if(diff<1440) return `há ${Math.floor(diff/60)}h`;
-    return new Date(d).toLocaleDateString("pt-BR");
-  }catch{return "";}
-}
-
-function NewsBlock({mode,q,label}){
-  const {news,loading}=useGNews(mode,q); const [active,setActive]=useState(null);
-  return(
-    <>
-      <TVCard title={label}>
-        <div style={{padding:"0 16px"}}>
-          {loading?[1,2,3].map(i=><div key={i} style={{padding:"12px 0",borderBottom:"1px solid var(--border-2)"}}><div style={{height:12,background:"var(--border)",borderRadius:4,marginBottom:6,width:"85%"}}/><div style={{height:9,background:"var(--border-2)",borderRadius:4,width:"35%"}}/></div>):
-           news.slice(0,5).map((n,i)=>(
-            <div key={i} onClick={()=>setActive(n)} style={{padding:"10px 0",borderBottom:i<4?"1px solid var(--border-2)":"none",cursor:"pointer"}}>
-              <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.5,marginBottom:3}}>{n.title}</div>
-              <div style={{display:"flex",gap:8,fontSize:10,color:"var(--text-3)"}}><span>{n.src}</span><span>{fmtTime(n.date)}</span></div>
-            </div>
-           ))
-          }
-          {!loading&&news.length===0&&<div style={{padding:"16px 0",fontSize:12,color:"var(--text-3)",textAlign:"center"}}>Sem notícias no momento</div>}
-        </div>
-      </TVCard>
-      {active&&<Modal title={active.title} onClose={()=>setActive(null)}>
-        <div style={{fontSize:12,color:"var(--text-3)",marginBottom:16}}>{active.src} {active.date&&`· ${fmtTime(active.date)}`}</div>
-        <a href={active.link} target="_blank" rel="noreferrer" style={{display:"inline-flex",alignItems:"center",gap:8,background:"var(--accent)",color:"#fff",padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:700,textDecoration:"none"}}>
-          <Icon path={I.link} size={14} color="#fff"/> Ler matéria completa
-        </a>
-      </Modal>}
-    </>
-  );
-}
-
-// Injects a TradingView script tag safely (no raw <script> in JSX)
-function TVScript({ src, config }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (!ref.current || ref.current.querySelector('script')) return;
-    const s = document.createElement('script');
-    s.type = 'text/javascript';
-    s.src = src;
-    s.async = true;
-    s.innerHTML = JSON.stringify(config);
-    ref.current.appendChild(s);
-  }, []);
-  return (
-    <div className="tradingview-widget-container" ref={ref} style={{height:'100%',width:'100%'}}>
-      <div className="tradingview-widget-container__widget" style={{height:'100%',width:'100%'}}/>
-    </div>
-  );
-}
-
-
-function MarketPage() {
-  const [tab, setTab] = useState("indicadores");
-  const [mkt, setMkt] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState(null);
-
-  const fetchMkt = async () => {
-    try {
-      const r = await fetch("/api/market2");
-      const d = await r.json();
-      if (!d.error) { setMkt(d); setLastUpdate(new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})); }
-    } catch {}
-    setLoading(false);
-  };
-
-  useEffect(() => { fetchMkt(); const id=setInterval(()=>{ if(!document.hidden) fetchMkt(); },60000); return()=>clearInterval(id); }, []);
-
-  const tabs = [
-    {id:"indicadores", l:"📊 Indicadores"},
-    {id:"cambio",      l:"💱 Câmbio"},
-    {id:"commodities", l:"🛢 Commodities"},
-    {id:"cripto",      l:"₿ Cripto"},
-    {id:"noticias",    l:"📰 Notícias"},
-    {id:"calendario",  l:"📅 Calendário"},
-    {id:"curiosidades",l:"⭐ Curiosidades"},
-  ];
-
-  const Row = ({item}) => (
-    <tr style={{borderBottom:"1px solid var(--border)"}}>
-      <td style={{padding:"7px 10px",fontSize:13,color:"var(--text-1)",whiteSpace:"nowrap"}}>
-        <span style={{marginRight:6}}>{item.flag}</span>{item.name}
-      </td>
-      <td style={{padding:"7px 10px",fontSize:13,fontWeight:700,color:"var(--text-1)",textAlign:"right",whiteSpace:"nowrap"}}>{item.price}</td>
-      <td style={{padding:"7px 10px",fontSize:12,fontWeight:700,textAlign:"right",whiteSpace:"nowrap",
-        color:item.up===true?"#22c55e":item.up===false?"#ef4444":"var(--text-3)"}}>{item.chg}</td>
-      <td style={{padding:"7px 10px",fontSize:12,fontWeight:700,textAlign:"right",whiteSpace:"nowrap"}}>
-        <span style={{background:item.up===true?"#22c55e22":item.up===false?"#ef444422":"var(--bg-input)",
-          color:item.up===true?"#22c55e":item.up===false?"#ef4444":"var(--text-3)",
-          borderRadius:6,padding:"2px 7px",fontSize:11}}>{item.pct}</span>
-      </td>
-      <td style={{padding:"7px 10px",fontSize:10,color:"var(--text-3)",textAlign:"right"}}>{item.time}</td>
-    </tr>
-  );
-
-  const Table = ({title, data}) => (
-    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-      <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-        <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>{title}</span>
-      </div>
-      <div style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse"}}>
-          <thead>
-            <tr style={{background:"var(--bg-sub)"}}>
-              {["NOME","ÚLTIMO","VAR.","VAR.%","HORA"].map((h,i)=>(
-                <th key={h} style={{padding:"6px 10px",fontSize:10,color:"var(--text-3)",
-                  textAlign:i===0?"left":"right",fontWeight:700,letterSpacing:1}}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading && !data ? [1,2,3,4].map(i=>(
-              <tr key={i}><td colSpan={5} style={{padding:"10px 14px"}}>
-                <div style={{height:12,background:"var(--bg-sub)",borderRadius:4}}/>
-              </td></tr>
-            )) : (data||[]).map((item,i)=><Row key={i} item={item}/>)}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-
-  return (
-    <div>
-      <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{
-            background:tab===t.id?"var(--accent)":"var(--bg-card)",
-            border:`1px solid ${tab===t.id?"var(--accent)":"var(--border)"}`,
-            borderRadius:20,padding:"7px 16px",
-            color:tab===t.id?"#fff":"var(--text-2)",
-            fontSize:12,fontWeight:700,cursor:"pointer",transition:"all .15s",
-          }}>{t.l}</button>
-        ))}
-        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8}}>
-          {lastUpdate&&<span style={{fontSize:10,color:"var(--text-3)"}}>Atualizado {lastUpdate}</span>}
-          <button onClick={fetchMkt} style={{...btn("var(--bg-card)"),border:"1px solid var(--border)",color:"var(--text-2)",padding:"6px 12px",fontSize:11,borderRadius:16}}>↻</button>
-        </div>
-      </div>
-
-      {tab==="indicadores"&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(380px,1fr))",gap:14}}>
-          <Table title="🌎 AMÉRICAS" data={mkt?.americas}/>
-          <Table title="🇪🇺 EUROPA"  data={mkt?.europa}/>
-          <Table title="🌏 ÁSIA & OCEANIA" data={mkt?.asia}/>
-          <Table title="📋 FUTUROS" data={mkt?.futuros}/>
-        </div>
-      )}
-
-      {tab==="cambio"&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(400px,1fr))",gap:14}}>
-          <Table title="💱 CÂMBIO" data={mkt?.cambio}/>
-          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📊 Cross Rates — TradingView</span>
-            </div>
-            <TVWidget type="forex-cross-rates" height={400} config={{colorTheme:"light",isTransparent:true,locale:"pt_BR",currencies:["USD","BRL","EUR","GBP","JPY","CNY","CHF","AUD","CAD"]}}/>
-          </div>
-        </div>
-      )}
-
-      {tab==="commodities"&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(400px,1fr))",gap:14}}>
-          <Table title="🛢 COMMODITIES" data={mkt?.commodities}/>
-          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📈 TradingView</span>
-            </div>
-            <TVWidget type="market-overview" height={480} config={{colorTheme:"light",locale:"pt_BR",isTransparent:true,tabs:[{title:"Commodities",symbols:[{s:"TVC:GOLD",d:"Ouro"},{s:"TVC:SILVER",d:"Prata"},{s:"TVC:USOIL",d:"Petróleo WTI"},{s:"TVC:UKOIL",d:"Brent"},{s:"CBOT:ZS1!",d:"Soja"},{s:"CBOT:ZC1!",d:"Milho"},{s:"CBOT:ZW1!",d:"Trigo"},{s:"NYMEX:KC1!",d:"Café"}],originalTitle:"Commodities"}]}}/>
-          </div>
-        </div>
-      )}
-
-      {tab==="cripto"&&(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(400px,1fr))",gap:14}}>
-          <Table title="₿ CRIPTOMOEDAS" data={mkt?.cripto}/>
-          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📊 Cripto — TradingView</span>
-            </div>
-            <TVWidget type="market-overview" height={480} config={{colorTheme:"light",locale:"pt_BR",isTransparent:true,tabs:[{title:"Cripto",symbols:[{s:"BITSTAMP:BTCUSD",d:"Bitcoin"},{s:"BITSTAMP:ETHUSD",d:"Ethereum"},{s:"BINANCE:BNBUSD",d:"BNB"},{s:"BINANCE:SOLUSD",d:"Solana"},{s:"BINANCE:XRPUSD",d:"XRP"},{s:"BINANCE:ADAUSD",d:"Cardano"},{s:"BINANCE:DOGEUSD",d:"Dogecoin"},{s:"BINANCE:AVAXUSD",d:"Avalanche"}],originalTitle:"Cripto"}]}}/>
-          </div>
-        </div>
-      )}
-
-      {tab==="noticias"&&(
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-          <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-            <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-              <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>🌍 Notícias Globais — TradingView</span>
-            </div>
-            <div style={{height:580}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" config={JSON.stringify({feedMode:"all_symbols",colorTheme:"light",isTransparent:true,displayMode:"regular",width:"100%",height:580,locale:"pt_BR"})}/></div>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",flex:1}}>
-              <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-                <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>📈 Ibovespa</span>
-              </div>
-              <div style={{height:270}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" config={JSON.stringify({feedMode:"symbol",symbol:"BMFBOVESPA:IBOV",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}/></div>
-            </div>
-            <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden",flex:1}}>
-              <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
-                <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)"}}>₿ Bitcoin</span>
-              </div>
-              <div style={{height:270}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-timeline.js" config={JSON.stringify({feedMode:"symbol",symbol:"BITSTAMP:BTCUSD",colorTheme:"light",isTransparent:true,displayMode:"compact",width:"100%",height:270,locale:"pt_BR"})}/></div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab==="calendario"&&(
-        <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-          <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-            <span style={{fontSize:14,fontWeight:800,color:"var(--text-1)"}}>📅 Agenda Econômica — TradingView</span>
-            <div style={{display:"flex",gap:8}}>
-              <a href="https://br.investing.com/economic-calendar" target="_blank" rel="noreferrer"
-                style={{fontSize:11,color:"var(--accent)",textDecoration:"none"}}>Investing.com ↗</a>
-              <a href="https://br.tradingview.com/economic-calendar/" target="_blank" rel="noreferrer"
-                style={{fontSize:11,color:"var(--accent)",textDecoration:"none"}}>TradingView ↗</a>
-            </div>
-          </div>
-          <div style={{height:600}}><TVScript src="https://s3.tradingview.com/external-embedding/embed-widget-events.js" config={JSON.stringify({
-              colorTheme:"light",
-              isTransparent:true,
-              width:"100%",
-              height:600,
-              locale:"pt_BR",
-              importanceFilter:"0,1",
-              countryFilter:"us,eu,gb,br,cn,jp,de,fr,it,ca,au,nz,ch,es"
-            })}/></div>
-        </div>
-      )}
-
-      {tab==="curiosidades"&&<CuriositiesPage/>}
-    </div>
-  );
-}
-
-// ─── CURIOSITIES PAGE ─────────────────────────────────────────────────────────
-function CuriositiesPage() {
-  const [cards,setCards,_curSync]=useKV("curiosities_v1",[]);
-  const [modal,setModal]=useState(false);
-  const [detail,setDetail]=useState(null);
-  const [form,setForm]=useState({title:"",content:"",link:"",imageUrl:"",tag:""});
-  const [updTxt,setUpdTxt]=useState("");
-
-  const add=()=>{ if(!form.title.trim()) return; const n=[...cards,{id:Date.now(),...form,updates:[],created:now()}]; setCards(n); setModal(false); setForm({title:"",content:"",link:"",imageUrl:"",tag:""}); };
-  const addUpdate=id=>{ if(!updTxt.trim()) return; const n=cards.map(c=>c.id===id?{...c,updates:[...c.updates,{text:updTxt,date:now()}]}:c); setCards(n); setDetail(n.find(c=>c.id===id)); setUpdTxt(""); };
-  const del=id=>{ setCards(cards.filter(c=>Number(c.id)!==Number(id))); setDetail(null); };
-
-  return(
-    <div>
-      <div style={{display:"flex",justifyContent:"flex-end",marginBottom:20}}>
-        <button onClick={()=>setModal(true)} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Nova Curiosidade</button>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))",gap:14}}>
-        {cards.map(c=>(
-          <div key={c.id} onClick={()=>setDetail(c)} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,overflow:"hidden",cursor:"pointer"}}>
-            {c.imageUrl&&<div style={{height:120,background:`url(${c.imageUrl}) center/cover`,borderBottom:"1px solid var(--border)"}}/>}
-            <div style={{padding:16}}>
-              {c.tag&&<span style={{background:"var(--bg-input)",borderRadius:4,padding:"2px 8px",fontSize:10,color:"var(--accent)",fontWeight:700,display:"inline-block",marginBottom:8,letterSpacing:1}}>{c.tag.toUpperCase()}</span>}
-              <div style={{fontWeight:700,marginBottom:6,fontSize:14}}>{c.title}</div>
-              <div style={{fontSize:12,color:"var(--text-3)",lineHeight:1.5,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{c.content}</div>
-              {c.updates.length>0&&<div style={{fontSize:10,color:"var(--accent)",marginTop:8}}>{c.updates.length} atualização(ões)</div>}
-            </div>
-          </div>
-        ))}
-      </div>
-      {cards.length===0&&<Empty text="Nenhuma curiosidade ainda."/>}
-      {modal&&<Modal title="Nova Curiosidade" onClose={()=>setModal(false)} wide>
-        <div style={{display:"flex",flexDirection:"column",gap:14}}>
-          <input style={inp} placeholder="Título" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/>
-          <input style={inp} placeholder="Tag / Categoria" value={form.tag} onChange={e=>setForm({...form,tag:e.target.value})}/>
-          <textarea style={{...inp,resize:"vertical"}} rows={5} placeholder="Conteúdo" value={form.content} onChange={e=>setForm({...form,content:e.target.value})}/>
-          <input style={inp} placeholder="URL de imagem (opcional)" value={form.imageUrl} onChange={e=>setForm({...form,imageUrl:e.target.value})}/>
-          <input style={inp} placeholder="Link de referência (opcional)" value={form.link} onChange={e=>setForm({...form,link:e.target.value})}/>
-          <button onClick={add} style={btn()}>Salvar Card</button>
-        </div>
-      </Modal>}
-      {detail&&<Modal title={detail.title} onClose={()=>setDetail(null)} wide>
-        {detail.imageUrl&&<img src={detail.imageUrl} alt="" style={{width:"100%",borderRadius:10,marginBottom:16,maxHeight:240,objectFit:"cover"}}/>}
-        {detail.tag&&<span style={{background:"var(--bg-input)",borderRadius:4,padding:"2px 8px",fontSize:10,color:"var(--accent)",fontWeight:700,display:"inline-block",marginBottom:12,letterSpacing:1}}>{detail.tag.toUpperCase()}</span>}
-        <p style={{color:"var(--text-2)",lineHeight:1.7,fontSize:14,marginBottom:16}}>{detail.content}</p>
-        {detail.link&&<a href={detail.link} target="_blank" rel="noreferrer" style={{color:"var(--accent)",fontSize:12,display:"flex",gap:6,alignItems:"center",marginBottom:16}}><Icon path={I.link} size={14}/>{detail.link}</a>}
-        <div style={{borderTop:"1px solid var(--border)",paddingTop:16}}>
-          <div style={{fontSize:10,color:"var(--text-3)",letterSpacing:2,fontWeight:700,marginBottom:12}}>ATUALIZAÇÕES</div>
-          {detail.updates.map((u,i)=><div key={i} style={{background:"var(--bg-input)",borderRadius:10,padding:"10px 14px",marginBottom:10}}><div style={{color:"var(--text-2)",fontSize:13}}>{u.text}</div><div style={{fontSize:10,color:"var(--text-3)",marginTop:4}}>🕐 {u.date}</div></div>)}
-          <div style={{display:"flex",gap:10,marginTop:12}}>
-            <textarea style={{...inp,flex:1,resize:"none"}} rows={2} placeholder="Adicionar atualização..." value={updTxt} onChange={e=>setUpdTxt(e.target.value)}/>
-            <button onClick={()=>addUpdate(detail.id)} style={{...btn("var(--green)"),alignSelf:"flex-end",padding:"10px 16px"}}>+</button>
-          </div>
-        </div>
-        <button onClick={()=>del(detail.id)} style={{marginTop:16,background:"rgba(240,112,112,0.08)",border:"1px solid rgba(240,112,112,0.25)",borderRadius:10,padding:"8px 16px",color:"var(--red)",fontSize:13,cursor:"pointer"}}>Excluir card</button>
-      </Modal>}
-    </div>
-  );
-}
-
-
 // ─── MACRO CARDS PAGE ─────────────────────────────────────────────────────────
 function MacroPage() {
   const [cards, setCards, _macSync] = useKV("macro_cards_v1", []);
@@ -6278,7 +5827,6 @@ const PAGE_META = {
   events:     {label:"Agenda",              emoji:"📅"},
   lists:      {label:"Listas",              emoji:"📋"},
   weather:    {label:"Clima",               emoji:"🌤"},
-  market:     {label:"Mercado & Indicadores",emoji:"📈"},
   whiteboard: {label:"Whiteboard",          emoji:"🖊️"},
   bat:          {label:".BAT / Scripts",     emoji:"💻"},
   letreiro:     {label:"Letreiro",             emoji:"📺"},
@@ -7500,14 +7048,13 @@ function PedroWidget({ page }) {
 
 export default function App() {
   const [page, setPageRaw] = useState(()=>{
-    try { return localStorage.getItem("current_page") || "home"; } catch { return "home"; }
+    try { const p = localStorage.getItem("current_page"); return (p && PAGE_META[p]) ? p : "home"; } catch { return "home"; }
   });
   const setPage = (p) => {
     setPageRaw(p);
     try { localStorage.setItem("current_page", p); } catch {}
   };
   const [viewMode, setViewMode] = useState(()=>localStorage.getItem("view_mode")||"auto");
-  const market = useMarketData();
 
   // After returning from the Google Calendar OAuth flow, jump straight to Agenda
   useEffect(()=>{
@@ -7566,7 +7113,6 @@ export default function App() {
       case "events":     return <AgendaPage/>;
       case "lists":      return <ListsPage/>;
       case "weather":    return <WeatherPage/>;
-      case "market":     return <MarketPage/>;
       case "whiteboard": return <WhiteboardPage/>;
       case "bat":          return <BatPage/>;
       case "letreiro":      return <LetreirPage/>;
@@ -7586,9 +7132,6 @@ export default function App() {
             <img src="/radioactive-icon.png" alt="logo" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
           </div>
           <div style={{fontWeight:800,fontSize:14,letterSpacing:0.5,lineHeight:1}}>PAINEL DE CONTROLE</div>
-        </div>
-        <div style={{flex:1,overflow:"hidden",display:"flex",justifyContent:"center"}}>
-          <TopTickerRow market={market}/>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
           {[["search",()=>{}],["bell",()=>{}],["calendar",()=>setPage("events")],["gear",()=>{}]].map(([ic,fn])=>(
@@ -7618,7 +7161,7 @@ export default function App() {
       )}
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: (page==="home"||page==="projects")?"0":"24px 20px",maxWidth: page==="market"||page==="home"||page==="projects"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects")?"hidden":"visible",position:"relative"}}>
+      <main style={{flex:1,padding: (page==="home"||page==="projects")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects")?"hidden":"visible",position:"relative"}}>
         {(page==="home"||page==="projects") ? (
           <div style={{display:"flex",width:"200%",transform:`translateX(${page==="home"?"0%":"-50%"})`,transition:"transform .35s ease"}}>
             <div style={{width:"50%",flexShrink:0,position:"relative"}}>
