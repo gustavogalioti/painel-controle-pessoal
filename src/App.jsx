@@ -266,6 +266,98 @@ const LiveBadge = ({label="LIVE"})=>(
   </div>
 );
 
+// ─── INDICADORES MACRO (BCB): Selic, IPCA e próxima reunião do Copom ─────────
+const INDIC_CACHE_KEY = "indicadores_v1";
+const INDIC_TTL = 12*60*60*1000; // 12h — esses números mudam no máximo 1x/mês (IPCA) ou em 8 reuniões/ano (Selic)
+
+// Calendário oficial do Copom (reunião de 2 dias; decisão às 18h30 do 2º dia).
+// 2026: BC divulgou em 24/06/2025 · 2027: BC divulgou em 23/06/2026.
+// Atualizar quando o BC divulgar o calendário de 2028 (costuma sair em junho de 2027).
+const COPOM_MEETINGS = [
+  ["2026-01-27","2026-01-28"], ["2026-03-17","2026-03-18"], ["2026-04-28","2026-04-29"], ["2026-06-16","2026-06-17"],
+  ["2026-08-04","2026-08-05"], ["2026-09-15","2026-09-16"], ["2026-11-03","2026-11-04"], ["2026-12-08","2026-12-09"],
+  ["2027-01-26","2027-01-27"], ["2027-03-16","2027-03-17"], ["2027-04-27","2027-04-28"], ["2027-06-15","2027-06-16"],
+  ["2027-08-03","2027-08-04"], ["2027-09-21","2027-09-22"], ["2027-10-26","2027-10-27"], ["2027-12-07","2027-12-08"],
+];
+
+function nextCopom(now = new Date()) {
+  const todayStr = toDateStr(now);
+  const m = COPOM_MEETINGS.find(([, end]) => end >= todayStr);
+  if (!m) return null;
+  const [a, b] = m;
+  const days = Math.round((new Date(a+"T12:00:00") - new Date(todayStr+"T12:00:00")) / 86400000);
+  return { start:a, end:b, days };
+}
+
+function useIndicadores() {
+  const readCache = () => { try { return JSON.parse(localStorage.getItem(INDIC_CACHE_KEY)); } catch { return null; } };
+  const [data, setData] = useState(() => readCache()?.data || null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const c = readCache();
+      if (c && Date.now() - c.ts < INDIC_TTL) return;            // cache ainda vale — nenhuma requisição
+      try {
+        const r = await fetch("/api/indicadores");
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.error || !(d.selic || d.ipca12m || d.ipcaAno)) return;
+        try { localStorage.setItem(INDIC_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: d })); } catch {}
+        if (!cancelled) setData(d);
+      } catch {}
+    };
+    load();
+    // painel fica aberto por dias: ao voltar pra aba, revalida só se o cache venceu
+    const onVis = () => { if (!document.hidden) load(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); };
+  }, []);
+
+  return data;
+}
+
+function IndicatorPill({ label, value, sub, color, icon, title }) {
+  return (
+    <div title={title} style={{display:"flex",alignItems:"center",gap:10,background:"var(--bg-card)",border:"1px solid var(--border)",
+      borderRadius:24,padding:"6px 16px 6px 6px",flexShrink:0}}>
+      <div style={{width:26,height:26,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{icon}</div>
+      <div style={{display:"flex",flexDirection:"column",lineHeight:1.15}}>
+        <span style={{fontSize:9,fontWeight:800,letterSpacing:0.8,color:"var(--text-3)"}}>{label}</span>
+        <span style={{fontSize:13,fontWeight:800,color:"var(--text-1)",fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>
+          {value}{sub && <span style={{marginLeft:6,fontSize:10,fontWeight:600,color:"var(--text-3)",fontFamily:"inherit"}}>{sub}</span>}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function IndicatorsRow({ data }) {
+  const pct = v => v==null ? "--" : Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"%";
+  const refLabel = ym => { if(!ym) return ""; const [y,m]=ym.split("-"); return `Ref.: ${new Date(+y,+m-1,1).toLocaleDateString("pt-BR",{month:"short"}).replace(".","")}/${y}`; };
+  const cop = nextCopom();
+  let copValue = "--", copSub = "", copTitle = "Calendário oficial do Copom";
+  if (cop) {
+    const d1 = new Date(cop.start+"T12:00:00"), d2 = new Date(cop.end+"T12:00:00");
+    const mon = d2.toLocaleDateString("pt-BR",{month:"short"}).replace(".","");
+    copValue = d1.getMonth()===d2.getMonth() ? `${d1.getDate()}–${d2.getDate()} ${mon}` : `${d1.getDate()}/${d1.getMonth()+1}–${d2.getDate()}/${d2.getMonth()+1}`;
+    copSub = cop.days<=0 ? "em andamento" : cop.days===1 ? "amanhã" : `em ${cop.days} dias`;
+    copTitle = `Reunião de ${d1.toLocaleDateString("pt-BR")} a ${d2.toLocaleDateString("pt-BR")} — decisão no 2º dia, 18h30`;
+  }
+  return (
+    <div style={{display:"flex",gap:10,overflowX:"auto",scrollbarWidth:"none"}}>
+      <IndicatorPill label="SELIC HOJE" value={pct(data?.selic?.value)} color="#0891b2"
+        title="Meta Selic vigente (Banco Central)" icon={<Icon path={I.card} size={12} color="#fff"/>}/>
+      <IndicatorPill label="IPCA 12M" value={pct(data?.ipca12m?.value)} color="#be185d"
+        title={refLabel(data?.ipca12m?.ref)||"IPCA acumulado em 12 meses"} icon={<Icon path={I.trend} size={12} color="#fff"/>}/>
+      <IndicatorPill label="IPCA NO ANO" value={pct(data?.ipcaAno?.value)} color="#9333ea"
+        title={refLabel(data?.ipcaAno?.ref)||"IPCA acumulado no ano"} icon={<Icon path={I.trend} size={12} color="#fff"/>}/>
+      <IndicatorPill label="PRÓX. COPOM" value={copValue} sub={copSub} color="#d97706"
+        title={copTitle} icon={<Icon path={I.calendar} size={12} color="#fff"/>}/>
+    </div>
+  );
+}
+
 // ─── WEATHER ─────────────────────────────────────────────────────────────────
 const WEATHER_CACHE_KEY = "weather_cache_v1";
 const WEATHER_TTL = 20*60*1000;        // refresh temperature every 20min
@@ -5813,9 +5905,41 @@ function LetreirPage() {
 }
 
 // ─── PAGE TITLES ─────────────────────────────────────────────────────────────
+// ─── PANORAMA (Jonas Esteves) — site espelhado dentro do painel via iframe ────
+const PANORAMA_URL = "https://jonasesteves.com/personalizado/";
+
+function PanoramaPage({ onBack }) {
+  const ctl = { width:34, height:34, borderRadius:"50%", background:"rgba(0,0,0,0.38)", border:"1px solid rgba(255,255,255,0.35)",
+    display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:"#fff", textDecoration:"none", padding:0 };
+  return (
+    <div className="pano-wrap">
+      <style>{`
+        .pano-wrap{position:relative;width:100%;height:calc(100vh - 64px);height:calc(100dvh - 64px);background:var(--bg-card);overflow:hidden;animation:panoSlideUp .35s ease-out}
+        @keyframes panoSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+        .pano-ctl{opacity:.6;transition:opacity .15s}
+        .pano-ctl:hover{opacity:1}
+      `}</style>
+      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",padding:32,textAlign:"center",fontSize:13,color:"var(--text-3)",lineHeight:1.6}}>
+        Carregando o Panorama… se esta tela ficar em branco, o site pode não permitir abrir dentro de outra página — use o botão de abrir em nova aba (no topo).
+      </div>
+      <iframe src={PANORAMA_URL} title="Panorama" allow="fullscreen"
+        style={{position:"absolute",inset:0,width:"100%",height:"100%",border:0,background:"transparent"}}/>
+      <div className="pano-ctl" style={{position:"absolute",top:10,left:"50%",transform:"translateX(-50%)",display:"flex",gap:8,zIndex:5}}>
+        <button onClick={onBack} title="Voltar ao Menu" style={ctl}>
+          <span style={{display:"inline-flex",transform:"rotate(-90deg)"}}><Icon path={I.next} size={16}/></span>
+        </button>
+        <a href={PANORAMA_URL} target="_blank" rel="noopener noreferrer" title="Abrir em nova aba" style={ctl}>
+          <Icon path={I.link} size={14}/>
+        </a>
+      </div>
+    </div>
+  );
+}
+
 const PAGE_META = {
   home:       {label:"Menu",                emoji:""},
   projects:   {label:"Projetos",            emoji:"🗂"},
+  panorama:   {label:"Panorama",            emoji:"🌐"},
   diary:      {label:"Diário",              emoji:"📓"},
   reminders:  {label:"Lembretes",           emoji:"🔔"},
   infos:      {label:"Infos",               emoji:"📋"},
@@ -7055,6 +7179,7 @@ export default function App() {
     try { localStorage.setItem("current_page", p); } catch {}
   };
   const [viewMode, setViewMode] = useState(()=>localStorage.getItem("view_mode")||"auto");
+  const indic = useIndicadores();
 
   // After returning from the Google Calendar OAuth flow, jump straight to Agenda
   useEffect(()=>{
@@ -7104,6 +7229,7 @@ export default function App() {
     switch(page) {
       case "diary":      return <DiaryPage/>;
       case "reminders":  return <RemindersCards/>;
+      case "panorama":   return <PanoramaPage onBack={()=>setPage("home")}/>;
       case "infos":      return <TemasPage/>;
       case "ideas":      return <IdeasPage/>;
       case "tasks":      return <TasksPage/>;
@@ -7133,6 +7259,9 @@ export default function App() {
           </div>
           <div style={{fontWeight:800,fontSize:14,letterSpacing:0.5,lineHeight:1}}>PAINEL DE CONTROLE</div>
         </div>
+        <div style={{flex:1,overflow:"hidden",display:"flex",justifyContent:"center"}}>
+          <IndicatorsRow data={indic}/>
+        </div>
         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
           {[["search",()=>{}],["bell",()=>{}],["calendar",()=>setPage("events")],["gear",()=>{}]].map(([ic,fn])=>(
             <button key={ic} onClick={fn}
@@ -7145,7 +7274,7 @@ export default function App() {
       </header>
 
       {/* BREADCRUMB BAR */}
-      {page!=="home" && (
+      {page!=="home" && page!=="panorama" && (
       <div style={{background:"var(--bg-sub)",borderBottom:"1px solid var(--border-2)",padding:"0 20px",height:40,display:"flex",alignItems:"center",gap:10}}>
         <button onClick={()=>setPage("home")} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",display:"flex",alignItems:"center",gap:4,fontSize:12}}>
           <Icon path={I.back} size={14}/> Menu
@@ -7161,11 +7290,17 @@ export default function App() {
       )}
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: (page==="home"||page==="projects")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects")?"hidden":"visible",position:"relative"}}>
+      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="panorama")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="panorama"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="panorama")?"hidden":"visible",position:"relative"}}>
         {(page==="home"||page==="projects") ? (
           <div style={{display:"flex",width:"200%",transform:`translateX(${page==="home"?"0%":"-50%"})`,transition:"transform .35s ease"}}>
-            <div style={{width:"50%",flexShrink:0,position:"relative"}}>
+            <div style={{width:"50%",flexShrink:0,position:"relative",paddingBottom:56}}>
               <HomePage onNavigate={setPage}/>
+              <button onClick={()=>setPage("panorama")} title="Abrir Panorama (Jonas Esteves)"
+                style={{position:"absolute",left:"50%",bottom:8,transform:"translateX(-50%)",zIndex:20,
+                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
+                <span style={{display:"inline-flex",transform:"rotate(90deg)"}}><Icon path={I.next} size={18}/></span>
+              </button>
               <button onClick={()=>setPage("projects")} title="Ir para Projetos"
                 style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
                   width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
