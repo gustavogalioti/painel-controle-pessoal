@@ -142,18 +142,20 @@ function useKV(key, def) {
   // On mount: pull from cloud
   useEffect(() => { pull(); }, [key]);
 
-  // Poll every 5s so other devices' changes appear without reload
+  // Poll so other devices' changes appear without reload.
+  // 60s e só com a aba visível (antes: 20s mesmo em segundo plano — estourou o limite de CPU da Vercel)
   useEffect(() => {
-    const id = setInterval(pull, 20000);
+    const id = setInterval(() => { if (!document.hidden) pull(); }, 60000);
     return () => clearInterval(id);
   }, [key]);
 
   // Also re-sync when tab/app regains focus (covers app switching on mobile)
   useEffect(() => {
     const onFocus = () => pull();
+    const onVis = () => { if(!document.hidden) pull(); };
     window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', () => { if(!document.hidden) pull(); });
-    return () => window.removeEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVis);
+    return () => { window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onVis); };
   }, [key]);
 
   const save = (next) => {
@@ -217,7 +219,7 @@ function useDB(table, localKey, def=[]) {
 
   // Poll a cada 5s
   useEffect(() => {
-    const id = setInterval(() => pullRef.current(), 20000);
+    const id = setInterval(() => { if (!document.hidden) pullRef.current(); }, 60000);
     return () => clearInterval(id);
   }, [table]);
 
@@ -296,7 +298,7 @@ function useMarketData() {
     } catch {}
   };
 
-  useEffect(()=>{ fetch_(); const id=setInterval(fetch_,90000); return()=>clearInterval(id); },[]);
+  useEffect(()=>{ fetch_(); const id=setInterval(()=>{ if(!document.hidden) fetch_(); },90000); return()=>clearInterval(id); },[]);
   return {data,loading,refresh:fetch_};
 }
 
@@ -627,6 +629,7 @@ function DayBoardCanvas({ dayKey, readOnly, onAddNode }) {
   // Poll cloud every 5s for this specific day — pick up changes from other devices
   useEffect(() => {
     const id = setInterval(() => {
+      if (document.hidden) return; // aba oculta: não gasta função
       if (savingRef.current) return; // don't clobber an in-flight local save
       // Don't interrupt active editing
       if (ref.current.editing) return;
@@ -642,7 +645,7 @@ function DayBoardCanvas({ dayKey, readOnly, onAddNode }) {
           try { localStorage.setItem(DB_BOARD_KEY, JSON.stringify(all)); } catch {}
         }
       });
-    }, 5000);
+    }, 30000);
     return () => clearInterval(id);
   }, [dayKey]);
 
@@ -4496,7 +4499,7 @@ function MarketPage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchMkt(); const id=setInterval(fetchMkt,60000); return()=>clearInterval(id); }, []);
+  useEffect(() => { fetchMkt(); const id=setInterval(()=>{ if(!document.hidden) fetchMkt(); },60000); return()=>clearInterval(id); }, []);
 
   const tabs = [
     {id:"indicadores", l:"📊 Indicadores"},
