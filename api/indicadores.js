@@ -48,7 +48,9 @@ export default async function handler() {
   }
 
   const ok = out.selic || out.ipca12m || out.ipcaAno;
-  return new Response(JSON.stringify(ok ? out : { error: "BCB indisponível" }), {
+  const why = (r) => r.status === "rejected" ? String(r.reason?.message || r.reason) : null;
+  const detail = { selic: why(selicR), ipca12m: why(ipca12R), ipcaAno: why(ipcaMR) };
+  return new Response(JSON.stringify(ok ? out : { error: "BCB indisponível", detail }), {
     status: ok ? 200 : 502,
     headers: {
       "Content-Type": "application/json",

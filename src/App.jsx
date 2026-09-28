@@ -289,23 +289,82 @@ function nextCopom(now = new Date()) {
   return { start:a, end:b, days };
 }
 
+// Cálculo sobre as séries do BCB (formato da API: [{data:"dd/mm/aaaa", valor:"x"}]).
+const parseBRDate = s => { const [d,m,y] = String(s).split("/").map(Number); return new Date(y, m-1, d); };
+const ymOf = s => { const d = parseBRDate(s); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
+const toPts = arr => (Array.isArray(arr) ? arr : [])
+  .map(p => ({ date:p.data, value:parseFloat(String(p.valor).replace(",", ".")) }))
+  .filter(p => p.date && Number.isFinite(p.value));
+
+function computeIndicadores(selicRaw, ipca12Raw, ipcaMRaw) {
+  const out = { selic:null, ipca12m:null, ipcaAno:null };
+  const selic = toPts(selicRaw);
+  if (selic.length) {
+    // a série 432 traz datas à frente (até a próxima reunião): pega o último ponto que já vigora
+    const end = new Date(); end.setHours(23,59,59,999);
+    const vig = selic.filter(p => parseBRDate(p.date) <= end);
+    const p = (vig.length ? vig : selic).slice(-1)[0];
+    out.selic = { value:p.value, asOf:p.date };
+  }
+  const i12 = toPts(ipca12Raw);
+  if (i12.length) { const p = i12.slice(-1)[0]; out.ipca12m = { value:p.value, ref:ymOf(p.date) }; }
+  const im = toPts(ipcaMRaw);
+  if (im.length) {
+    const last = im.slice(-1)[0];
+    const year = parseBRDate(last.date).getFullYear();
+    const acc = (im.filter(p => parseBRDate(p.date).getFullYear()===year).reduce((a,p) => a*(1+p.value/100), 1) - 1) * 100;
+    out.ipcaAno = { value:acc, ref:ymOf(last.date) };
+  }
+  return out;
+}
+
+const bcbFromBrowser = async (code, n) => {
+  const r = await fetch(`https://api.bcb.gov.br/dados/serie/bcdata.sgs.${code}/dados/ultimos/${n}?formato=json`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+};
+
+// 1º tenta direto do navegador (o BCB libera CORS); só o que faltar vem do servidor (/api/indicadores).
+async function fetchIndicadores() {
+  const errors = [];
+  const names = ["Selic","IPCA 12m","IPCA mensal"];
+  const res = await Promise.allSettled([bcbFromBrowser(432,10), bcbFromBrowser(13522,2), bcbFromBrowser(433,12)]);
+  res.forEach((x,i) => { if (x.status==="rejected") errors.push(`navegador/${names[i]}: ${x.reason?.message||x.reason}`); });
+  let data = computeIndicadores(res[0].value, res[1].value, res[2].value);
+
+  if (!(data.selic && data.ipca12m && data.ipcaAno)) {
+    try {
+      const r = await fetch("/api/indicadores");
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) data = { selic:data.selic||d.selic||null, ipca12m:data.ipca12m||d.ipca12m||null, ipcaAno:data.ipcaAno||d.ipcaAno||null };
+      else errors.push(`servidor: HTTP ${r.status}${d.detail ? " "+JSON.stringify(d.detail) : ""}`);
+    } catch (e) { errors.push(`servidor: ${e.message}`); }
+  }
+  const ok = !!(data.selic || data.ipca12m || data.ipcaAno);
+  return { data: ok ? data : null, errors };
+}
+
+let indicLastTry = 0;
 function useIndicadores() {
   const readCache = () => { try { return JSON.parse(localStorage.getItem(INDIC_CACHE_KEY)); } catch { return null; } };
   const [data, setData] = useState(() => readCache()?.data || null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       const c = readCache();
-      if (c && Date.now() - c.ts < INDIC_TTL) return;            // cache ainda vale — nenhuma requisição
-      try {
-        const r = await fetch("/api/indicadores");
-        if (!r.ok) return;
-        const d = await r.json();
-        if (d.error || !(d.selic || d.ipca12m || d.ipcaAno)) return;
+      if (c && Date.now() - c.ts < INDIC_TTL) return;                 // cache ainda vale — nenhuma requisição
+      if (Date.now() - indicLastTry < 10*60*1000) return;             // falhou há pouco — não insiste
+      indicLastTry = Date.now();
+      const { data:d, errors } = await fetchIndicadores();
+      if (cancelled) return;
+      if (d) {
         try { localStorage.setItem(INDIC_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: d })); } catch {}
-        if (!cancelled) setData(d);
-      } catch {}
+        setData(d); setError(errors.length ? errors.join(" · ") : "");
+      } else {
+        setError(errors.join(" · ") || "sem resposta");
+      }
     };
     load();
     // painel fica aberto por dias: ao voltar pra aba, revalida só se o cache venceu
@@ -314,7 +373,7 @@ function useIndicadores() {
     return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
-  return data;
+  return { data, error };
 }
 
 function IndicatorPill({ label, value, sub, color, icon, title }) {
@@ -332,9 +391,12 @@ function IndicatorPill({ label, value, sub, color, icon, title }) {
   );
 }
 
-function IndicatorsRow({ data }) {
+function IndicatorsRow({ data, error }) {
   const pct = v => v==null ? "--" : Number(v).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})+"%";
   const refLabel = ym => { if(!ym) return ""; const [y,m]=ym.split("-"); return `Ref.: ${new Date(+y,+m-1,1).toLocaleDateString("pt-BR",{month:"short"}).replace(".","")}/${y}`; };
+  const fail = !data && !!error;
+  const failSub = fail ? "sem dados" : "";
+  const failTitle = fail ? `Não consegui buscar no Banco Central. Detalhe: ${error}` : "";
   const cop = nextCopom();
   let copValue = "--", copSub = "", copTitle = "Calendário oficial do Copom";
   if (cop) {
@@ -346,12 +408,12 @@ function IndicatorsRow({ data }) {
   }
   return (
     <div style={{display:"flex",gap:10,overflowX:"auto",scrollbarWidth:"none"}}>
-      <IndicatorPill label="SELIC HOJE" value={pct(data?.selic?.value)} color="#0891b2"
-        title="Meta Selic vigente (Banco Central)" icon={<Icon path={I.card} size={12} color="#fff"/>}/>
-      <IndicatorPill label="IPCA 12M" value={pct(data?.ipca12m?.value)} color="#be185d"
-        title={refLabel(data?.ipca12m?.ref)||"IPCA acumulado em 12 meses"} icon={<Icon path={I.trend} size={12} color="#fff"/>}/>
-      <IndicatorPill label="IPCA NO ANO" value={pct(data?.ipcaAno?.value)} color="#9333ea"
-        title={refLabel(data?.ipcaAno?.ref)||"IPCA acumulado no ano"} icon={<Icon path={I.trend} size={12} color="#fff"/>}/>
+      <IndicatorPill label="SELIC HOJE" value={pct(data?.selic?.value)} sub={failSub} color="#0891b2"
+        title={failTitle||"Meta Selic vigente (Banco Central)"} icon={<Icon path={I.card} size={12} color="#fff"/>}/>
+      <IndicatorPill label="IPCA 12M" value={pct(data?.ipca12m?.value)} sub={failSub} color="#be185d"
+        title={failTitle||refLabel(data?.ipca12m?.ref)||"IPCA acumulado em 12 meses"} icon={<Icon path={I.trend} size={12} color="#fff"/>}/>
+      <IndicatorPill label="IPCA NO ANO" value={pct(data?.ipcaAno?.value)} sub={failSub} color="#9333ea"
+        title={failTitle||refLabel(data?.ipcaAno?.ref)||"IPCA acumulado no ano"} icon={<Icon path={I.trend} size={12} color="#fff"/>}/>
       <IndicatorPill label="PRÓX. COPOM" value={copValue} sub={copSub} color="#d97706"
         title={copTitle} icon={<Icon path={I.calendar} size={12} color="#fff"/>}/>
     </div>
@@ -7179,7 +7241,7 @@ export default function App() {
     try { localStorage.setItem("current_page", p); } catch {}
   };
   const [viewMode, setViewMode] = useState(()=>localStorage.getItem("view_mode")||"auto");
-  const indic = useIndicadores();
+  const { data:indicData, error:indicError } = useIndicadores();
 
   // After returning from the Google Calendar OAuth flow, jump straight to Agenda
   useEffect(()=>{
@@ -7260,7 +7322,7 @@ export default function App() {
           <div style={{fontWeight:800,fontSize:14,letterSpacing:0.5,lineHeight:1}}>PAINEL DE CONTROLE</div>
         </div>
         <div style={{flex:1,overflow:"hidden",display:"flex",justifyContent:"center"}}>
-          <IndicatorsRow data={indic}/>
+          <IndicatorsRow data={indicData} error={indicError}/>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
           {[["search",()=>{}],["bell",()=>{}],["calendar",()=>setPage("events")],["gear",()=>{}]].map(([ic,fn])=>(
