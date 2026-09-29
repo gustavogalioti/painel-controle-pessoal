@@ -1895,6 +1895,70 @@ function DiaryResumoModal({ entries, onClose }) {
   );
 }
 
+// ─── ANOTAÇÕES / RASCUNHOS — bloco de notas com formatação, ao lado do Diário ──
+function DiaryNotesPanel() {
+  const [notes, setNotes, synced] = useKV("diario_notas_v1", { html: "" });
+  const editorRef = useRef(null);
+  const saveTimer = useRef(null);
+  const loadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!loadedRef.current && editorRef.current) {
+      editorRef.current.innerHTML = notes.html || "";
+      loadedRef.current = true;
+    }
+  }, [notes.html]);
+
+  const scheduleSave = () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      const html = editorRef.current ? editorRef.current.innerHTML : "";
+      setNotes({ html, updatedAt: nowISO() });
+    }, 700);
+  };
+
+  const exec = (cmd, val=null) => {
+    editorRef.current?.focus();
+    try { document.execCommand(cmd, false, val); } catch {}
+    scheduleSave();
+  };
+
+  const toggleHighlight = () => {
+    editorRef.current?.focus();
+    try { document.execCommand("hiliteColor", false, "#fde68a"); }
+    catch { try { document.execCommand("backColor", false, "#fde68a"); } catch {} }
+    scheduleSave();
+  };
+
+  const toolBtn = { background:"var(--bg-input)", border:"1px solid var(--border)", borderRadius:8, width:32, height:28,
+    display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:"var(--text-2)", fontSize:13, padding:0 };
+
+  return (
+    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,padding:14,position:"sticky",top:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+        <div style={{fontSize:14,fontWeight:800,color:"var(--text-1)"}}>Anotações / Rascunhos</div>
+        <span style={{fontSize:9,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"syncing..."}</span>
+      </div>
+      <div style={{fontSize:11,color:"var(--text-3)",marginBottom:10,lineHeight:1.4}}>
+        Espaço livre para finanças, contas, acontecimentos e lembretes — fica sempre visível aqui, ao lado do Diário.
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+        <button onClick={()=>exec("bold")} title="Negrito" style={{...toolBtn,fontWeight:800}}>B</button>
+        <button onClick={()=>exec("underline")} title="Sublinhado" style={{...toolBtn,textDecoration:"underline"}}>S</button>
+        <button onClick={toggleHighlight} title="Grifar">
+          <span style={{...toolBtn,display:"inline-flex"}}><span style={{background:"#fde68a",color:"#000",padding:"0 4px",borderRadius:3,fontSize:11}}>abc</span></span>
+        </button>
+        <button onClick={()=>exec("insertUnorderedList")} title="Lista" style={toolBtn}><Icon path={I.list} size={13}/></button>
+      </div>
+      <div ref={editorRef} contentEditable suppressContentEditableWarning
+        onInput={scheduleSave}
+        className="diary-notes-editor"
+        style={{minHeight:320,maxHeight:600,overflowY:"auto",fontSize:13,lineHeight:1.6,color:"var(--text-1)",
+          background:"var(--bg-input)",border:"1px solid var(--border)",borderRadius:10,padding:12,outline:"none"}}/>
+    </div>
+  );
+}
+
 function DiaryPage() {
   const [entries, setEntries, synced] = useKV("diary_v1", []);
   const [text, setText] = useState("");
@@ -1974,7 +2038,8 @@ function DiaryPage() {
   const calCells = buildMonthGrid(calYear, calMonth);
 
   return (
-    <div>
+    <div className="diary-split">
+    <div className="diary-col-left">
       {/* Header */}
       <div style={{display:"flex",flexWrap:"wrap",justifyContent:"space-between",alignItems:"flex-end",gap:16,marginBottom:18}}>
         <div>
@@ -2162,6 +2227,10 @@ function DiaryPage() {
       )}
 
       {showResumo && <DiaryResumoModal entries={entries} onClose={()=>setShowResumo(false)}/>}
+    </div>
+    <div className="diary-col-right">
+      <DiaryNotesPanel/>
+    </div>
     </div>
   );
 }

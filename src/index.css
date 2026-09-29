@@ -313,3 +313,22 @@ input, textarea, select { color-scheme:light; }
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 16px;
 }
+
+/* Diário — duas colunas: timeline (esquerda) + Anotações/Rascunhos (direita) */
+.diary-split {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .diary-split { grid-template-columns: 1fr; }
+}
+.diary-notes-editor:empty:before {
+  content: "Escreva aqui...";
+  color: var(--text-3);
+}
+.diary-notes-editor ul {
+  padding-left: 20px;
+  margin: 6px 0;
+}
