@@ -44,6 +44,7 @@ const I = {
   shift:   "M12 19V6 M5 13l7-7 7 7",
   record:  "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z",
   scissors:"M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M20 4L8.12 15.88 M14.47 14.48 20 20 M8.12 8.12 12 12",
+  heart:"M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z",
   headphones:"M3 18v-6a9 9 0 0 1 18 0v6 M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z",
   gear:    "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
   weather: "M17 18a4 4 0 0 0 0-8 5 5 0 0 0-9.6-1.5A4.5 4.5 0 0 0 7 18h10z M12 2v2 M4.2 4.2l1.4 1.4 M2 11h2",
@@ -5027,6 +5028,428 @@ function BackgroundModal({ current, onSave, onClose }) {
   );
 }
 
+// ─── SAÚDE (treinos, checks diários, estatísticas e conquistas) ───────────────
+// Dados em sync_kv, chave "saude_v1": { exercises:[{id,label,emoji,unit,base?}], logs:{ "AAAA-MM-DD": { [exId]: {v:number, note?:string} } } }
+const SAUDE_DEFAULT_EX = [
+  { id:"abs",    label:"Abdominais",         emoji:"💪", unit:"reps", base:true, color:"#e0533d" },
+  { id:"flex",   label:"Flexões",            emoji:"🏋️", unit:"reps", base:true, color:"#2878c8" },
+  { id:"agach",  label:"Agachamentos",       emoji:"🦵", unit:"reps", base:true, color:"#7c50d0" },
+  { id:"corrida",label:"Corrida/Caminhada",  emoji:"🏃", unit:"km",   base:true, color:"#18a870" },
+];
+const SAUDE_EXTRA_COLORS = ["#d4980a","#0891b2","#d07030","#c026d3","#65a30d"];
+const saudeKey = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const saudeDate = (k) => new Date(k+"T12:00:00");
+const saudeAdd = (k, n) => { const d = saudeDate(k); d.setDate(d.getDate()+n); return saudeKey(d); };
+const saudeFmt = (n) => Number.isInteger(n) ? String(n) : (Math.round(n*10)/10).toString().replace(".",",");
+const saudeLabel = (k) => saudeDate(k).toLocaleDateString("pt-BR",{day:"2-digit",month:"short"}).replace(".","");
+// aceita "90", "12,5", "3x10", "3 x 12"
+function saudeParse(str) {
+  const s = String(str||"").trim().toLowerCase().replace(",",".");
+  if (!s) return null;
+  const m = s.match(/^(\d+(?:\.\d+)?)\s*[x*×]\s*(\d+(?:\.\d+)?)$/);
+  if (m) return { v: parseFloat(m[1])*parseFloat(m[2]), note: s.replace(".",",") };
+  const n = parseFloat(s);
+  return isNaN(n) || n < 0 ? null : { v: n };
+}
+const saudeDayHas = (day) => !!day && Object.values(day).some(e => e && e.v > 0);
+
+function saudeStreaks(logs, today) {
+  const has = (k) => saudeDayHas(logs[k]);
+  let cur = 0, k = has(today) ? today : saudeAdd(today, -1);
+  while (has(k)) { cur++; k = saudeAdd(k, -1); }
+  const dates = Object.keys(logs).filter(has).sort();
+  let best = 0, run = 0, prev = null;
+  for (const d of dates) { run = (prev && saudeAdd(prev,1)===d) ? run+1 : 1; best = Math.max(best, run); prev = d; }
+  return { cur, best, days: dates.length };
+}
+
+// ── Conquistas ──
+const _tot = (id) => (s) => s.tot[id]||0;
+const _day = (id) => (s) => s.maxDay[id]||0;
+const SAUDE_ACH = [
+  { id:"first",  emoji:"🌱", title:"Primeiro passo",       desc:"Registrar o 1º dia de treino",      tier:"bronze", val:s=>s.days, goal:1 },
+  { id:"days10", emoji:"📆", title:"Dedicação",            desc:"10 dias de treino registrados",     tier:"bronze", val:s=>s.days, goal:10 },
+  { id:"days50", emoji:"📚", title:"Rotina de aço",        desc:"50 dias de treino registrados",     tier:"prata",  val:s=>s.days, goal:50 },
+  { id:"days100",emoji:"🏛️", title:"Centurião",            desc:"100 dias de treino registrados",    tier:"ouro",   val:s=>s.days, goal:100 },
+  { id:"st3",    emoji:"🔥", title:"Pegando fogo",         desc:"3 dias seguidos",                   tier:"bronze", val:s=>s.best, goal:3 },
+  { id:"st7",    emoji:"⚡", title:"Semana perfeita",      desc:"7 dias seguidos",                   tier:"prata",  val:s=>s.best, goal:7 },
+  { id:"st14",   emoji:"🚀", title:"Duas semanas firmes",  desc:"14 dias seguidos",                  tier:"prata",  val:s=>s.best, goal:14 },
+  { id:"st30",   emoji:"👑", title:"Mês imbatível",        desc:"30 dias seguidos",                  tier:"ouro",   val:s=>s.best, goal:30 },
+  { id:"abs500", emoji:"💪", title:"Abdômen em obras",     desc:"500 abdominais no total",           tier:"bronze", val:_tot("abs"), goal:500 },
+  { id:"abs2k",  emoji:"💪", title:"Abdômen de aço",       desc:"2.000 abdominais no total",         tier:"prata",  val:_tot("abs"), goal:2000 },
+  { id:"abs5k",  emoji:"💪", title:"Tanquinho lendário",   desc:"5.000 abdominais no total",         tier:"ouro",   val:_tot("abs"), goal:5000 },
+  { id:"fl250",  emoji:"🏋️", title:"Peito aberto",         desc:"250 flexões no total",              tier:"bronze", val:_tot("flex"), goal:250 },
+  { id:"fl1k",   emoji:"🏋️", title:"Braço de ferro",       desc:"1.000 flexões no total",            tier:"prata",  val:_tot("flex"), goal:1000 },
+  { id:"fl25k",  emoji:"🏋️", title:"Mestre das flexões",   desc:"2.500 flexões no total",            tier:"ouro",   val:_tot("flex"), goal:2500 },
+  { id:"ag500",  emoji:"🦵", title:"Pernas firmes",        desc:"500 agachamentos no total",         tier:"bronze", val:_tot("agach"), goal:500 },
+  { id:"ag2k",   emoji:"🦵", title:"Coxas de atleta",      desc:"2.000 agachamentos no total",       tier:"prata",  val:_tot("agach"), goal:2000 },
+  { id:"ag5k",   emoji:"🦵", title:"Titã dos agachamentos",desc:"5.000 agachamentos no total",       tier:"ouro",   val:_tot("agach"), goal:5000 },
+  { id:"km10",   emoji:"👟", title:"Primeiros 10 km",      desc:"10 km acumulados",                  tier:"bronze", val:_tot("corrida"), goal:10 },
+  { id:"km50",   emoji:"🏃", title:"Maratonista em treino",desc:"50 km acumulados",                  tier:"prata",  val:_tot("corrida"), goal:50 },
+  { id:"km150",  emoji:"🌍", title:"Volta ao mundo",       desc:"150 km acumulados",                 tier:"ouro",   val:_tot("corrida"), goal:150 },
+  { id:"d100abs",emoji:"💯", title:"Centena de abdominais",desc:"100 abdominais em um único dia",    tier:"prata",  val:_day("abs"), goal:100 },
+  { id:"d100fl", emoji:"💯", title:"Centena de flexões",   desc:"100 flexões em um único dia",       tier:"ouro",   val:_day("flex"), goal:100 },
+  { id:"d100ag", emoji:"💯", title:"Centena de agachamentos",desc:"100 agachamentos em um único dia",tier:"prata",  val:_day("agach"), goal:100 },
+  { id:"d5km",   emoji:"🎽", title:"5 km de uma vez",      desc:"5 km em um único dia",              tier:"prata",  val:_day("corrida"), goal:5 },
+  { id:"d10km",  emoji:"🏅", title:"10 km de uma vez",     desc:"10 km em um único dia",             tier:"ouro",   val:_day("corrida"), goal:10 },
+  { id:"full1",  emoji:"✅", title:"Dia completo",         desc:"Os 4 exercícios base no mesmo dia", tier:"bronze", val:s=>s.fullDays, goal:1 },
+  { id:"full7",  emoji:"🎯", title:"Atleta completo",      desc:"7 dias completos (4 exercícios)",   tier:"prata",  val:s=>s.fullDays, goal:7 },
+  { id:"pr1",    emoji:"📈", title:"Superação",            desc:"Bater um recorde pessoal",          tier:"bronze", val:s=>s.prs, goal:1 },
+  { id:"pr10",   emoji:"🚀", title:"Máquina de recordes",  desc:"Bater 10 recordes pessoais",        tier:"ouro",   val:s=>s.prs, goal:10 },
+];
+const SAUDE_TIER = { bronze:{c:"#b0703a",label:"Bronze"}, prata:{c:"#8fa3b5",label:"Prata"}, ouro:{c:"#d4a80a",label:"Ouro"} };
+
+function saudeCompute(logs) {
+  const dates = Object.keys(logs).filter(k=>saudeDayHas(logs[k])).sort();
+  const base = ["abs","flex","agach","corrida"];
+  const s = { tot:{}, maxDay:{}, exDays:{}, days:0, best:0, fullDays:0, prs:0 };
+  const unlocked = {};
+  let run = 0, prev = null;
+  for (const d of dates) {
+    s.days++;
+    run = (prev && saudeAdd(prev,1)===d) ? run+1 : 1; prev = d;
+    s.best = Math.max(s.best, run);
+    let full = true;
+    for (const id of base) {
+      const v = logs[d][id]?.v || 0;
+      if (v > 0) {
+        if ((s.exDays[id]||0) >= 3 && v > (s.maxDay[id]||0)) s.prs++;
+        s.exDays[id] = (s.exDays[id]||0)+1;
+        s.tot[id] = (s.tot[id]||0)+v;
+        s.maxDay[id] = Math.max(s.maxDay[id]||0, v);
+      } else full = false;
+    }
+    if (full) s.fullDays++;
+    for (const a of SAUDE_ACH) if (!unlocked[a.id] && a.val(s) >= a.goal) unlocked[a.id] = d;
+  }
+  return { state:s, unlocked };
+}
+
+function SaudeBars({ data, color, unit }) {
+  // data: [{k, v}] — barras diárias + linha de média móvel de 7 dias
+  const W = 620, H = 190, pl = 34, pb = 22, pt = 12, pr = 8;
+  const max = Math.max(1, ...data.map(d=>d.v));
+  const bw = (W-pl-pr)/data.length;
+  const y = (v) => pt + (H-pt-pb) * (1 - v/max);
+  const avg = data.map((_,i)=>{ const sl = data.slice(Math.max(0,i-6), i+1); return sl.reduce((a,b)=>a+b.v,0)/sl.length; });
+  const best = Math.max(...data.map(d=>d.v));
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
+      {[0,0.5,1].map(f=>(
+        <g key={f}>
+          <line x1={pl} x2={W-pr} y1={y(max*f)} y2={y(max*f)} stroke="var(--border)" strokeWidth="1" strokeDasharray={f?"3 4":"0"}/>
+          <text x={pl-6} y={y(max*f)+4} fontSize="10" fill="var(--text-3)" textAnchor="end">{saudeFmt(Math.round(max*f*10)/10)}</text>
+        </g>
+      ))}
+      {data.map((d,i)=>(
+        <g key={d.k}>
+          {d.v>0 && <rect x={pl+i*bw+1.5} y={y(d.v)} width={Math.max(2,bw-3)} height={H-pb-y(d.v)} rx="3" fill={color} opacity={d.v===best?1:0.55}><title>{saudeLabel(d.k)}: {saudeFmt(d.v)} {unit}</title></rect>}
+          {i%Math.ceil(data.length/6)===0 && <text x={pl+i*bw+bw/2} y={H-6} fontSize="10" fill="var(--text-3)" textAnchor="middle">{saudeLabel(d.k)}</text>}
+        </g>
+      ))}
+      <polyline fill="none" stroke="var(--text-1)" strokeWidth="1.8" strokeLinejoin="round" opacity="0.7"
+        points={avg.map((v,i)=>`${pl+i*bw+bw/2},${y(v)}`).join(" ")}/>
+    </svg>
+  );
+}
+
+function SaudePage() {
+  const [store, setStore, synced] = useKV("saude_v1", { exercises: SAUDE_DEFAULT_EX, logs: {} });
+  const exercises = (store?.exercises?.length ? store.exercises : SAUDE_DEFAULT_EX);
+  const logs = store?.logs || {};
+  const today = saudeKey(new Date());
+  const [tab, setTab] = useState("hoje");
+  const [date, setDate] = useState(today);
+  const [draft, setDraft] = useState({});
+  const [flash, setFlash] = useState(false);
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ label:"", emoji:"⭐", unit:"reps" });
+  const [statEx, setStatEx] = useState("abs");
+  const [range, setRange] = useState(30);
+  const [month, setMonth] = useState(() => { const d = new Date(); return { y:d.getFullYear(), m:d.getMonth() }; });
+
+  // rascunho do dia selecionado (só reinicia ao trocar de data — não briga com o polling)
+  useEffect(() => {
+    const day = logs[date] || {};
+    const d = {};
+    exercises.forEach(e => { const en = day[e.id]; d[e.id] = en ? (en.note && /x/.test(en.note) ? en.note : saudeFmt(en.v)) : ""; });
+    setDraft(d);
+  }, [date, synced]);
+
+  const streak = useMemo(() => saudeStreaks(logs, today), [logs, today]);
+  const ach = useMemo(() => saudeCompute(logs), [logs]);
+  const exColor = (e, i) => e.color || SAUDE_EXTRA_COLORS[i % SAUDE_EXTRA_COLORS.length];
+
+  const prevOf = (exId) => {
+    const ks = Object.keys(logs).filter(k => k < date && logs[k]?.[exId]?.v > 0).sort();
+    const k = ks[ks.length-1];
+    return k ? { k, v: logs[k][exId].v } : null;
+  };
+
+  const saveDay = () => {
+    const day = {};
+    for (const e of exercises) {
+      const p = saudeParse(draft[e.id]);
+      if (p && p.v > 0) day[e.id] = p.note ? { v:p.v, note:p.note } : { v:p.v };
+    }
+    setStore(prev => {
+      const base = { exercises, logs: {}, ...(prev||{}) };
+      const nl = { ...(base.logs||{}) };
+      if (Object.keys(day).length) nl[date] = day; else delete nl[date];
+      return { ...base, exercises, logs: nl };
+    });
+    setFlash(true); setTimeout(()=>setFlash(false), 1600);
+  };
+
+  const addExercise = () => {
+    const label = form.label.trim();
+    if (!label) return;
+    const id = "x" + Date.now();
+    setStore(prev => ({ ...(prev||{}), logs: (prev?.logs||{}), exercises: [...exercises, { id, label, emoji: form.emoji||"⭐", unit: form.unit.trim()||"reps" }] }));
+    setForm({ label:"", emoji:"⭐", unit:"reps" }); setModal(false);
+  };
+  const delExercise = (id) => {
+    if (!confirm("Remover este exercício da lista? Os registros antigos ficam guardados.")) return;
+    setStore(prev => ({ ...(prev||{}), logs: (prev?.logs||{}), exercises: exercises.filter(e=>e.id!==id) }));
+  };
+
+  if (!synced && !Object.keys(logs).length) return <div style={{textAlign:"center",padding:"60px 0",color:"var(--text-3)",fontSize:14}}>Carregando treinos...</div>;
+
+  const chip = (active, color="var(--accent)") => ({
+    background: active ? color : "var(--bg-card)", color: active ? "#fff" : "var(--text-2)",
+    border:`1px solid ${active?color:"var(--border)"}`, borderRadius:20, padding:"7px 14px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"inherit",
+  });
+  const card = { background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:16, padding:18 };
+  const dayTitle = saudeDate(date).toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
+  const unlockedCount = Object.keys(ach.unlocked).length;
+
+  // ── Aba HOJE / editor do dia ──
+  const renderDay = () => (
+    <div style={{display:"grid",gap:14}}>
+      <div style={{...card,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+        <button onClick={()=>setDate(saudeAdd(date,-1))} style={chip(false)}>‹</button>
+        <div style={{textAlign:"center",flex:1,minWidth:160}}>
+          <div style={{fontWeight:800,fontSize:16,textTransform:"capitalize"}}>{dayTitle}</div>
+          <div style={{fontSize:12,color:"var(--text-3)"}}>{date===today?"Hoje":saudeDayHas(logs[date])?"Registrado":"Sem registro"}{saudeDayHas(logs[date])?" ✔":""}</div>
+        </div>
+        <button onClick={()=>setDate(saudeAdd(date,1))} disabled={date>=today} style={{...chip(false),opacity:date>=today?0.4:1}}>›</button>
+        {date!==today && <button onClick={()=>setDate(today)} style={chip(true)}>Hoje</button>}
+      </div>
+
+      <div style={{...card,display:"grid",gap:12}}>
+        {exercises.map((e,i)=>{
+          const p = prevOf(e.id);
+          const cur = saudeParse(draft[e.id]);
+          const diff = p && cur ? cur.v - p.v : null;
+          return (
+            <div key={e.id} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 120px",gap:10,alignItems:"center"}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontWeight:700,fontSize:14}}>{e.emoji} {e.label} <span style={{fontWeight:500,color:"var(--text-3)",fontSize:12}}>({e.unit})</span>
+                  {!e.base && <button onClick={()=>delExercise(e.id)} title="Remover" style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",marginLeft:6}}>✕</button>}
+                </div>
+                <div style={{fontSize:11.5,color:"var(--text-3)",marginTop:2}}>
+                  {p ? <>último: {saudeFmt(p.v)} em {saudeLabel(p.k)}</> : "sem registro anterior"}
+                  {diff!==null && <b style={{marginLeft:6,color:diff>=0?"var(--green)":"var(--red)"}}>{diff>=0?"+":""}{saudeFmt(diff)}</b>}
+                </div>
+              </div>
+              <input value={draft[e.id]??""} inputMode="decimal" placeholder="ex: 90 ou 3x10"
+                onChange={ev=>setDraft(d=>({...d,[e.id]:ev.target.value}))}
+                style={{...inp,textAlign:"center",borderColor:cur?exColor(e,i):"var(--border)"}}/>
+            </div>
+          );
+        })}
+        <div style={{fontSize:11.5,color:"var(--text-3)"}}>Dica: digite <b>3x10</b> e o total (30) é calculado sozinho.</div>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <button onClick={saveDay} style={{...btn("var(--green)"),flex:1,minWidth:160}}>{flash?"Salvo ✓":"Salvar dia"}</button>
+          <button onClick={()=>setModal(true)} style={{...btn("var(--bg-sub)"),color:"var(--text-1)",border:"1px solid var(--border)"}}>+ Exercício</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Aba CALENDÁRIO ──
+  const renderCal = () => {
+    const first = new Date(month.y, month.m, 1);
+    const daysIn = new Date(month.y, month.m+1, 0).getDate();
+    const cells = [...Array(first.getDay()).fill(null), ...Array.from({length:daysIn},(_,i)=>i+1)];
+    const monthKeyPrefix = `${month.y}-${String(month.m+1).padStart(2,"0")}`;
+    const doneCount = Object.keys(logs).filter(k=>k.startsWith(monthKeyPrefix)&&saudeDayHas(logs[k])).length;
+    const nav = (n) => setMonth(({y,m}) => { const d = new Date(y, m+n, 1); return { y:d.getFullYear(), m:d.getMonth() }; });
+    return (
+      <div style={card}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <button onClick={()=>nav(-1)} style={chip(false)}>‹</button>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontWeight:800,fontSize:16,textTransform:"capitalize"}}>{first.toLocaleDateString("pt-BR",{month:"long",year:"numeric"})}</div>
+            <div style={{fontSize:12,color:"var(--text-3)"}}>{doneCount} de {daysIn} dias com check</div>
+          </div>
+          <button onClick={()=>nav(1)} style={chip(false)}>›</button>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:5}}>
+          {["D","S","T","Q","Q","S","S"].map((w,i)=><div key={i} style={{textAlign:"center",fontSize:11,fontWeight:700,color:"var(--text-3)"}}>{w}</div>)}
+          {cells.map((n,i)=>{
+            if (!n) return <div key={i}/>;
+            const k = `${monthKeyPrefix}-${String(n).padStart(2,"0")}`;
+            const day = logs[k]; const has = saudeDayHas(day);
+            const cnt = has ? Object.values(day).filter(e=>e?.v>0).length : 0;
+            const full = has && ["abs","flex","agach","corrida"].every(id=>day[id]?.v>0);
+            return (
+              <button key={i} onClick={()=>{setDate(k);setTab("hoje");}} title={has?`${cnt} exercício(s)`:""}
+                style={{aspectRatio:"1",borderRadius:10,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,position:"relative",
+                  background: has ? (full?"var(--green)":"rgba(24,168,112,0.28)") : "var(--bg-input)",
+                  color: has ? (full?"#fff":"var(--text-1)") : "var(--text-3)",
+                  border: k===today ? "2px solid var(--accent)" : "1px solid var(--border)",
+                  opacity: k>today ? 0.45 : 1}}>
+                {n}
+                {has && <span style={{position:"absolute",right:3,bottom:1,fontSize:10}}>✔</span>}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{display:"flex",gap:14,marginTop:12,fontSize:11.5,color:"var(--text-3)",flexWrap:"wrap"}}>
+          <span>▪ verde claro: treinou</span><span>▪ verde forte: dia completo (4 exercícios)</span><span>▪ contorno azul: hoje</span>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Aba ESTATÍSTICAS ──
+  const renderStats = () => {
+    const ex = exercises.find(e=>e.id===statEx) || exercises[0];
+    const ei = exercises.indexOf(ex);
+    const color = exColor(ex, ei);
+    const series = Array.from({length:range},(_,i)=>{ const k = saudeAdd(today, -(range-1-i)); return { k, v: logs[k]?.[ex.id]?.v || 0 }; });
+    const all = Object.keys(logs).filter(k=>logs[k]?.[ex.id]?.v>0).sort();
+    const total = all.reduce((a,k)=>a+logs[k][ex.id].v,0);
+    const bestK = all.reduce((b,k)=> (!b || logs[k][ex.id].v > logs[b][ex.id].v) ? k : b, null);
+    const sum = (from,to) => Array.from({length:to-from+1},(_,i)=>logs[saudeAdd(today,-(from+i))]?.[ex.id]?.v||0).reduce((a,b)=>a+b,0);
+    const w1 = sum(0,6), w0 = sum(7,13);
+    const pct = w0>0 ? Math.round((w1-w0)/w0*100) : null;
+    const first3 = all.slice(0,3), last3 = all.slice(-3);
+    const avgOf = (ks) => ks.length ? ks.reduce((a,k)=>a+logs[k][ex.id].v,0)/ks.length : 0;
+    const evo = (first3.length>=3 && avgOf(first3)>0) ? Math.round((avgOf(last3)-avgOf(first3))/avgOf(first3)*100) : null;
+    const stat = (label, val, sub) => (
+      <div style={{...card,padding:14,textAlign:"center"}}>
+        <div style={{fontSize:22,fontWeight:800,color:"var(--text-1)"}}>{val}</div>
+        <div style={{fontSize:11.5,color:"var(--text-3)",marginTop:2}}>{label}</div>
+        {sub && <div style={{fontSize:11,color:"var(--text-3)",marginTop:2}}>{sub}</div>}
+      </div>
+    );
+    return (
+      <div style={{display:"grid",gap:14}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
+          {stat("🔥 sequência atual", `${streak.cur} dia${streak.cur===1?"":"s"}`)}
+          {stat("🏆 melhor sequência", `${streak.best} dia${streak.best===1?"":"s"}`)}
+          {stat("📆 dias treinados", streak.days)}
+          {stat("🏅 conquistas", `${unlockedCount}/${SAUDE_ACH.length}`)}
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {exercises.map((e,i)=><button key={e.id} onClick={()=>setStatEx(e.id)} style={chip(ex.id===e.id, exColor(e,i))}>{e.emoji} {e.label}</button>)}
+        </div>
+        <div style={card}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
+            <div style={{fontWeight:800,fontSize:15}}>{ex.emoji} {ex.label} — últimos {range} dias</div>
+            <div style={{display:"flex",gap:6}}>{[7,30,90].map(r=><button key={r} onClick={()=>setRange(r)} style={{...chip(range===r),padding:"4px 10px",fontSize:12}}>{r}d</button>)}</div>
+          </div>
+          <SaudeBars data={series} color={color} unit={ex.unit}/>
+          <div style={{fontSize:11,color:"var(--text-3)",marginTop:6}}>Barras = valor do dia · linha = média móvel de 7 dias</div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
+          {stat(`total (${ex.unit})`, saudeFmt(total))}
+          {stat("média por treino", saudeFmt(avgOf(all)), `${all.length} dia(s)`)}
+          {stat("melhor dia", bestK?saudeFmt(logs[bestK][ex.id].v):"—", bestK?saudeLabel(bestK):"")}
+          {stat("7 dias vs 7 anteriores", pct===null?"—":`${pct>=0?"+":""}${pct}%`, `${saudeFmt(w1)} vs ${saudeFmt(w0)}`)}
+          {stat("evolução (início → agora)", evo===null?"—":`${evo>=0?"+":""}${evo}%`, "3 primeiros vs 3 últimos")}
+        </div>
+      </div>
+    );
+  };
+
+  // ── Aba CONQUISTAS ──
+  const renderAch = () => (
+    <div style={{display:"grid",gap:14}}>
+      <div style={{...card,display:"flex",alignItems:"center",gap:14}}>
+        <div style={{fontSize:34}}>🏅</div>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:800,fontSize:16}}>{unlockedCount} de {SAUDE_ACH.length} conquistas</div>
+          <div style={{height:8,background:"var(--bg-input)",borderRadius:6,marginTop:6,overflow:"hidden"}}>
+            <div style={{width:`${unlockedCount/SAUDE_ACH.length*100}%`,height:"100%",background:"var(--green)"}}/>
+          </div>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:12}}>
+        {[...SAUDE_ACH].sort((a,b)=>(ach.unlocked[b.id]?1:0)-(ach.unlocked[a.id]?1:0)).map(a=>{
+          const got = ach.unlocked[a.id]; const t = SAUDE_TIER[a.tier];
+          const cur = Math.min(a.val(ach.state), a.goal);
+          return (
+            <div key={a.id} style={{...card,padding:14,opacity:got?1:0.6,borderColor:got?t.c:"var(--border)",borderWidth:got?2:1,position:"relative"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:46,height:46,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,
+                  background:got?t.c:"var(--bg-input)",filter:got?"none":"grayscale(1)"}}>{got?a.emoji:"🔒"}</div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontWeight:800,fontSize:13.5,lineHeight:1.2}}>{a.title}</div>
+                  <div style={{fontSize:10.5,fontWeight:800,letterSpacing:0.8,color:t.c,marginTop:2}}>{t.label.toUpperCase()}</div>
+                </div>
+              </div>
+              <div style={{fontSize:12,color:"var(--text-3)",marginTop:8}}>{a.desc}</div>
+              {got
+                ? <div style={{fontSize:11.5,color:"var(--green)",fontWeight:700,marginTop:6}}>Desbloqueada em {saudeLabel(got)}</div>
+                : <div style={{marginTop:8}}>
+                    <div style={{height:5,background:"var(--bg-input)",borderRadius:4,overflow:"hidden"}}><div style={{width:`${cur/a.goal*100}%`,height:"100%",background:t.c}}/></div>
+                    <div style={{fontSize:11,color:"var(--text-3)",marginTop:3}}>{saudeFmt(cur)} / {saudeFmt(a.goal)}</div>
+                  </div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{maxWidth:900,margin:"0 auto"}}>
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        {[["hoje","📝 Registrar"],["cal","📅 Calendário"],["stats","📊 Estatísticas"],["ach","🏅 Conquistas"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setTab(k)} style={chip(tab===k)}>{l}</button>
+        ))}
+        <div style={{marginLeft:"auto",fontSize:13,fontWeight:700,color:"var(--text-2)",alignSelf:"center"}}>🔥 {streak.cur} dia{streak.cur===1?"":"s"} seguidos</div>
+      </div>
+      {tab==="hoje" && renderDay()}
+      {tab==="cal" && renderCal()}
+      {tab==="stats" && renderStats()}
+      {tab==="ach" && renderAch()}
+
+      {modal && (
+        <Modal title="Novo exercício" onClose={()=>setModal(false)}>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <input style={inp} placeholder="Nome (ex: Prancha, Barra fixa)" value={form.label} onChange={e=>setForm({...form,label:e.target.value})}/>
+            <div style={{display:"flex",gap:10}}>
+              <input style={{...inp,width:80,textAlign:"center"}} placeholder="😀" value={form.emoji} onChange={e=>setForm({...form,emoji:e.target.value})}/>
+              <input style={inp} placeholder="Unidade (reps, min, km...)" value={form.unit} onChange={e=>setForm({...form,unit:e.target.value})}/>
+            </div>
+            <button onClick={addExercise} style={btn()}>Adicionar</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function SaudeCard({ onClick }) {
+  const [store] = useKV("saude_v1", { exercises: SAUDE_DEFAULT_EX, logs: {} });
+  const logs = store?.logs || {};
+  const today = saudeKey(new Date());
+  const st = saudeStreaks(logs, today);
+  const done = saudeDayHas(logs[today]);
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("#8a1c3a"), height:"100%"}}>
+      <CardHeader icon="heart" label="Saúde"/>
+      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>🔥 {st.cur}</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>dia{st.cur===1?"":"s"} seguido{st.cur===1?"":"s"}</div>
+      <CardFooter><span>{done?"✔ treino de hoje feito":"Hoje: ainda sem registro"}</span></CardFooter>
+    </div>
+  );
+}
+
 // ─── HOME DASHBOARD (v4 design) ────────────────────────────────────────────────
 function homeCardStyle(color) {
   return {
@@ -5321,6 +5744,7 @@ const DASH_CARD_DEFS = [
   { id:"lembretes",  nav:"reminders", defC:1, defR:1 },
   { id:"infos",      nav:"infos",     defC:1, defR:1 },
   { id:"jarbas",     nav:"jarbas",    defC:1, defR:1 },
+  { id:"saude",      nav:"saude",     defC:1, defR:1 },
   { id:"panorama",   nav:null, href:PANORAMA_URL, defC:1, defR:1 },
 ];
 const DASH_DEFAULT_ORDER = DASH_CARD_DEFS.map(c=>c.id);
@@ -5350,7 +5774,7 @@ const DASH_COMPONENTS = {
   diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
   djmix: DJMixCard, tempo: TempoCard,
-  lembretes: LembretesCard, infos: InfosCard, jarbas: JarbasCard, panorama: PanoramaCard,
+  lembretes: LembretesCard, infos: InfosCard, jarbas: JarbasCard, saude: SaudeCard, panorama: PanoramaCard,
 };
 
 const DESKTOP_BREAKPOINT = 1200; // matches the .dash-grid CSS breakpoint
@@ -6001,6 +6425,7 @@ const PAGE_META = {
   bat:          {label:".BAT / Scripts",     emoji:"💻"},
   letreiro:     {label:"Letreiro",             emoji:"📺"},
   dj:           {label:"DJ Mix",               emoji:"🎧"},
+  saude:        {label:"Saúde",                emoji:"❤️"},
 };
 
 // ─── BAT PAGE ─────────────────────────────────────────────────────────────────
@@ -7290,6 +7715,7 @@ export default function App() {
       case "dj":         return <DJPage/>;
       case "projects":   return <ProjectsPage/>;
       case "jarbas":     return <JarbasPage/>;
+      case "saude":      return <SaudePage/>;
       default:           return <HomePage onNavigate={setPage}/>;
     }
   };
