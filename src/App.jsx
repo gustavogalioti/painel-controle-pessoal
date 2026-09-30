@@ -7919,7 +7919,10 @@ export default function App() {
   };
 
   return (
-    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+    <div style={{minHeight:"100vh",
+      height:(page==="home"||page==="projects"||page==="dj")?"100dvh":"auto",
+      overflow:(page==="home"||page==="projects"||page==="dj")?"hidden":"visible",
+      display:"flex",flexDirection:"column"}}>
       {/* TOP BAR */}
       <header style={{background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",padding:"0 20px",height:64,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
