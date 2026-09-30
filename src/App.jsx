@@ -5957,7 +5957,7 @@ function DashSlot({ tileRef, id, col, row, orderIdx, editMode, isDragging, onPoi
     <div
       ref={tileRef}
       className={`dash-slot${editMode?" edit-mode":""}${isDragging?" dragging":""}`}
-      style={{ gridColumn:`span ${col}`, gridRow:`span ${row}`, order: orderIdx, aspectRatio:`${col} / ${row}`,
+      style={{ gridColumn:`span ${col}`, gridRow:`span ${row}`, order: orderIdx,
         touchAction: editMode?"none":"auto", cursor: editMode?(isDragging?"grabbing":"grab"):"default" }}
       onMouseDown={onPointerDown} onTouchStart={onPointerDown}>
       {children}
@@ -6122,7 +6122,7 @@ function HomePage({ onNavigate }) {
         </div>
       )}
 
-      <div className="dash-grid">
+      <div className="dash-wrap"><div className="dash-grid">
         {fullOrder.map((id, idx) => {
           const def = DASH_CARD_DEFS.find(c=>c.id===id);
           const size = sizes[id] || {c:def.defC, r:def.defR};
@@ -6136,7 +6136,7 @@ function HomePage({ onNavigate }) {
             </DashSlot>
           );
         })}
-      </div>
+      </div></div>
 
       {dragId && ghostRect && DragComp && createPortal(
         <div ref={ghostElRef} style={{
