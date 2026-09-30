@@ -5974,6 +5974,34 @@ function DashSlot({ tileRef, id, pos, editMode, isDragging, onPointerDown, onRes
 
 // Empacota os blocos em pixels reais (tipo masonry): cada bloco encosta no vizinho
 // mais curto disponível, sem depender do navegador calcular altura de linha do grid.
+// Segunda camada, independente do calculo acima: garante que NENHUM par de tiles fique
+// mais perto do que "gap", em qualquer direcao — mesmo que o empacotamento tenha algum
+// caso nao previsto (tamanho customizado fora do padrao, arredondamento, etc). Roda em
+// algumas passadas ate estabilizar; com poucas dezenas de tiles isso e desprezível em custo.
+function enforceMinGap(positions, ids, gap) {
+  for (let pass = 0; pass < 4; pass++) {
+    let changed = false;
+    for (let i = 0; i < ids.length; i++) {
+      const a = positions[ids[i]]; if (!a) continue;
+      for (let j = 0; j < ids.length; j++) {
+        if (i === j) continue;
+        const b = positions[ids[j]]; if (!b) continue;
+        const overlapX = a.left < b.left + b.width - 0.01 && b.left < a.left + a.width - 0.01;
+        const overlapY = a.top < b.top + b.height - 0.01 && b.top < a.top + a.height - 0.01;
+        const vertGapTooSmall = overlapX && !overlapY && a.top + a.height <= b.top && (b.top - (a.top + a.height)) < gap - 0.5;
+        if ((overlapX && overlapY) || vertGapTooSmall) {
+          const newTop = a.top + a.height + gap;
+          if (b.top < newTop) { b.top = newTop; changed = true; }
+        }
+      }
+    }
+    if (!changed) break;
+  }
+  let maxBottom = 0;
+  ids.forEach(id => { const p = positions[id]; if (p) maxBottom = Math.max(maxBottom, p.top + p.height); });
+  return maxBottom;
+}
+
 function packDashLayout(order, sizes, defs, numCols, colWidth, gap) {
   const colBottoms = new Array(numCols).fill(0);
   const positions = {};
@@ -5982,8 +6010,9 @@ function packDashLayout(order, sizes, defs, numCols, colWidth, gap) {
     const def = defs.find(d=>d.id===id);
     if (!def) return;
     const raw = sizes[id] || { c:def.defC, r:def.defR };
-    const c = Math.max(1, Math.min(raw.c, numCols));
-    const r = Math.max(1, raw.r);
+    // Sanitiza: um tamanho customizado corrompido/antigo nunca deve gerar uma coluna/linha invalida.
+    const c = Math.max(1, Math.min(Math.round(Number(raw.c)) || def.defC, numCols));
+    const r = Math.max(1, Math.round(Number(raw.r)) || def.defR);
     const width = colWidth*c + gap*(c-1);
     const height = colWidth*r + gap*(r-1);
     let bestStart = 0, bestTop = Infinity;
@@ -5998,7 +6027,8 @@ function packDashLayout(order, sizes, defs, numCols, colWidth, gap) {
     for (let i=bestStart; i<bestStart+c; i++) colBottoms[i] = newBottom;
     maxBottom = Math.max(maxBottom, newBottom);
   });
-  return { positions, height: Math.max(0, maxBottom-gap) };
+  const enforcedMaxBottom = enforceMinGap(positions, order, gap);
+  return { positions, height: Math.max(0, Math.max(maxBottom, enforcedMaxBottom)-gap) };
 }
 
 function useElementWidth() {
