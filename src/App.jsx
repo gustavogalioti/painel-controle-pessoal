@@ -7964,22 +7964,24 @@ export default function App() {
       {/* CONTENT */}
       <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="dj")?"0":"24px 20px",maxWidth: (page==="home"||page==="projects"||page==="dj")?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="dj")?"hidden":"visible",position:"relative"}}>
         {(page==="home"||page==="projects"||page==="dj") ? (
-          <div style={{display:"flex",width:"200%",height:"100%",transform:`translateX(${page==="projects"?"-50%":"0%"})`,transition:"transform .35s ease"}}>
-            <div style={{width:"50%",height:"100%",flexShrink:0,overflow:"hidden",position:"relative"}}>
-              {/* Coluna da esquerda desliza na vertical: Menu <-> DJ Mix */}
-              <div style={{display:"flex",flexDirection:"column",width:"100%",height:"200%",transform:`translateY(${page==="dj"?"-50%":"0%"})`,transition:"transform .35s ease"}}>
-                <div style={{width:"100%",height:"50%",flexShrink:0,overflowY:"auto",position:"relative"}}>
-                  <HomePage onNavigate={setPage}/>
-                </div>
-                <div style={{width:"100%",height:"50%",flexShrink:0,overflowY:"auto",position:"relative"}}>
-                  <DJPage/>
-                </div>
-              </div>
+          <>
+            {/* Cada aba ocupa 100% do main (que já tem altura definida) e só desliza — sem cascata de porcentagens */}
+            <div style={{position:"absolute",inset:0,overflowY:"auto",
+              transform:`translate(${page==="projects"?"-100%":"0%"}, ${page==="dj"?"-100%":"0%"})`,
+              transition:"transform .35s ease"}}>
+              <HomePage onNavigate={setPage}/>
             </div>
-            <div style={{width:"50%",height:"100%",flexShrink:0,overflowY:"auto",position:"relative"}}>
+            <div style={{position:"absolute",inset:0,overflowY:"auto",
+              transform:`translateX(${page==="projects"?"0%":"100%"})`,
+              transition:"transform .35s ease"}}>
               <ProjectsPage/>
             </div>
-          </div>
+            <div style={{position:"absolute",inset:0,overflowY:"auto",
+              transform:`translateY(${page==="dj"?"0%":"100%"})`,
+              transition:"transform .35s ease"}}>
+              <DJPage/>
+            </div>
+          </>
         ) : renderPage()}
         {(page==="home"||page==="projects"||page==="dj") && createPortal(
           <>
@@ -8009,7 +8011,7 @@ export default function App() {
             )}
             {page==="dj" && (
               <button onClick={()=>setPage("home")} title="Voltar ao Menu"
-                style={{position:"fixed",left:"50%",top:74,transform:"translateX(-50%)",zIndex:200,
+                style={{position:"fixed",left:"50%",top:114,transform:"translateX(-50%)",zIndex:200,
                   width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
                   display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
                 <Icon path={I.up} size={18}/>
