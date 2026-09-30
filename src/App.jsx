@@ -5936,12 +5936,13 @@ function TempoCard({ onClick }) {
 const DASH_CARD_DEFS = [
   { id:"diario",     nav:"diary",     defC:1, defR:2 },
   { id:"ideias",     nav:"ideas",     defC:1, defR:1 },
-  { id:"tarefas",    nav:"tasks",     defC:2, defR:2 },
+  { id:"tarefas",    nav:"tasks",     defC:1, defR:1 },
   { id:"rascunhos",  nav:"rascunhos", defC:2, defR:1 },
   { id:"listas",     nav:"lists",     defC:1, defR:1 },
   { id:"documentos", nav:"docs",      defC:1, defR:1 },
-  { id:"agenda",     nav:"events",    defC:2, defR:2 },
+  { id:"agenda",     nav:"events",    defC:1, defR:1 },
   { id:"contas",     nav:"bills",     defC:1, defR:1 },
+  { id:"djmix",      nav:"dj",        defC:1, defR:1 },
   { id:"tempo",      nav:"weather",   defC:1, defR:1 },
   { id:"infos",      nav:"infos",     defC:1, defR:1 },
   { id:"jarbas",     nav:"jarbas",    defC:1, defR:1 },
@@ -5951,13 +5952,12 @@ const DASH_CARD_DEFS = [
 const DASH_DEFAULT_ORDER = DASH_CARD_DEFS.map(c=>c.id);
 const DASH_SIZE_CYCLE = [{c:1,r:1},{c:2,r:1},{c:1,r:2},{c:2,r:2}];
 
-function DashSlot({ tileRef, id, pos, editMode, isDragging, onPointerDown, onResize, children }) {
+function DashSlot({ tileRef, id, col, row, orderIdx, editMode, isDragging, onPointerDown, onResize, children }) {
   return (
     <div
       ref={tileRef}
       className={`dash-slot${editMode?" edit-mode":""}${isDragging?" dragging":""}`}
-      style={{ position:"absolute", left:pos.left, top:pos.top, width:pos.width, height:pos.height,
-        transition: isDragging ? "none" : "left .2s ease, top .2s ease, width .2s ease, height .2s ease",
+      style={{ gridColumn:`span ${col}`, gridRow:`span ${row}`, order: orderIdx, aspectRatio:`${col} / ${row}`,
         touchAction: editMode?"none":"auto", cursor: editMode?(isDragging?"grabbing":"grab"):"default" }}
       onMouseDown={onPointerDown} onTouchStart={onPointerDown}>
       {children}
@@ -5972,84 +5972,10 @@ function DashSlot({ tileRef, id, pos, editMode, isDragging, onPointerDown, onRes
   );
 }
 
-// Empacota os blocos em pixels reais (tipo masonry): cada bloco encosta no vizinho
-// mais curto disponível, sem depender do navegador calcular altura de linha do grid.
-// Segunda camada, independente do calculo acima: garante que NENHUM par de tiles fique
-// mais perto do que "gap", em qualquer direcao — mesmo que o empacotamento tenha algum
-// caso nao previsto (tamanho customizado fora do padrao, arredondamento, etc). Roda em
-// algumas passadas ate estabilizar; com poucas dezenas de tiles isso e desprezível em custo.
-function enforceMinGap(positions, ids, gap) {
-  for (let pass = 0; pass < 4; pass++) {
-    let changed = false;
-    for (let i = 0; i < ids.length; i++) {
-      const a = positions[ids[i]]; if (!a) continue;
-      for (let j = 0; j < ids.length; j++) {
-        if (i === j) continue;
-        const b = positions[ids[j]]; if (!b) continue;
-        const overlapX = a.left < b.left + b.width - 0.01 && b.left < a.left + a.width - 0.01;
-        const overlapY = a.top < b.top + b.height - 0.01 && b.top < a.top + a.height - 0.01;
-        const vertGapTooSmall = overlapX && !overlapY && a.top + a.height <= b.top && (b.top - (a.top + a.height)) < gap - 0.5;
-        if ((overlapX && overlapY) || vertGapTooSmall) {
-          const newTop = a.top + a.height + gap;
-          if (b.top < newTop) { b.top = newTop; changed = true; }
-        }
-      }
-    }
-    if (!changed) break;
-  }
-  let maxBottom = 0;
-  ids.forEach(id => { const p = positions[id]; if (p) maxBottom = Math.max(maxBottom, p.top + p.height); });
-  return maxBottom;
-}
-
-function packDashLayout(order, sizes, defs, numCols, colWidth, gap) {
-  const colBottoms = new Array(numCols).fill(0);
-  const positions = {};
-  let maxBottom = 0;
-  order.forEach(id => {
-    const def = defs.find(d=>d.id===id);
-    if (!def) return;
-    const raw = sizes[id] || { c:def.defC, r:def.defR };
-    // Sanitiza: um tamanho customizado corrompido/antigo nunca deve gerar uma coluna/linha invalida.
-    const c = Math.max(1, Math.min(Math.round(Number(raw.c)) || def.defC, numCols));
-    const r = Math.max(1, Math.round(Number(raw.r)) || def.defR);
-    const width = colWidth*c + gap*(c-1);
-    const height = colWidth*r + gap*(r-1);
-    let bestStart = 0, bestTop = Infinity;
-    for (let start = 0; start <= numCols-c; start++) {
-      let top = 0;
-      for (let i=start; i<start+c; i++) top = Math.max(top, colBottoms[i]);
-      if (top < bestTop) { bestTop = top; bestStart = start; }
-    }
-    const left = bestStart*(colWidth+gap);
-    positions[id] = { left, top:bestTop, width, height };
-    const newBottom = bestTop + height + gap;
-    for (let i=bestStart; i<bestStart+c; i++) colBottoms[i] = newBottom;
-    maxBottom = Math.max(maxBottom, newBottom);
-  });
-  const enforcedMaxBottom = enforceMinGap(positions, order, gap);
-  return { positions, height: Math.max(0, Math.max(maxBottom, enforcedMaxBottom)-gap) };
-}
-
-function useElementWidth() {
-  const ref = useRef(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    if (!ref.current) return;
-    const el = ref.current;
-    const update = () => setWidth(el.getBoundingClientRect().width);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  return [ref, width];
-}
-
 const DASH_COMPONENTS = {
   diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
-  tempo: TempoCard,
+  djmix: DJMixCard, tempo: TempoCard,
   infos: InfosCard, jarbas: JarbasCard, saude: SaudeCard, panorama: PanoramaCard,
 };
 
@@ -6176,12 +6102,6 @@ function HomePage({ onNavigate }) {
   const dragDef = dragId ? DASH_CARD_DEFS.find(c=>c.id===dragId) : null;
   const DragComp = dragId ? DASH_COMPONENTS[dragId] : null;
 
-  const [gridRef, containerWidth] = useElementWidth();
-  const numCols = containerWidth < 640 ? 2 : containerWidth < 1150 ? 3 : 7;
-  const GAP = 16;
-  const colWidth = containerWidth > 0 ? (containerWidth - GAP*(numCols-1)) / numCols : 0;
-  const { positions, height: gridHeight } = packDashLayout(fullOrder, sizes, DASH_CARD_DEFS, numCols, colWidth, GAP);
-
   return (
     <div style={{padding:"24px 24px 40px", minHeight:"calc(100vh - 148px)"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,flexWrap:"wrap",gap:10}}>
@@ -6202,14 +6122,13 @@ function HomePage({ onNavigate }) {
         </div>
       )}
 
-      <div ref={gridRef} style={{position:"relative", width:"100%", height: containerWidth>0 ? gridHeight : undefined}}>
-        {fullOrder.map((id) => {
+      <div className="dash-grid">
+        {fullOrder.map((id, idx) => {
           const def = DASH_CARD_DEFS.find(c=>c.id===id);
-          const pos = positions[id];
-          if (!pos) return null;
+          const size = sizes[id] || {c:def.defC, r:def.defR};
           const Comp = DASH_COMPONENTS[id];
           return (
-            <DashSlot key={id} tileRef={el=>slotRefs.current[id]=el} id={id} pos={pos}
+            <DashSlot key={id} tileRef={el=>slotRefs.current[id]=el} id={id} col={size.c} row={size.r} orderIdx={idx}
               editMode={editMode} isDragging={dragId===id}
               onPointerDown={(e)=>onSlotPointerDown(e,id)}
               onResize={()=>cycleSize(id)}>
@@ -7267,15 +7186,15 @@ function DJPage() {
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
         <div style={{display:"flex",gap:14,flex:1,minHeight:0,flexWrap:"wrap"}}>
           {/* GRID DE PADS */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,flex:"1 1 480px",alignContent:"start"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,flex:"1 1 480px",alignContent:"start"}}>
             {pads.map(pad=>(
               <button key={pad.id} onClick={()=>editMode? setPendingPad(pad) : triggerPad(pad)}
-                style={{aspectRatio:"2.2",borderRadius:8,border:`1px solid ${pad.type!=="empty"?"var(--accent)":"var(--border)"}`,
+                style={{aspectRatio:"1.3",borderRadius:10,border:`1px solid ${pad.type!=="empty"?"var(--accent)":"var(--border)"}`,
                   background: pad.type==="sound" ? "linear-gradient(135deg,#3a7bd5,#2a5aa5)" : pad.type==="control" ? "var(--bg-input)" : "var(--bg-sub)",
                   color:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-                  padding:4,gap:1, boxShadow: pad.type!=="empty" ? "0 2px 8px rgba(0,0,0,.25)" : "none"}}>
-                <span style={{fontSize:9.5,fontWeight:800,opacity:.7}}>PAD{pad.id+1}</span>
-                <span style={{fontSize:10.5,fontWeight:700,textAlign:"center",lineHeight:1.1}}>{pad.label}</span>
+                  padding:6,gap:2, boxShadow: pad.type!=="empty" ? "0 2px 8px rgba(0,0,0,.25)" : "none"}}>
+                <span style={{fontSize:11,fontWeight:800,opacity:.7}}>PAD{pad.id+1}</span>
+                <span style={{fontSize:12,fontWeight:700,textAlign:"center",lineHeight:1.15}}>{pad.label}</span>
               </button>
             ))}
           </div>
@@ -7993,6 +7912,7 @@ export default function App() {
       case "whiteboard": return <WhiteboardPage/>;
       case "bat":          return <BatPage/>;
       case "letreiro":      return <LetreirPage/>;
+      case "dj":         return <DJPage/>;
       case "projects":   return <ProjectsPage/>;
       case "jarbas":     return <JarbasPage/>;
       case "saude":      return <SaudePage/>;
@@ -8001,10 +7921,7 @@ export default function App() {
   };
 
   return (
-    <div style={{minHeight:"100vh",
-      height:(page==="home"||page==="projects"||page==="dj")?"100dvh":"auto",
-      overflow:(page==="home"||page==="projects"||page==="dj")?"hidden":"visible",
-      display:"flex",flexDirection:"column"}}>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
       {/* TOP BAR */}
       <header style={{background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",padding:"0 20px",height:64,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
@@ -8044,64 +7961,29 @@ export default function App() {
       )}
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="dj")?"0":"24px 20px",maxWidth: (page==="home"||page==="projects"||page==="dj")?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="dj")?"hidden":"visible",position:"relative"}}>
-        {(page==="home"||page==="projects"||page==="dj") ? (
-          <>
-            {/* Cada aba ocupa 100% do main (que já tem altura definida) e só desliza — sem cascata de porcentagens */}
-            <div style={{position:"absolute",inset:0,overflowY:"auto",
-              transform:`translate(${page==="projects"?"-100%":"0%"}, ${page==="dj"?"-100%":"0%"})`,
-              transition:"transform .35s ease"}}>
+      <main style={{flex:1,padding: (page==="home"||page==="projects")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects")?"hidden":"visible",position:"relative"}}>
+        {(page==="home"||page==="projects") ? (
+          <div style={{display:"flex",width:"200%",transform:`translateX(${page==="home"?"0%":"-50%"})`,transition:"transform .35s ease"}}>
+            <div style={{width:"50%",flexShrink:0,position:"relative"}}>
               <HomePage onNavigate={setPage}/>
-            </div>
-            <div style={{position:"absolute",inset:0,overflowY:"auto",
-              transform:`translateX(${page==="projects"?"0%":"100%"})`,
-              transition:"transform .35s ease"}}>
-              <ProjectsPage/>
-            </div>
-            <div style={{position:"absolute",inset:0,overflowY:"auto",
-              transform:`translateY(${page==="dj"?"0%":"100%"})`,
-              transition:"transform .35s ease"}}>
-              <DJPage/>
-            </div>
-          </>
-        ) : renderPage()}
-        {(page==="home"||page==="projects"||page==="dj") && createPortal(
-          <>
-            {page==="home" && (
               <button onClick={()=>setPage("projects")} title="Ir para Projetos"
-                style={{position:"fixed",right:10,top:"50%",transform:"translateY(-50%)",zIndex:200,
+                style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
                   width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
                   display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
                 <Icon path={I.next} size={18}/>
               </button>
-            )}
-            {page==="home" && (
-              <button onClick={()=>setPage("dj")} title="Ir para DJ Mix"
-                style={{position:"fixed",left:"50%",bottom:14,transform:"translateX(-50%)",zIndex:200,
-                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
-                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
-                <Icon path={I.down} size={18}/>
-              </button>
-            )}
-            {page==="projects" && (
+            </div>
+            <div style={{width:"50%",flexShrink:0,position:"relative"}}>
+              <ProjectsPage/>
               <button onClick={()=>setPage("home")} title="Voltar ao Menu"
-                style={{position:"fixed",left:10,top:"50%",transform:"translateY(-50%)",zIndex:200,
+                style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
                   width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.08)",border:"1px solid var(--border)",
                   display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)"}}>
                 <Icon path={I.back} size={18}/>
               </button>
-            )}
-            {page==="dj" && (
-              <button onClick={()=>setPage("home")} title="Voltar ao Menu"
-                style={{position:"fixed",left:"50%",top:114,transform:"translateX(-50%)",zIndex:200,
-                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
-                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
-                <Icon path={I.up} size={18}/>
-              </button>
-            )}
-          </>,
-          document.body
-        )}
+            </div>
+          </div>
+        ) : renderPage()}
       </main>
 
       <footer style={{borderTop:"1px solid var(--border-2)",padding:"8px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
