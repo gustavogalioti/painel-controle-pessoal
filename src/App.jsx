@@ -5951,12 +5951,13 @@ const DASH_CARD_DEFS = [
 const DASH_DEFAULT_ORDER = DASH_CARD_DEFS.map(c=>c.id);
 const DASH_SIZE_CYCLE = [{c:1,r:1},{c:2,r:1},{c:1,r:2},{c:2,r:2}];
 
-function DashSlot({ tileRef, id, col, row, orderIdx, editMode, isDragging, onPointerDown, onResize, children }) {
+function DashSlot({ tileRef, id, pos, editMode, isDragging, onPointerDown, onResize, children }) {
   return (
     <div
       ref={tileRef}
       className={`dash-slot${editMode?" edit-mode":""}${isDragging?" dragging":""}`}
-      style={{ gridColumn:`span ${col}`, gridRow:`span ${row}`, order: orderIdx, aspectRatio:`${col} / ${row}`,
+      style={{ position:"absolute", left:pos.left, top:pos.top, width:pos.width, height:pos.height,
+        transition: isDragging ? "none" : "left .2s ease, top .2s ease, width .2s ease, height .2s ease",
         touchAction: editMode?"none":"auto", cursor: editMode?(isDragging?"grabbing":"grab"):"default" }}
       onMouseDown={onPointerDown} onTouchStart={onPointerDown}>
       {children}
@@ -5969,6 +5970,50 @@ function DashSlot({ tileRef, id, col, row, orderIdx, editMode, isDragging, onPoi
       )}
     </div>
   );
+}
+
+// Empacota os blocos em pixels reais (tipo masonry): cada bloco encosta no vizinho
+// mais curto disponível, sem depender do navegador calcular altura de linha do grid.
+function packDashLayout(order, sizes, defs, numCols, colWidth, gap) {
+  const colBottoms = new Array(numCols).fill(0);
+  const positions = {};
+  let maxBottom = 0;
+  order.forEach(id => {
+    const def = defs.find(d=>d.id===id);
+    if (!def) return;
+    const raw = sizes[id] || { c:def.defC, r:def.defR };
+    const c = Math.max(1, Math.min(raw.c, numCols));
+    const r = Math.max(1, raw.r);
+    const width = colWidth*c + gap*(c-1);
+    const height = width * (r/c);
+    let bestStart = 0, bestTop = Infinity;
+    for (let start = 0; start <= numCols-c; start++) {
+      let top = 0;
+      for (let i=start; i<start+c; i++) top = Math.max(top, colBottoms[i]);
+      if (top < bestTop) { bestTop = top; bestStart = start; }
+    }
+    const left = bestStart*(colWidth+gap);
+    positions[id] = { left, top:bestTop, width, height };
+    const newBottom = bestTop + height + gap;
+    for (let i=bestStart; i<bestStart+c; i++) colBottoms[i] = newBottom;
+    maxBottom = Math.max(maxBottom, newBottom);
+  });
+  return { positions, height: Math.max(0, maxBottom-gap) };
+}
+
+function useElementWidth() {
+  const ref = useRef(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    if (!ref.current) return;
+    const el = ref.current;
+    const update = () => setWidth(el.getBoundingClientRect().width);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, width];
 }
 
 const DASH_COMPONENTS = {
@@ -6101,6 +6146,12 @@ function HomePage({ onNavigate }) {
   const dragDef = dragId ? DASH_CARD_DEFS.find(c=>c.id===dragId) : null;
   const DragComp = dragId ? DASH_COMPONENTS[dragId] : null;
 
+  const [gridRef, containerWidth] = useElementWidth();
+  const numCols = containerWidth < 640 ? 2 : containerWidth < 1150 ? 3 : 7;
+  const GAP = 16;
+  const colWidth = containerWidth > 0 ? (containerWidth - GAP*(numCols-1)) / numCols : 0;
+  const { positions, height: gridHeight } = packDashLayout(fullOrder, sizes, DASH_CARD_DEFS, numCols, colWidth, GAP);
+
   return (
     <div style={{padding:"24px 24px 40px", minHeight:"calc(100vh - 148px)"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,flexWrap:"wrap",gap:10}}>
@@ -6121,13 +6172,14 @@ function HomePage({ onNavigate }) {
         </div>
       )}
 
-      <div className={`dash-grid${dragId?" dragging-now":""}`}>
-        {fullOrder.map((id, idx) => {
+      <div ref={gridRef} style={{position:"relative", width:"100%", height: containerWidth>0 ? gridHeight : undefined}}>
+        {fullOrder.map((id) => {
           const def = DASH_CARD_DEFS.find(c=>c.id===id);
-          const size = sizes[id] || {c:def.defC, r:def.defR};
+          const pos = positions[id];
+          if (!pos) return null;
           const Comp = DASH_COMPONENTS[id];
           return (
-            <DashSlot key={id} tileRef={el=>slotRefs.current[id]=el} id={id} col={size.c} row={size.r} orderIdx={idx}
+            <DashSlot key={id} tileRef={el=>slotRefs.current[id]=el} id={id} pos={pos}
               editMode={editMode} isDragging={dragId===id}
               onPointerDown={(e)=>onSlotPointerDown(e,id)}
               onResize={()=>cycleSize(id)}>
