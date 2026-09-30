@@ -5936,11 +5936,11 @@ function TempoCard({ onClick }) {
 const DASH_CARD_DEFS = [
   { id:"diario",     nav:"diary",     defC:1, defR:2 },
   { id:"ideias",     nav:"ideas",     defC:1, defR:1 },
-  { id:"tarefas",    nav:"tasks",     defC:1, defR:1 },
+  { id:"tarefas",    nav:"tasks",     defC:2, defR:2 },
   { id:"rascunhos",  nav:"rascunhos", defC:2, defR:1 },
   { id:"listas",     nav:"lists",     defC:1, defR:1 },
   { id:"documentos", nav:"docs",      defC:1, defR:1 },
-  { id:"agenda",     nav:"events",    defC:1, defR:1 },
+  { id:"agenda",     nav:"events",    defC:2, defR:2 },
   { id:"contas",     nav:"bills",     defC:1, defR:1 },
   { id:"tempo",      nav:"weather",   defC:1, defR:1 },
   { id:"infos",      nav:"infos",     defC:1, defR:1 },
