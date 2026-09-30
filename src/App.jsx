@@ -5985,7 +5985,7 @@ function packDashLayout(order, sizes, defs, numCols, colWidth, gap) {
     const c = Math.max(1, Math.min(raw.c, numCols));
     const r = Math.max(1, raw.r);
     const width = colWidth*c + gap*(c-1);
-    const height = width * (r/c);
+    const height = colWidth*r + gap*(r-1);
     let bestStart = 0, bestTop = Infinity;
     for (let start = 0; start <= numCols-c; start++) {
       let top = 0;
