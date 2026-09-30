@@ -1959,6 +1959,139 @@ function DiaryNotesPanel() {
   );
 }
 
+// ─── LEMBRETES — versão compacta, dentro do Diário; agenda quando tem data ─────
+function DiaryRemindersPanel() {
+  const [entries, setEntries, synced] = useKV("reminders_v1", []);
+  const [, setEvents] = useKV("events_v1", []);
+  const [text, setText] = useState("");
+  const [schedDate, setSchedDate] = useState("");
+  const [schedTime, setSchedTime] = useState("");
+  const [showSched, setShowSched] = useState(false);
+  const [filter, setFilter] = useState("todo");
+  const [editing, setEditing] = useState(null);
+  const [editText, setEditText] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editTime, setEditTime] = useState("");
+
+  const add = () => {
+    if (!text.trim()) return;
+    const id = Date.now();
+    let eventId = null;
+    if (schedDate) {
+      eventId = id + 1;
+      setEvents(prev => [...prev, { id:eventId, title:text.trim(), date:schedDate, time:schedTime||"", local:"", cat:"Pessoal", notes:"🔔 Lembrete" }]);
+    }
+    const e = { id, text:text.trim(), mood:"🔔", done:false, date:nowISO(), ...(schedDate?{schedDate,schedTime,eventId}:{}) };
+    setEntries(prev => [e, ...prev]);
+    setText(""); setSchedDate(""); setSchedTime(""); setShowSched(false);
+  };
+  const tick = id => setEntries(prev => prev.map(e=>e.id===id?{...e,done:!e.done}:e));
+  const del = id => {
+    const r = entries.find(e=>e.id===id);
+    if (r?.eventId) setEvents(prev => prev.filter(ev=>ev.id!==r.eventId));
+    setEntries(prev => prev.filter(e=>e.id!==id));
+  };
+  const openEdit = e => { setEditing(e); setEditText(e.text); setEditDate(e.schedDate||""); setEditTime(e.schedTime||""); };
+  const saveEdit = () => {
+    const r = editing;
+    let eventId = r.eventId || null;
+    if (editDate) {
+      if (eventId) setEvents(prev => prev.map(ev=>ev.id===eventId?{...ev,title:editText,date:editDate,time:editTime||""}:ev));
+      else { eventId = Date.now()+7; setEvents(prev => [...prev, { id:eventId, title:editText, date:editDate, time:editTime||"", local:"", cat:"Pessoal", notes:"🔔 Lembrete" }]); }
+    } else if (eventId) {
+      setEvents(prev => prev.filter(ev=>ev.id!==eventId));
+      eventId = null;
+    }
+    setEntries(prev => prev.map(e => {
+      if (e.id !== r.id) return e;
+      const base = { ...e, text:editText };
+      delete base.schedDate; delete base.schedTime; delete base.eventId;
+      if (editDate) { base.schedDate = editDate; base.schedTime = editTime; base.eventId = eventId; }
+      return base;
+    }));
+    setEditing(null);
+  };
+
+  const filtered = filter==="all" ? entries : filter==="done" ? entries.filter(e=>e.done) : entries.filter(e=>!e.done);
+
+  return (
+    <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,padding:14,marginTop:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:14,fontWeight:800,color:"var(--text-1)",display:"flex",alignItems:"center",gap:6}}>
+          <Icon path={I.bell} size={14} color="var(--yellow)"/> Lembretes
+        </div>
+        <span style={{fontSize:9,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"syncing..."}</span>
+      </div>
+
+      <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Novo lembrete..." rows={2}
+        style={{...inp,resize:"none",fontSize:12,marginBottom:6}}
+        onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
+      {showSched && (
+        <div style={{display:"flex",gap:6,marginBottom:6}}>
+          <input type="date" value={schedDate} onChange={e=>setSchedDate(e.target.value)} style={{...inp,fontSize:11,flex:1}}/>
+          <input type="time" value={schedTime} onChange={e=>setSchedTime(e.target.value)} style={{...inp,fontSize:11,width:90}}/>
+        </div>
+      )}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <button onClick={()=>setShowSched(s=>!s)}
+          style={{background:"none",border:"none",color:showSched||schedDate?"var(--accent)":"var(--text-3)",fontSize:11,cursor:"pointer",padding:0,display:"flex",alignItems:"center",gap:4}}>
+          <Icon path={I.calendar} size={11}/> Data/Hora {schedDate?"✓":"(opcional)"}
+        </button>
+        <button onClick={add} style={{...btn("var(--yellow)"),padding:"6px 14px",fontSize:12,color:"#000"}}>+ Adicionar</button>
+      </div>
+
+      <div style={{display:"flex",gap:6,marginBottom:10}}>
+        {[["todo","Pendentes"],["done","Feitos"],["all","Todos"]].map(([id,l])=>(
+          <button key={id} onClick={()=>setFilter(id)}
+            style={{background:filter===id?"var(--yellow)":"var(--bg-input)",border:"none",borderRadius:14,padding:"3px 10px",
+              color:filter===id?"#000":"var(--text-3)",fontSize:10.5,fontWeight:600,cursor:"pointer"}}>{l}</button>
+        ))}
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:280,overflowY:"auto"}}>
+        {filtered.map(e=>(
+          <div key={e.id} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+            <button onClick={()=>tick(e.id)}
+              style={{width:18,height:18,borderRadius:5,border:`2px solid ${e.done?"var(--green)":"var(--yellow)"}`,
+                background:e.done?"var(--green)":"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+              {e.done && <Icon path={I.check} size={10} color="#fff"/>}
+            </button>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,color:"var(--text-1)",lineHeight:1.4,textDecoration:e.done?"line-through":"none",opacity:e.done?0.6:1,wordBreak:"break-word"}}>{e.text}</div>
+              {e.schedDate && (
+                <div style={{fontSize:9.5,color:"var(--accent)",marginTop:2,display:"flex",alignItems:"center",gap:3}}>
+                  <Icon path={I.calendar} size={9}/> {new Date(e.schedDate+"T12:00").toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}{e.schedTime?` ${e.schedTime}`:""}
+                </div>
+              )}
+            </div>
+            <div style={{display:"flex",gap:4,flexShrink:0}}>
+              <button onClick={()=>openEdit(e)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",padding:0}}><Icon path={I.edit} size={11}/></button>
+              <button onClick={()=>del(e.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",padding:0}}><Icon path={I.trash} size={11}/></button>
+            </div>
+          </div>
+        ))}
+        {filtered.length===0 && <div style={{textAlign:"center",color:"var(--text-3)",fontSize:11,padding:"16px 0"}}>Nada aqui.</div>}
+      </div>
+
+      {editing && (
+        <Modal title="Editar Lembrete" onClose={()=>setEditing(null)}>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <textarea style={{...inp,resize:"vertical"}} rows={3} value={editText} onChange={e=>setEditText(e.target.value)}/>
+            <div>
+              <label style={{fontSize:11,color:"var(--text-3)",display:"block",marginBottom:6}}>Data/Hora (opcional — aparece na Agenda se preenchido)</label>
+              <div style={{display:"flex",gap:8}}>
+                <input type="date" value={editDate} onChange={e=>setEditDate(e.target.value)} style={{...inp,flex:1}}/>
+                <input type="time" value={editTime} onChange={e=>setEditTime(e.target.value)} style={{...inp,width:110}}/>
+              </div>
+            </div>
+            <button onClick={saveEdit} style={btn()}>Salvar</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function DiaryPage() {
   const [entries, setEntries, synced] = useKV("diary_v1", []);
   const [text, setText] = useState("");
@@ -2230,6 +2363,7 @@ function DiaryPage() {
     </div>
     <div className="diary-col-right">
       <DiaryNotesPanel/>
+      <DiaryRemindersPanel/>
     </div>
     </div>
   );
@@ -5810,7 +5944,6 @@ const DASH_CARD_DEFS = [
   { id:"contas",     nav:"bills",     defC:1, defR:1 },
   { id:"djmix",      nav:"dj",        defC:1, defR:1 },
   { id:"tempo",      nav:"weather",   defC:1, defR:1 },
-  { id:"lembretes",  nav:"reminders", defC:1, defR:1 },
   { id:"infos",      nav:"infos",     defC:1, defR:1 },
   { id:"jarbas",     nav:"jarbas",    defC:1, defR:1 },
   { id:"saude",      nav:"saude",     defC:1, defR:1 },
@@ -5843,7 +5976,7 @@ const DASH_COMPONENTS = {
   diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
   djmix: DJMixCard, tempo: TempoCard,
-  lembretes: LembretesCard, infos: InfosCard, jarbas: JarbasCard, saude: SaudeCard, panorama: PanoramaCard,
+  infos: InfosCard, jarbas: JarbasCard, saude: SaudeCard, panorama: PanoramaCard,
 };
 
 const DESKTOP_BREAKPOINT = 1200; // matches the .dash-grid CSS breakpoint
@@ -6480,7 +6613,6 @@ const PAGE_META = {
   home:       {label:"Menu",                emoji:""},
   projects:   {label:"Projetos",            emoji:"🗂"},
   diary:      {label:"Diário",              emoji:"📓"},
-  reminders:  {label:"Lembretes",           emoji:"🔔"},
   infos:      {label:"Infos",               emoji:"📋"},
   ideas:      {label:"Ideias",              emoji:"💡"},
   tasks:      {label:"Tarefas",             emoji:"✅"},
@@ -7768,7 +7900,6 @@ export default function App() {
   const renderPage = () => {
     switch(page) {
       case "diary":      return <DiaryPage/>;
-      case "reminders":  return <RemindersCards/>;
       case "infos":      return <TemasPage/>;
       case "ideas":      return <IdeasPage/>;
       case "tasks":      return <TasksPage/>;
