@@ -6121,7 +6121,7 @@ function HomePage({ onNavigate }) {
         </div>
       )}
 
-      <div className="dash-grid">
+      <div className={`dash-grid${dragId?" dragging-now":""}`}>
         {fullOrder.map((id, idx) => {
           const def = DASH_CARD_DEFS.find(c=>c.id===id);
           const size = sizes[id] || {c:def.defC, r:def.defR};
@@ -7185,15 +7185,15 @@ function DJPage() {
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
         <div style={{display:"flex",gap:14,flex:1,minHeight:0,flexWrap:"wrap"}}>
           {/* GRID DE PADS */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,flex:"1 1 480px",alignContent:"start"}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,flex:"1 1 480px",alignContent:"start"}}>
             {pads.map(pad=>(
               <button key={pad.id} onClick={()=>editMode? setPendingPad(pad) : triggerPad(pad)}
-                style={{aspectRatio:"1.3",borderRadius:10,border:`1px solid ${pad.type!=="empty"?"var(--accent)":"var(--border)"}`,
+                style={{aspectRatio:"2.2",borderRadius:8,border:`1px solid ${pad.type!=="empty"?"var(--accent)":"var(--border)"}`,
                   background: pad.type==="sound" ? "linear-gradient(135deg,#3a7bd5,#2a5aa5)" : pad.type==="control" ? "var(--bg-input)" : "var(--bg-sub)",
                   color:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-                  padding:6,gap:2, boxShadow: pad.type!=="empty" ? "0 2px 8px rgba(0,0,0,.25)" : "none"}}>
-                <span style={{fontSize:11,fontWeight:800,opacity:.7}}>PAD{pad.id+1}</span>
-                <span style={{fontSize:12,fontWeight:700,textAlign:"center",lineHeight:1.15}}>{pad.label}</span>
+                  padding:4,gap:1, boxShadow: pad.type!=="empty" ? "0 2px 8px rgba(0,0,0,.25)" : "none"}}>
+                <span style={{fontSize:9.5,fontWeight:800,opacity:.7}}>PAD{pad.id+1}</span>
+                <span style={{fontSize:10.5,fontWeight:700,textAlign:"center",lineHeight:1.1}}>{pad.label}</span>
               </button>
             ))}
           </div>
