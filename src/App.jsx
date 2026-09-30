@@ -5942,7 +5942,6 @@ const DASH_CARD_DEFS = [
   { id:"documentos", nav:"docs",      defC:1, defR:1 },
   { id:"agenda",     nav:"events",    defC:1, defR:1 },
   { id:"contas",     nav:"bills",     defC:1, defR:1 },
-  { id:"djmix",      nav:"dj",        defC:1, defR:1 },
   { id:"tempo",      nav:"weather",   defC:1, defR:1 },
   { id:"infos",      nav:"infos",     defC:1, defR:1 },
   { id:"jarbas",     nav:"jarbas",    defC:1, defR:1 },
@@ -5975,7 +5974,7 @@ function DashSlot({ tileRef, id, col, row, orderIdx, editMode, isDragging, onPoi
 const DASH_COMPONENTS = {
   diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
-  djmix: DJMixCard, tempo: TempoCard,
+  tempo: TempoCard,
   infos: InfosCard, jarbas: JarbasCard, saude: SaudeCard, panorama: PanoramaCard,
 };
 
@@ -7912,7 +7911,6 @@ export default function App() {
       case "whiteboard": return <WhiteboardPage/>;
       case "bat":          return <BatPage/>;
       case "letreiro":      return <LetreirPage/>;
-      case "dj":         return <DJPage/>;
       case "projects":   return <ProjectsPage/>;
       case "jarbas":     return <JarbasPage/>;
       case "saude":      return <SaudePage/>;
@@ -7961,29 +7959,62 @@ export default function App() {
       )}
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: (page==="home"||page==="projects")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects")?"hidden":"visible",position:"relative"}}>
-        {(page==="home"||page==="projects") ? (
-          <div style={{display:"flex",width:"200%",transform:`translateX(${page==="home"?"0%":"-50%"})`,transition:"transform .35s ease"}}>
-            <div style={{width:"50%",flexShrink:0,position:"relative"}}>
-              <HomePage onNavigate={setPage}/>
+      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="dj")?"0":"24px 20px",maxWidth: (page==="home"||page==="projects"||page==="dj")?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="dj")?"hidden":"visible",position:"relative"}}>
+        {(page==="home"||page==="projects"||page==="dj") ? (
+          <div style={{display:"flex",width:"200%",height:"100%",transform:`translateX(${page==="projects"?"-50%":"0%"})`,transition:"transform .35s ease"}}>
+            <div style={{width:"50%",height:"100%",flexShrink:0,overflow:"hidden",position:"relative"}}>
+              {/* Coluna da esquerda desliza na vertical: Menu <-> DJ Mix */}
+              <div style={{display:"flex",flexDirection:"column",width:"100%",height:"200%",transform:`translateY(${page==="dj"?"-50%":"0%"})`,transition:"transform .35s ease"}}>
+                <div style={{width:"100%",height:"50%",flexShrink:0,overflowY:"auto",position:"relative"}}>
+                  <HomePage onNavigate={setPage}/>
+                </div>
+                <div style={{width:"100%",height:"50%",flexShrink:0,overflowY:"auto",position:"relative"}}>
+                  <DJPage/>
+                </div>
+              </div>
+            </div>
+            <div style={{width:"50%",height:"100%",flexShrink:0,overflowY:"auto",position:"relative"}}>
+              <ProjectsPage/>
+            </div>
+          </div>
+        ) : renderPage()}
+        {(page==="home"||page==="projects"||page==="dj") && createPortal(
+          <>
+            {page==="home" && (
               <button onClick={()=>setPage("projects")} title="Ir para Projetos"
-                style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
+                style={{position:"fixed",right:10,top:"50%",transform:"translateY(-50%)",zIndex:200,
                   width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
                   display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
                 <Icon path={I.next} size={18}/>
               </button>
-            </div>
-            <div style={{width:"50%",flexShrink:0,position:"relative"}}>
-              <ProjectsPage/>
+            )}
+            {page==="home" && (
+              <button onClick={()=>setPage("dj")} title="Ir para DJ Mix"
+                style={{position:"fixed",left:"50%",bottom:14,transform:"translateX(-50%)",zIndex:200,
+                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
+                <Icon path={I.down} size={18}/>
+              </button>
+            )}
+            {page==="projects" && (
               <button onClick={()=>setPage("home")} title="Voltar ao Menu"
-                style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
+                style={{position:"fixed",left:10,top:"50%",transform:"translateY(-50%)",zIndex:200,
                   width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.08)",border:"1px solid var(--border)",
                   display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)"}}>
                 <Icon path={I.back} size={18}/>
               </button>
-            </div>
-          </div>
-        ) : renderPage()}
+            )}
+            {page==="dj" && (
+              <button onClick={()=>setPage("home")} title="Voltar ao Menu"
+                style={{position:"fixed",left:"50%",top:74,transform:"translateX(-50%)",zIndex:200,
+                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
+                <Icon path={I.up} size={18}/>
+              </button>
+            )}
+          </>,
+          document.body
+        )}
       </main>
 
       <footer style={{borderTop:"1px solid var(--border-2)",padding:"8px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
