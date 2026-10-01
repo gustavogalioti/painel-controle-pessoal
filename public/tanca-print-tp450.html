@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tanca Print — TP-450</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #eef1f5;
+    color: #20242a;
+  }
+  .app {
+    max-width: 1180px;
+    margin: 24px auto;
+    padding: 0 18px 30px;
+  }
+  header {
+    background: #1f2937;
+    color: white;
+    border-radius: 14px 14px 0 0;
+    padding: 20px 24px;
+  }
+  header h1 { margin: 0 0 4px; font-size: 24px; }
+  header p { margin: 0; opacity: .8; }
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 18px;
+    margin-top: 18px;
+  }
+  .panel {
+    background: white;
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: 0 4px 18px rgba(0,0,0,.07);
+  }
+  label {
+    display: block;
+    font-weight: 700;
+    margin: 0 0 7px;
+    font-size: 13px;
+  }
+  .editor {
+    width: 100%;
+    min-height: 430px;
+    max-height: 620px;
+    overflow-y: auto;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    padding: 14px;
+    font: 14px/1.45 Arial, sans-serif;
+    outline: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .editor:focus { border-color: #64748b; }
+  .editor ul, .editor ol {
+    margin: 6px 0;
+    padding-left: 28px;
+  }
+  .editor li { margin: 2px 0; }
+  .toolbar button.active {
+    background: #111827;
+    color: white;
+  }
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 14px;
+  }
+  select, input[type="number"] {
+    width: 100%;
+    height: 38px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 0 9px;
+    background: white;
+  }
+  .buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  button {
+    border: 0;
+    border-radius: 8px;
+    padding: 10px 13px;
+    cursor: pointer;
+    background: #e5e7eb;
+    font-weight: 700;
+  }
+  button:hover { filter: brightness(.96); }
+  .primary {
+    background: #111827;
+    color: white;
+    width: 100%;
+    font-size: 16px;
+    padding: 13px;
+  }
+  .danger { background: #fee2e2; }
+  .hint {
+    font-size: 12px;
+    color: #64748b;
+    line-height: 1.45;
+    margin-top: 12px;
+  }
+  .preview-wrap {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    background: #dfe3e8;
+    border-radius: 10px;
+    padding: 20px;
+    min-height: 500px;
+    overflow: auto;
+  }
+  .paper {
+    width: 72mm;
+    min-height: 60mm;
+    background: white;
+    color: black;
+    padding: 4mm 3mm;
+    font-family: Arial, sans-serif;
+    font-size: 12pt;
+    line-height: 1.22;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    box-shadow: 0 2px 10px rgba(0,0,0,.18);
+  }
+  .status {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #475569;
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 13px;
+  }
+  .check input { width: 17px; height: 17px; }
+  @media (max-width: 850px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+  @media print {
+    body { background: white; margin: 0; }
+    body * { visibility: hidden !important; }
+    .paper, .paper * { visibility: visible !important; }
+    .paper ul, .paper ol {
+      margin: 5px 0;
+      padding-left: 24px;
+    }
+    .paper li { margin: 1px 0; }
+    .paper {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 72mm;
+      min-height: 0;
+      padding: 3mm;
+      box-shadow: none;
+      margin: 0;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Tanca Print — TP-450</h1>
+    <p>Editor simples para impressão térmica</p>
+  </header>
+
+  <div class="grid">
+    <section class="panel">
+      <label for="texto">Texto para imprimir</label>
+      <div id="editor" class="editor" contenteditable="true" spellcheck="false">C2LZ CAPITAL PARTNERS<br><br>Cliente: João Silva<br>Data: 30/09/2026<br>Valor: R$ 1.500,00<br><br>Obrigado pela preferência!</div>
+
+      <div class="controls">
+        <div>
+          <label for="largura">Bobina</label>
+          <select id="largura">
+            <option value="58">58 mm</option>
+            <option value="80" selected>80 mm</option>
+          </select>
+        </div>
+        <div>
+          <label for="fonte">Tamanho da fonte</label>
+          <input id="fonte" type="number" min="7" max="28" step="1" value="12">
+        </div>
+        <div>
+          <label for="alinhamento">Alinhamento</label>
+          <select id="alinhamento">
+            <option value="left">Esquerda</option>
+            <option value="center">Centralizado</option>
+            <option value="right">Direita</option>
+          </select>
+        </div>
+        <div>
+          <label for="espaco">Espaçamento</label>
+          <select id="espaco">
+            <option value="1">Simples</option>
+            <option value="1.25" selected>1,25</option>
+            <option value="1.5">1,5</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="buttons toolbar">
+        <button id="btnBold"><b>B</b> Negrito</button>
+        <button id="btnUnderline"><u>U</u> Sublinhado</button>
+        <button id="btnBullet">• Lista</button>
+        <button id="btnNumber">1. Lista numerada</button>
+        <button id="limpar" class="danger">Limpar</button>
+        <button id="exemplo">Carregar exemplo</button>
+      </div>
+
+      <label class="check">
+        <input type="checkbox" id="cortar" checked>
+        Usar corte automático após impressão (se o driver da impressora suportar)
+      </label>
+
+      <button class="primary" id="imprimir">🖨️ IMPRIMIR NA TP-450</button>
+
+      <div class="hint">
+        Dica: no diálogo de impressão do Chrome, selecione a Tanca TP-450,
+        desative cabeçalhos e rodapés e deixe a escala em 100%.
+        Se a sua bobina for 58 mm, selecione 58 mm antes de imprimir.
+      </div>
+      <div class="status" id="status">Pronto para imprimir.</div>
+    </section>
+
+    <section class="panel">
+      <label>Pré-visualização</label>
+      <div class="preview-wrap">
+        <div class="paper" id="paper"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+const editor = document.getElementById('editor');
+const paper = document.getElementById('paper');
+const largura = document.getElementById('largura');
+const fonte = document.getElementById('fonte');
+const alinhamento = document.getElementById('alinhamento');
+const espaco = document.getElementById('espaco');
+const status = document.getElementById('status');
+
+function atualizar() {
+  paper.innerHTML = editor.innerHTML;
+  paper.style.fontSize = fonte.value + 'pt';
+  paper.style.textAlign = alinhamento.value;
+  paper.style.lineHeight = espaco.value;
+
+  const w = largura.value;
+  paper.style.width = (w === '58' ? '52mm' : '72mm');
+
+  const chars = editor.innerText.length;
+  status.textContent = `${chars} caracteres • Bobina ${w} mm • Prévia atualizada`;
+}
+
+function comando(cmd, valor = null) {
+  editor.focus();
+  document.execCommand(cmd, false, valor);
+  atualizar();
+}
+
+function atualizarBotoes() {
+  document.getElementById('btnBold').classList.toggle('active', document.queryCommandState('bold'));
+  document.getElementById('btnUnderline').classList.toggle('active', document.queryCommandState('underline'));
+}
+
+editor.addEventListener('input', atualizar);
+editor.addEventListener('keyup', atualizarBotoes);
+editor.addEventListener('mouseup', atualizarBotoes);
+editor.addEventListener('focus', atualizarBotoes);
+
+[largura, fonte, alinhamento, espaco].forEach(el => {
+  el.addEventListener('input', atualizar);
+  el.addEventListener('change', atualizar);
+});
+
+document.getElementById('btnBold').addEventListener('mousedown', e => {
+  e.preventDefault();
+  comando('bold');
+  atualizarBotoes();
+});
+
+document.getElementById('btnUnderline').addEventListener('mousedown', e => {
+  e.preventDefault();
+  comando('underline');
+  atualizarBotoes();
+});
+
+document.getElementById('btnBullet').addEventListener('mousedown', e => {
+  e.preventDefault();
+  comando('insertUnorderedList');
+});
+
+document.getElementById('btnNumber').addEventListener('mousedown', e => {
+  e.preventDefault();
+  comando('insertOrderedList');
+});
+
+document.getElementById('limpar').addEventListener('click', () => {
+  editor.innerHTML = '';
+  atualizar();
+  editor.focus();
+});
+
+document.getElementById('exemplo').addEventListener('click', () => {
+  editor.innerHTML =
+    '<strong>C2LZ CAPITAL PARTNERS</strong><br><br>' +
+    '<strong>COMPROVANTE</strong><br>' +
+    '--------------------------------<br>' +
+    'Cliente: João Silva<br>' +
+    'Data: 30/09/2026<br>' +
+    'Valor: <strong>R$ 1.500,00</strong><br>' +
+    '--------------------------------<br><br>' +
+    '<ul><li>Produto 1 — R$ 500,00</li><li>Produto 2 — R$ 1.000,00</li></ul><br>' +
+    '<u>Obrigado pela preferência!</u>';
+  atualizar();
+});
+
+document.getElementById('imprimir').addEventListener('click', () => {
+  atualizar();
+  status.textContent = 'Abrindo a janela de impressão...';
+  window.print();
+  setTimeout(() => {
+    status.textContent = 'Pronto. Se necessário, ajuste a impressora no diálogo do Windows/Chrome.';
+  }, 1200);
+});
+
+document.addEventListener('selectionchange', atualizarBotoes);
+atualizar();
+</script>
+</body>
+</html>
