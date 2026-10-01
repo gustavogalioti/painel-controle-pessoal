@@ -5916,13 +5916,27 @@ function JarbasCard({ onClick }) {
   );
 }
 
+// A TP-450 só imprime certo no Edge (o driver tem papel padrão de 3276 mm e o Chrome imprime a página inteira).
+// No Windows, abre sempre no Edge, seja qual for o navegador atual.
+function openTP450() {
+  const url = window.location.origin + "/tanca-print-tp450.html";
+  const ua = navigator.userAgent;
+  if (/Windows/.test(ua) && !/Edg\//.test(ua)) {
+    const a = document.createElement("a");
+    a.href = "microsoft-edge:" + url;
+    document.body.appendChild(a); a.click(); a.remove();
+  } else {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
+
 function TP450Card({ onClick }) {
   return (
     <div onClick={onClick} style={{...homeCardStyle("#1f2937"), height:"100%", alignItems:"center", justifyContent:"center", textAlign:"center"}}>
       <Icon path={I.printer} size={40} color="rgba(255,255,255,0.85)"/>
       <div style={{fontWeight:800,fontSize:14,marginTop:12}}>Impressão TP450</div>
       <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:4,display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
-        <Icon path={I.link} size={11}/> Abrir em nova aba
+        <Icon path={I.link} size={11}/> Abre no Edge
       </div>
     </div>
   );
@@ -5961,7 +5975,7 @@ const DASH_CARD_DEFS = [
   { id:"jarbas",     nav:"jarbas",    defC:1, defR:1 },
   { id:"saude",      nav:"saude",     defC:1, defR:1 },
   { id:"panorama",   nav:null, href:PANORAMA_URL, defC:1, defR:1 },
-  { id:"tp450",      nav:null, href:"/tanca-print-tp450.html", defC:1, defR:1 },
+  { id:"tp450",      nav:null, href:"/tanca-print-tp450.html", open:"tp450", defC:1, defR:1 },
 ];
 const DASH_DEFAULT_ORDER = DASH_CARD_DEFS.map(c=>c.id);
 const DASH_SIZE_CYCLE = [{c:1,r:1},{c:2,r:1},{c:1,r:2},{c:2,r:2}];
@@ -6146,7 +6160,7 @@ function HomePage({ onNavigate }) {
               editMode={editMode} isDragging={dragId===id}
               onPointerDown={(e)=>onSlotPointerDown(e,id)}
               onResize={()=>cycleSize(id)}>
-              <Comp onClick={editMode?undefined:(def.href ? ()=>window.open(def.href,"_blank","noopener,noreferrer") : ()=>onNavigate(def.nav))}/>
+              <Comp onClick={editMode?undefined:(def.open==="tp450" ? openTP450 : def.href ? ()=>window.open(def.href,"_blank","noopener,noreferrer") : ()=>onNavigate(def.nav))}/>
             </DashSlot>
           );
         })}
