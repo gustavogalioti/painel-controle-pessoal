@@ -6629,30 +6629,37 @@ ${sel} li{margin:1px 0}
 ${sel} hr{border:0;border-top:1px dashed #000;margin:5px 0}`;
 }
 
-// Imprime só o cupom, via iframe isolado: sem páginas em branco do resto do painel e com @page na largura certa
+// Imprime igual ao HTML original: o @page (largura da bobina, altura auto) vive no próprio documento,
+// mas só existe durante a impressão. O cupom é clonado para um nó no <body> e o resto do painel some (display:none).
 function tp450Print(html, cfg) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const w = cfg.largura === "58" ? 52 : 72;
-    const iframe = document.createElement("iframe");
-    iframe.setAttribute("aria-hidden", "true");
-    iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
-    document.body.appendChild(iframe);
-    const doc = iframe.contentDocument;
-    doc.open();
-    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>TP-450</title><style>
+    const root = document.createElement("div");
+    root.id = "tp450-print-root";
+    root.innerHTML = `<div class="tp450-print-paper">${html}</div>`;
+    const st = document.createElement("style");
+    st.id = "tp450-print-style";
+    st.textContent = `
+#tp450-print-root{display:none}
 @page{size:${cfg.largura}mm auto;margin:0}
-html,body{margin:0;padding:0;background:#fff}
-.paper{width:${w}mm;margin-left:${cfg.margemEsq}mm;padding:3mm 3mm ${3 + cfg.feed}mm;box-sizing:border-box}
-${tp450Css(cfg, ".paper")}
-</style></head><body><div class="paper">${html}</div></body></html>`);
-    doc.close();
-    const win = iframe.contentWindow;
-    win.onafterprint = () => setTimeout(() => { iframe.remove(); resolve(); }, 500);
-    setTimeout(() => {
-      try { win.focus(); win.print(); }
-      catch (e) { iframe.remove(); reject(e); }
-    }, 150);
-    setTimeout(() => { if (iframe.isConnected) { iframe.remove(); resolve(); } }, 120000);
+@media print{
+  html,body{margin:0!important;padding:0!important;background:#fff!important;min-height:0!important;height:auto!important;overflow:visible!important}
+  body > *:not(#tp450-print-root){display:none!important}
+  #tp450-print-root{display:block!important;position:static!important;width:${w}mm;margin:0 0 0 ${cfg.margemEsq}mm}
+  .tp450-print-paper{width:${w}mm;padding:3mm 3mm ${3 + cfg.feed}mm;box-sizing:border-box;page-break-inside:avoid;break-inside:avoid}
+  ${tp450Css(cfg, ".tp450-print-paper")}
+}`;
+    document.head.appendChild(st);
+    document.body.appendChild(root);
+    let done = false;
+    const cleanup = () => {
+      if (done) return; done = true;
+      window.removeEventListener("afterprint", cleanup);
+      root.remove(); st.remove(); resolve();
+    };
+    window.addEventListener("afterprint", cleanup);
+    setTimeout(() => { try { window.print(); } catch (e) { cleanup(); } }, 100);
+    setTimeout(cleanup, 180000);
   });
 }
 
