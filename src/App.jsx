@@ -44,6 +44,7 @@ const I = {
   shift:   "M12 19V6 M5 13l7-7 7 7",
   record:  "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z",
   scissors:"M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M20 4L8.12 15.88 M14.47 14.48 20 20 M8.12 8.12 12 12",
+  printer:"M6 9V2h12v7 M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2 M6 14h12v8H6z",
   heart:"M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z",
   headphones:"M3 18v-6a9 9 0 0 1 18 0v6 M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3v5z M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3v5z",
   gear:    "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
@@ -5947,6 +5948,7 @@ const DASH_CARD_DEFS = [
   { id:"infos",      nav:"infos",     defC:1, defR:1 },
   { id:"jarbas",     nav:"jarbas",    defC:1, defR:1 },
   { id:"saude",      nav:"saude",     defC:1, defR:1 },
+  { id:"tp450",      nav:"tp450",     defC:1, defR:1 },
   { id:"panorama",   nav:null, href:PANORAMA_URL, defC:1, defR:1 },
 ];
 const DASH_DEFAULT_ORDER = DASH_CARD_DEFS.map(c=>c.id);
@@ -5976,7 +5978,7 @@ const DASH_COMPONENTS = {
   diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
   djmix: DJMixCard, tempo: TempoCard,
-  infos: InfosCard, jarbas: JarbasCard, saude: SaudeCard, panorama: PanoramaCard,
+  infos: InfosCard, jarbas: JarbasCard, saude: SaudeCard, tp450: TP450Card, panorama: PanoramaCard,
 };
 
 const DESKTOP_BREAKPOINT = 1200; // matches the .dash-grid CSS breakpoint
@@ -6608,6 +6610,277 @@ function LetreirPage() {
   );
 }
 
+// ─── TP-450 (impressão térmica) ──────────────────────────────────────────────
+// Dados em sync_kv, chave "tp450_v1": { html, cfg:{largura,fonte,align,espaco,feed,margemEsq}, modelos:[{id,name,html,cfg}] }
+const TP450_CFG = { largura:"80", fonte:12, align:"left", espaco:"1.25", feed:12, margemEsq:0 };
+const TP450_STORE = { html:null, cfg:{}, modelos:[] };
+const TP450_DEFAULT_HTML = "C2LZ CAPITAL PARTNERS<br><br>Cliente: João Silva<br>Data: 30/09/2026<br>Valor: R$ 1.500,00<br><br>Obrigado pela preferência!";
+const TP450_EXEMPLO_HTML =
+  "<div><b>C2LZ CAPITAL PARTNERS</b></div><div><br></div><div><b>COMPROVANTE</b></div><hr>" +
+  "<div>Cliente: João Silva</div><div>Data: 30/09/2026</div><div>Valor: <b>R$ 1.500,00</b></div><hr>" +
+  "<ul><li>Produto 1 — R$ 500,00</li><li>Produto 2 — R$ 1.000,00</li></ul><div><br></div>" +
+  "<div><u>Obrigado pela preferência!</u></div>";
+
+// CSS do "papel" — usado igual na pré-visualização e na impressão (evita divergência entre os dois)
+function tp450Css(cfg, sel) {
+  return `${sel}{font-family:Arial,Helvetica,sans-serif;font-size:${cfg.fonte}pt;line-height:${cfg.espaco};text-align:${cfg.align};color:#000;background:#fff;overflow-wrap:anywhere;word-break:break-word}
+${sel} ul,${sel} ol{margin:5px 0;padding-left:24px}
+${sel} li{margin:1px 0}
+${sel} hr{border:0;border-top:1px dashed #000;margin:5px 0}`;
+}
+
+// Imprime só o cupom, via iframe isolado: sem páginas em branco do resto do painel e com @page na largura certa
+function tp450Print(html, cfg) {
+  return new Promise((resolve, reject) => {
+    const w = cfg.largura === "58" ? 52 : 72;
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument;
+    doc.open();
+    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>TP-450</title><style>
+@page{size:${cfg.largura}mm auto;margin:0}
+html,body{margin:0;padding:0;background:#fff}
+.paper{width:${w}mm;margin-left:${cfg.margemEsq}mm;padding:3mm 3mm ${3 + cfg.feed}mm;box-sizing:border-box}
+${tp450Css(cfg, ".paper")}
+</style></head><body><div class="paper">${html}</div></body></html>`);
+    doc.close();
+    const win = iframe.contentWindow;
+    win.onafterprint = () => setTimeout(() => { iframe.remove(); resolve(); }, 500);
+    setTimeout(() => {
+      try { win.focus(); win.print(); }
+      catch (e) { iframe.remove(); reject(e); }
+    }, 150);
+    setTimeout(() => { if (iframe.isConnected) { iframe.remove(); resolve(); } }, 120000);
+  });
+}
+
+function TP450Page() {
+  const [store, setStore, synced] = useKV("tp450_v1", TP450_STORE);
+  const cfg = { ...TP450_CFG, ...(store.cfg || {}) };
+  const modelos = store.modelos || [];
+  const editorRef = useRef(null);
+  const dirty = useRef(false);     // usuário já editou nesta sessão (não sobrescrever com a nuvem)
+  const pending = useRef(false);   // há edição ainda não salva (debounce)
+  const latest = useRef("");
+  const [html, setHtml] = useState(() => store.html ?? TP450_DEFAULT_HTML);
+  const [fmt, setFmt] = useState({ bold:false, underline:false });
+  const [msg, setMsg] = useState("Pronto para imprimir.");
+  const [fonteTxt, setFonteTxt] = useState(String(cfg.fonte));
+  latest.current = html;
+
+  useEffect(() => { if (editorRef.current) editorRef.current.innerHTML = html; }, []);
+
+  // Quando a nuvem chega, só aplica se o usuário ainda não mexeu
+  useEffect(() => {
+    if (!synced || dirty.current) return;
+    if (typeof store.html === "string" && store.html !== html && editorRef.current) {
+      editorRef.current.innerHTML = store.html;
+      setHtml(store.html);
+    }
+  }, [synced]);
+
+  // Salva o texto com debounce (não grava a cada tecla)
+  useEffect(() => {
+    if (!pending.current) return;
+    const t = setTimeout(() => { pending.current = false; setStore(p => ({ ...p, html })); }, 800);
+    return () => clearTimeout(t);
+  }, [html]);
+  useEffect(() => () => { if (pending.current) setStore(p => ({ ...p, html: latest.current })); }, []);
+
+  useEffect(() => { setFonteTxt(String(cfg.fonte)); }, [cfg.fonte]);
+
+  // Estado dos botões B/U só quando a seleção está dentro do editor
+  useEffect(() => {
+    const h = () => {
+      const ed = editorRef.current, sel = window.getSelection();
+      if (!ed || !sel || !sel.anchorNode || !ed.contains(sel.anchorNode)) return;
+      setFmt({ bold: document.queryCommandState("bold"), underline: document.queryCommandState("underline") });
+    };
+    document.addEventListener("selectionchange", h);
+    return () => document.removeEventListener("selectionchange", h);
+  }, []);
+
+  const setCfg = (patch) => setStore(p => ({ ...p, cfg: { ...TP450_CFG, ...(p.cfg || {}), ...patch } }));
+  const onEdit = () => {
+    const ed = editorRef.current; if (!ed) return;
+    dirty.current = true; pending.current = true;
+    setHtml(ed.innerHTML);
+  };
+  const cmd = (c, v = null) => { const ed = editorRef.current; if (!ed) return; ed.focus(); document.execCommand(c, false, v); onEdit(); };
+  const keepSel = (fn) => (e) => { e.preventDefault(); fn(); };
+
+  // Cola sempre como texto puro (evita fontes/cores/imagens vindas de Word, e-mail, sites)
+  const onPaste = (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData("text/plain");
+    document.execCommand("insertText", false, text);
+  };
+
+  const setEditor = (h) => { if (editorRef.current) editorRef.current.innerHTML = h; dirty.current = true; pending.current = true; setHtml(h); };
+  const limpar = () => { setEditor(""); editorRef.current?.focus(); };
+  const exemplo = () => setEditor(TP450_EXEMPLO_HTML);
+
+  const salvarModelo = () => {
+    const name = window.prompt("Nome do modelo:");
+    if (!name || !name.trim()) return;
+    const { largura, fonte, align, espaco } = cfg;
+    setStore(p => ({ ...p, html, modelos: [...(p.modelos || []), { id: Date.now(), name: name.trim(), html: editorRef.current?.innerHTML ?? html, cfg: { largura, fonte, align, espaco } }] }));
+    pending.current = false;
+    setMsg(`Modelo "${name.trim()}" salvo.`);
+  };
+  const carregarModelo = (m) => {
+    if (editorRef.current) editorRef.current.innerHTML = m.html;
+    dirty.current = true; pending.current = false;
+    setHtml(m.html);
+    setStore(p => ({ ...p, html: m.html, cfg: { ...TP450_CFG, ...(p.cfg || {}), ...(m.cfg || {}) } }));
+    setMsg(`Modelo "${m.name}" carregado.`);
+  };
+  const apagarModelo = (m) => {
+    if (!window.confirm(`Apagar o modelo "${m.name}"?`)) return;
+    setStore(p => ({ ...p, modelos: (p.modelos || []).filter(x => x.id !== m.id) }));
+  };
+
+  const imprimir = async () => {
+    const ed = editorRef.current;
+    const cur = ed ? ed.innerHTML : html;
+    if (!ed || (!ed.innerText.trim() && !cur.includes("<hr"))) { setMsg("Nada para imprimir."); return; }
+    setMsg("Abrindo a janela de impressão...");
+    try {
+      await tp450Print(cur, cfg);
+      setMsg("Pronto. Se necessário, ajuste a impressora no diálogo do sistema.");
+    } catch (e) { setMsg("Erro ao abrir a impressão: " + (e?.message || e)); }
+  };
+
+  const chars = (editorRef.current?.innerText || "").replace(/\n$/, "").length;
+  const w = cfg.largura === "58" ? 52 : 72;
+
+  const card = { background:"var(--bg-card)", border:"1px solid var(--border)", borderRadius:16, padding:18 };
+  const lbl = { display:"block", fontWeight:700, fontSize:12, color:"var(--text-2)", margin:"0 0 6px" };
+  const inp = { width:"100%", height:38, border:"1px solid var(--border)", borderRadius:8, padding:"0 9px", background:"var(--bg-input)", color:"var(--text-1)", fontSize:14 };
+  const tb = (active) => ({ border:"1px solid var(--border)", borderRadius:8, padding:"8px 12px", cursor:"pointer", fontWeight:700, fontSize:13,
+    background: active ? "var(--text-1)" : "var(--bg-sub)", color: active ? "#fff" : "var(--text-1)" });
+
+  return (
+    <div style={{padding:20, maxWidth:1180, margin:"0 auto"}}>
+      <style>{tp450Css(cfg, ".tp450-paper") + `
+.tp450-ed ul,.tp450-ed ol{margin:6px 0;padding-left:28px}
+.tp450-ed hr{border:0;border-top:1px dashed #475569;margin:6px 0}`}</style>
+      <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,340px),1fr))", gap:18, alignItems:"start"}}>
+        <section style={card}>
+          <label style={lbl}>Texto para imprimir</label>
+          <div ref={editorRef} className="tp450-ed" contentEditable suppressContentEditableWarning spellCheck={false}
+            onInput={onEdit} onPaste={onPaste}
+            style={{minHeight:380, maxHeight:560, overflowY:"auto", border:"1px solid var(--border)", borderRadius:9, padding:14,
+              font:"14px/1.45 Arial,sans-serif", outline:"none", background:"#fff", color:"#111", overflowWrap:"anywhere"}}/>
+
+          <div style={{display:"flex", flexWrap:"wrap", gap:8, marginTop:12}}>
+            <button onMouseDown={keepSel(()=>cmd("bold"))} style={tb(fmt.bold)}><b>B</b> Negrito</button>
+            <button onMouseDown={keepSel(()=>cmd("underline"))} style={tb(fmt.underline)}><u>U</u> Sublinhado</button>
+            <button onMouseDown={keepSel(()=>cmd("insertUnorderedList"))} style={tb(false)}>• Lista</button>
+            <button onMouseDown={keepSel(()=>cmd("insertOrderedList"))} style={tb(false)}>1. Numerada</button>
+            <button onMouseDown={keepSel(()=>cmd("justifyLeft"))} style={tb(false)} title="Alinhar linha à esquerda">⬅</button>
+            <button onMouseDown={keepSel(()=>cmd("justifyCenter"))} style={tb(false)} title="Centralizar linha">↔</button>
+            <button onMouseDown={keepSel(()=>cmd("justifyRight"))} style={tb(false)} title="Alinhar linha à direita">➡</button>
+            <button onMouseDown={keepSel(()=>cmd("insertHorizontalRule"))} style={tb(false)}>— Linha</button>
+            <button onMouseDown={keepSel(()=>cmd("insertText", new Date().toLocaleString("pt-BR")))} style={tb(false)}>🕒 Data/hora</button>
+          </div>
+
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginTop:14}}>
+            <div>
+              <label style={lbl}>Bobina</label>
+              <select style={inp} value={cfg.largura} onChange={e=>setCfg({largura:e.target.value})}>
+                <option value="58">58 mm</option>
+                <option value="80">80 mm</option>
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Tamanho da fonte (7–28)</label>
+              <input style={inp} type="number" inputMode="numeric" min="7" max="28" step="1" value={fonteTxt}
+                onChange={e=>{ setFonteTxt(e.target.value); const n=parseInt(e.target.value,10); if(!isNaN(n)&&n>=7&&n<=28) setCfg({fonte:n}); }}
+                onBlur={()=>{ const n=parseInt(fonteTxt,10); const c=isNaN(n)?TP450_CFG.fonte:Math.min(28,Math.max(7,n)); setFonteTxt(String(c)); setCfg({fonte:c}); }}/>
+            </div>
+            <div>
+              <label style={lbl}>Alinhamento padrão</label>
+              <select style={inp} value={cfg.align} onChange={e=>setCfg({align:e.target.value})}>
+                <option value="left">Esquerda</option>
+                <option value="center">Centralizado</option>
+                <option value="right">Direita</option>
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Espaçamento</label>
+              <select style={inp} value={cfg.espaco} onChange={e=>setCfg({espaco:e.target.value})}>
+                <option value="1">Simples</option>
+                <option value="1.25">1,25</option>
+                <option value="1.5">1,5</option>
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Papel extra no fim (mm)</label>
+              <input style={inp} type="number" inputMode="numeric" min="0" max="60" step="1" value={cfg.feed}
+                onChange={e=>{ const n=parseInt(e.target.value,10); setCfg({feed: isNaN(n)?0:Math.min(60,Math.max(0,n))}); }}/>
+            </div>
+            <div>
+              <label style={lbl}>Margem esquerda (mm)</label>
+              <input style={inp} type="number" inputMode="numeric" min="0" max="10" step="1" value={cfg.margemEsq}
+                onChange={e=>{ const n=parseInt(e.target.value,10); setCfg({margemEsq: isNaN(n)?0:Math.min(10,Math.max(0,n))}); }}/>
+            </div>
+          </div>
+
+          <div style={{display:"flex", flexWrap:"wrap", gap:8, marginTop:14}}>
+            <button onClick={limpar} style={{...tb(false), background:"#fee2e2"}}>Limpar</button>
+            <button onClick={exemplo} style={tb(false)}>Carregar exemplo</button>
+            <button onClick={salvarModelo} style={tb(false)}>💾 Salvar como modelo</button>
+          </div>
+
+          {modelos.length > 0 && (
+            <div style={{marginTop:14}}>
+              <label style={lbl}>Modelos salvos</label>
+              <div style={{display:"flex", flexWrap:"wrap", gap:8}}>
+                {modelos.map(m => (
+                  <span key={m.id} style={{display:"inline-flex", alignItems:"center", border:"1px solid var(--border)", borderRadius:8, overflow:"hidden"}}>
+                    <button onClick={()=>carregarModelo(m)} style={{...tb(false), border:"none", borderRadius:0}}>{m.name}</button>
+                    <button onClick={()=>apagarModelo(m)} title="Apagar modelo" style={{...tb(false), border:"none", borderRadius:0, borderLeft:"1px solid var(--border)", padding:"8px 9px"}}>✕</button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <button onClick={imprimir} style={{marginTop:16, width:"100%", border:0, borderRadius:10, padding:13, fontSize:16, fontWeight:800, cursor:"pointer", background:"var(--text-1)", color:"#fff"}}>
+            🖨️ IMPRIMIR NA TP-450
+          </button>
+          <div style={{fontSize:12, color:"var(--text-3)", lineHeight:1.45, marginTop:12}}>
+            No diálogo de impressão, escolha a Tanca TP-450, desative cabeçalhos/rodapés e deixe a escala em 100%.
+            O corte automático é configurado no driver da impressora (Preferências → cortar papel); use "Papel extra no fim" para o corte não pegar a última linha.
+          </div>
+          <div style={{fontSize:12, color:"var(--text-2)", marginTop:8}}>{msg} <span style={{color:"var(--text-3)"}}>· {chars} caracteres · bobina {cfg.largura} mm</span></div>
+        </section>
+
+        <section style={card}>
+          <label style={lbl}>Pré-visualização</label>
+          <div style={{display:"flex", justifyContent:"center", alignItems:"flex-start", background:"#dfe3e8", borderRadius:10, padding:20, minHeight:420, overflow:"auto"}}>
+            <div className="tp450-paper" style={{width:`${w}mm`, minHeight:"60mm", flexShrink:0, padding:`3mm 3mm ${3 + cfg.feed}mm`, boxSizing:"border-box", boxShadow:"0 2px 10px rgba(0,0,0,.18)"}}
+              dangerouslySetInnerHTML={{__html: html}}/>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function TP450Card({ onClick }) {
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("#1f2937"), height:"100%", alignItems:"center", justifyContent:"center", textAlign:"center"}}>
+      <Icon path={I.printer} size={40} color="rgba(255,255,255,0.85)"/>
+      <div style={{fontWeight:800,fontSize:14,marginTop:12}}>Impressão TP450</div>
+      <div style={{fontSize:11,color:"rgba(255,255,255,0.7)",marginTop:4}}>Cupom térmico 58/80 mm</div>
+    </div>
+  );
+}
+
 // ─── PAGE TITLES ─────────────────────────────────────────────────────────────
 const PAGE_META = {
   home:       {label:"Menu",                emoji:""},
@@ -6627,6 +6900,7 @@ const PAGE_META = {
   letreiro:     {label:"Letreiro",             emoji:"📺"},
   dj:           {label:"DJ Mix",               emoji:"🎧"},
   saude:        {label:"Saúde",                emoji:"❤️"},
+  tp450:        {label:"Impressão TP450",      emoji:"🖨️"},
 };
 
 // ─── BAT PAGE ─────────────────────────────────────────────────────────────────
@@ -7916,6 +8190,7 @@ export default function App() {
       case "projects":   return <ProjectsPage/>;
       case "jarbas":     return <JarbasPage/>;
       case "saude":      return <SaudePage/>;
+      case "tp450":      return <TP450Page/>;
       default:           return <HomePage onNavigate={setPage}/>;
     }
   };
