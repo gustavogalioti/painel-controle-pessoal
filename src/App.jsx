@@ -6024,7 +6024,6 @@ const DASH_CARD_DEFS = [
   { id:"documentos", nav:"docs",      defC:1, defR:1 },
   { id:"agenda",     nav:"events",    defC:1, defR:1 },
   { id:"contas",     nav:"bills",     defC:1, defR:1 },
-  { id:"djmix",      nav:"dj",        defC:1, defR:1 },
   { id:"tempo",      nav:"weather",   defC:1, defR:1 },
   { id:"infos",      nav:"infos",     defC:1, defR:1 },
   { id:"jarbas",     nav:"jarbas",    defC:1, defR:1 },
@@ -6058,7 +6057,7 @@ function DashSlot({ tileRef, id, col, row, orderIdx, editMode, isDragging, onPoi
 const DASH_COMPONENTS = {
   diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
-  djmix: DJMixCard, tempo: TempoCard,
+  tempo: TempoCard,
   infos: InfosCard, jarbas: JarbasCard, saude: SaudeCard, panorama: PanoramaCard, tp450: TP450Card,
 };
 
@@ -6275,7 +6274,6 @@ const PROJECT_DEFS = [
   { id:"warmaps",      color:"#0f2540",            icon:"list",    label:"War Maps",     sub:"War Maps",      url:"https://warmaps-ecru.vercel.app/" },
   { id:"paporapido",   color:"var(--tile-tasks)",  icon:"marquee", label:"Papo Rápido",  sub:"Papo Rápido",   url:"https://gustavogalioti.github.io/paporapido/" },
   { id:"daily",        color:"#1a2a3a",            icon:"calendar",label:"Daily",        sub:"Daily",         url:"https://www.yourdaily.com.br/" },
-  { id:"raporizador",  color:"#3a1a1a",            icon:"terminal",label:"Raporizador",  sub:"Raporizador",   url:"https://gustavogalioti.github.io/raporizador/" },
 ];
 
 const OTHER_PROJECT_DEFS = [
@@ -6368,6 +6366,43 @@ function ProjectsPage() {
   );
 }
 
+
+// Desliza na vertical entre o painel de cima (Menu/Projetos) e o de baixo, igual ao deslize lateral
+function VerticalSlide({ showBottom, bottom, children }) {
+  const topRef = useRef(null);
+  const botRef = useRef(null);
+  const [h, setH] = useState({ top:null, bot:null });
+  useEffect(() => {
+    const measure = () => setH({ top: topRef.current?.offsetHeight ?? null, bot: botRef.current?.offsetHeight ?? null });
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (topRef.current) ro.observe(topRef.current);
+    if (botRef.current) ro.observe(botRef.current);
+    return () => ro.disconnect();
+  }, []);
+  const ready = h.top != null && h.bot != null;
+  return (
+    <div style={{overflow:"hidden", height: ready ? (showBottom ? h.bot : h.top) : undefined, transition:"height .35s ease"}}>
+      <div style={{transform: ready && showBottom ? `translateY(-${h.top}px)` : "none", transition:"transform .35s ease"}}>
+        <div ref={topRef}>{children}</div>
+        <div ref={botRef} style={{minHeight: h.top || undefined}}>{bottom}</div>
+      </div>
+    </div>
+  );
+}
+
+// Tela "de baixo" do Menu: DJ Mix e Raporizador (acessada pela setinha para baixo)
+function BelowPage({ onNavigate }) {
+  return (
+    <div style={{padding:"20px"}}>
+      <div className="project-grid">
+        <div style={{display:"grid"}}><DJMixCard onClick={()=>onNavigate("dj")}/></div>
+        <ProjectCard color="#3a1a1a" icon="terminal" label="Raporizador" sub=""
+          onClick={()=>window.open("https://gustavogalioti.github.io/raporizador/","_blank","noopener,noreferrer")}/>
+      </div>
+    </div>
+  );
+}
 
 // ─── LETREIRO PAGE ────────────────────────────────────────────────────────────
 function LetreirPage() {
@@ -6695,6 +6730,7 @@ function LetreirPage() {
 const PAGE_META = {
   home:       {label:"Menu",                emoji:""},
   projects:   {label:"Projetos",            emoji:"🗂"},
+  below:      {label:"DJ Mix & Raporizador",emoji:"🎧"},
   diary:      {label:"Diário",              emoji:"📓"},
   infos:      {label:"Infos",               emoji:"📋"},
   ideas:      {label:"Ideias",              emoji:"💡"},
@@ -8046,13 +8082,30 @@ export default function App() {
       )}
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: (page==="home"||page==="projects")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects")?"hidden":"visible",position:"relative"}}>
-        {(page==="home"||page==="projects") ? (
-          <div style={{display:"flex",width:"200%",transform:`translateX(${page==="home"?"0%":"-50%"})`,transition:"transform .35s ease"}}>
+      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below")?"hidden":"visible",position:"relative"}}>
+        {(page==="home"||page==="projects"||page==="below") ? (
+          <VerticalSlide showBottom={page==="below"} bottom={
+            <div style={{position:"relative"}}>
+              <BelowPage onNavigate={setPage}/>
+              <button onClick={()=>setPage("home")} title="Voltar ao Menu"
+                style={{position:"absolute",left:"50%",top:6,transform:"translateX(-50%) rotate(90deg)",zIndex:20,
+                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.08)",border:"1px solid var(--border)",
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)"}}>
+                <Icon path={I.back} size={18}/>
+              </button>
+            </div>
+          }>
+          <div style={{display:"flex",width:"200%",transform:`translateX(${page==="projects"?"-50%":"0%"})`,transition:"transform .35s ease"}}>
             <div style={{width:"50%",flexShrink:0,position:"relative"}}>
               <HomePage onNavigate={setPage}/>
               <button onClick={()=>setPage("projects")} title="Ir para Projetos"
                 style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
+                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
+                <Icon path={I.next} size={18}/>
+              </button>
+              <button onClick={()=>setPage("below")} title="Ir para DJ Mix e Raporizador"
+                style={{position:"absolute",left:"50%",bottom:6,transform:"translateX(-50%) rotate(90deg)",zIndex:20,
                   width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
                   display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
                 <Icon path={I.next} size={18}/>
@@ -8068,6 +8121,7 @@ export default function App() {
               </button>
             </div>
           </div>
+          </VerticalSlide>
         ) : renderPage()}
       </main>
 
