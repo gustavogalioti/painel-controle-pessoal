@@ -209,6 +209,8 @@ export async function criarTarefa(sql, params = {}) {
     id: Date.now(), // gerado sempre no servidor — nunca aceito do cliente
     text, prio, status: "todo", done: false, date: nowISO(),
     notes: [], updates: [], tags, dueDate,
+    // sem tag e sem prazo = não classificada → cai na Caixa de Entrada do painel
+    ...(tags.length === 0 && !dueDate ? { inbox: true } : {}),
   };
   await setKvList(sql, "tasks_v1", [item, ...tasks]);
   return { item };

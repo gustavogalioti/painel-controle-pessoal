@@ -24,7 +24,7 @@ const nowISO = () => new Date().toISOString();
 export function bucketOf(t, today) {
   const s = getStatus(t);
   if (s === "done") return localDay(t.doneAt) === today ? "today" : "archive";
-  if (t.inbox) return "inbox";
+  if (t.inbox && s === "todo") return "inbox"; // movida para outra coluna = já foi triada
   if (s === "standby") return "standby";
   const pd = t.plannedDate;
   if (pd) {

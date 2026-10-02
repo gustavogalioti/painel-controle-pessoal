@@ -60,4 +60,7 @@ Visões: Meu Dia · Caixa de Entrada · Próximos Dias · Todas as Tarefas · Hi
 
 Dados: continua em `tasks_v1`. Campos novos e opcionais por tarefa: `plannedDate`, `focusDate`/`focusOrder`,
 `estimatedMinutes`, `nextAction`, `steps`, `inbox`, `deferredCount`/`deferrals`. Novas chaves de sync: `daily_reviews_v1`, `focus_log_v1`.
-O timer do Modo Foco fica em localStorage (por dispositivo).
+O timer do Modo Foco usa timestamps e sincroniza via `dcc_focus_timer_v1` (inicie no PC, retome no celular).
+A agenda do planejamento junta `events_v1` + Google + Outlook (pessoal/corporativo) conectados.
+Tarefas criadas pelo Pedro, Jarbas e ChatGPT sem tag/prazo entram com `inbox: true` (Caixa de Entrada).
+`useKV` expõe `{ error, retry }` como 4º retorno; escritas que falham são reenviadas em vez de sobrescritas pela nuvem.

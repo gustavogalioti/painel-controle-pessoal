@@ -337,3 +337,8 @@ input, textarea, select { color-scheme:light; }
   padding-left: 20px;
   margin: 6px 0;
 }
+
+/* Cabeçalho: em telas estreitas o título cede espaço aos indicadores e botões (evita rolagem horizontal) */
+@media (max-width: 520px) {
+  .app-brand-title { display: none; }
+}

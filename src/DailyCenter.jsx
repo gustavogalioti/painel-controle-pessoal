@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import "./daily.css";
 import * as L from "./daily-lib.js";
@@ -249,19 +249,19 @@ function TaskEditor({ task, tags, onSave, onDelete, onClose }) {
 }
 
 // ─── Modo Foco ───────────────────────────────────────────────────────────────
-const TIMER_KEY = "dcc_focus_timer_v1";
-const loadTimer = () => { try { return JSON.parse(localStorage.getItem(TIMER_KEY)); } catch { return null; } };
-const saveTimer = tm => { try { if (tm) localStorage.setItem(TIMER_KEY, JSON.stringify(tm)); else localStorage.removeItem(TIMER_KEY); } catch { /* sem storage */ } };
+// O estado do timer (timestamps, não contagem em memória) vive em useKV("dcc_focus_timer_v1"),
+// então sincroniza entre dispositivos: iniciar no PC e retomar no celular funciona.
 const freshTimer = (taskId, durationMin = 25) => ({ taskId, durationMin, running: false, startedAt: null, accumMs: 0, finished: false });
 const fmtClock = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`; };
 
 function FocusMode({ c, startId, onClose }) {
   const { tasks, today, act } = c;
   const [taskId, setTaskId] = useState(startId);
-  const [tm, setTm] = useState(() => { const s = loadTimer(); return s && s.taskId === startId ? s : freshTimer(startId); });
+  const stored = id => { const s = c.timerRef.current; return s && s.taskId === id ? s : null; };
+  const [tm, setTm] = useState(() => stored(startId) || freshTimer(startId));
   const [now, setNow] = useState(Date.now());
   const tmRef = useRef(tm); tmRef.current = tm;
-  useEffect(() => { saveTimer(tm); }, [tm]);
+  useEffect(() => { if (JSON.stringify(tm) !== JSON.stringify(c.timerRef.current)) c.setTimer(tm); }, [tm]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const task = tasks.find(t => t.id === taskId);
   const focusIds = L.focusTasks(tasks, today).map(t => t.id);
@@ -312,7 +312,7 @@ function FocusMode({ c, startId, onClose }) {
   };
   const reset = () => { pauseNow(); setTm(p => ({ ...freshTimer(p.taskId, p.durationMin) })); };
   const setDuration = m => setTm(p => ({ ...p, durationMin: m, finished: false }));
-  const goto = id => { const cur = pauseNow(); setTaskId(id); const s = loadTimer(); setTm(s && s.taskId === id ? s : freshTimer(id, cur.durationMin)); };
+  const goto = id => { const cur = pauseNow(); setTaskId(id); setTm(stored(id) || freshTimer(id, cur.durationMin)); };
   const complete = () => {
     pauseNow();
     act.complete(task.id);
@@ -374,12 +374,68 @@ function FocusMode({ c, startId, onClose }) {
   );
 }
 
+// ─── Agenda: compromissos locais + Google + Outlook (pessoal/corporativo) ───
+// Usa os mesmos endpoints e conversores da aba Agenda. Só busca fontes conectadas.
+function useAgenda(today, localEvents, ui) {
+  const [remote, setRemote] = useState({ events: [], status: {}, errors: {}, loading: true });
+  const alive = useRef(true);
+  const uiRef = useRef(ui); uiRef.current = ui;
+  const load = useCallback(async () => {
+    const { fromGoogleEvent, fromOutlookEvent } = uiRef.current;
+    const range = new URLSearchParams({
+      timeMin: new Date(`${today}T00:00:00`).toISOString(),
+      timeMax: new Date(`${L.addDays(today, 1)}T00:00:00`).toISOString(),
+    });
+    const sources = [
+      { key: "google", base: "/api/google-calendar", extra: "", map: fromGoogleEvent },
+      { key: "personal", base: "/api/outlook-calendar", extra: "account=personal&", map: o => fromOutlookEvent(o, "personal") },
+      { key: "corporate", base: "/api/outlook-calendar", extra: "account=corporate&", map: o => fromOutlookEvent(o, "corporate") },
+    ];
+    const results = await Promise.all(sources.map(async src => {
+      try {
+        const st = await fetch(`${src.base}?${src.extra}action=status`);
+        if (!st.ok) throw new Error("status");
+        const { connected } = await st.json();
+        if (!connected) return { key: src.key, connected: false, events: [] };
+        const r = await fetch(`${src.base}?${src.extra}${range}`);
+        if (!r.ok) throw new Error("events");
+        const items = await r.json();
+        return { key: src.key, connected: true, events: (Array.isArray(items) ? items : []).map(src.map).filter(e => e.date === today) };
+      } catch { return { key: src.key, connected: null, events: [], error: true }; }
+    }));
+    if (!alive.current) return;
+    setRemote({
+      events: results.flatMap(r => r.events),
+      status: Object.fromEntries(results.map(r => [r.key, r.connected])),
+      errors: Object.fromEntries(results.filter(r => r.error).map(r => [r.key, true])),
+      loading: false,
+    });
+  }, [today]);
+  useEffect(() => {
+    alive.current = true;
+    load();
+    const id = setInterval(() => { if (!document.hidden) load(); }, 10 * 60 * 1000);
+    return () => { alive.current = false; clearInterval(id); };
+  }, [load]);
+
+  const local = (Array.isArray(localEvents) ? localEvents : []).filter(e => e.date === today);
+  const linked = new Set(local.flatMap(e => [e.googleId, e.outlookId]).filter(Boolean));
+  const merged = [...local, ...remote.events.filter(e => !linked.has(e.googleId || e.outlookId))]
+    .sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
+  return { events: merged, status: remote.status, errors: remote.errors, loading: remote.loading, refresh: load };
+}
+
+const SRC_LABEL = { google: "Google", personal: "Outlook Pessoal", corporate: "Outlook Corporativo" };
+const evBadge = e => e.source === "google" ? "G" : e.source === "outlook" ? (e.outlookAccount === "corporate" ? "OC" : "OP") : null;
+
 // ─── Meu Dia ─────────────────────────────────────────────────────────────────
 function Hero({ c }) {
   const hour = new Date().getHours();
   const hello = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
   const { planned, done, remaining, pct } = c.summary;
-  const evs = c.todayEvents;
+  const evs = c.agenda.events;
+  const tmr = c.timer || {};
+  const tmTask = tmr.taskId && (tmr.running || (tmr.accumMs > 0 && !tmr.finished)) ? c.tasks.find(t => t.id === tmr.taskId && !L.isDone(t)) : null;
   const nextEv = evs.find(e => !e.time || new Date(`${c.today}T${e.time}`) >= new Date());
   const hint = c.prevNote;
   return (
@@ -405,7 +461,12 @@ function Hero({ c }) {
       {planned > 0 && remaining === 0 && <div className="dcc-note">Você concluiu o que planejou para hoje. Se quiser, revise o que ficou para amanhã.</div>}
       {hint && <div className="dcc-note"><b>Deixado de ontem:</b> {hint}</div>}
       {evs.length > 0 && <div className="dcc-note"><Ic d="calendar" size={13} /> {evs.length} compromisso{evs.length > 1 ? "s" : ""} hoje{nextEv ? ` · próximo: ${nextEv.time ? nextEv.time + " " : ""}${nextEv.title}` : ""}</div>}
-      {!c.synced && <div className="dcc-note">Sincronizando com a nuvem…</div>}
+      {tmTask && (
+        <div className="dcc-note" style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+          <span><Ic d="clock" size={13} /> Timer {tmr.running ? "rodando" : "pausado"}: <b>{tmTask.text}</b> · {fmtClock(L.timerElapsedMs(tmr))} decorridos</span>
+          <button className="dcc-btn dcc-btn-primary" onClick={() => c.setFocusOn(tmTask.id)}>Retomar modo foco</button>
+        </div>
+      )}
 
       <div className="dcc-rituals">
         <button className="dcc-btn dcc-btn-primary" onClick={() => c.setRitual("plan")}>{planned ? "Replanejar meu dia" : "Planejar meu dia"}</button>
@@ -866,8 +927,20 @@ function PlanModal({ c, onClose }) {
     </>}>
       <div className="dcc-field">
         <span className="dcc-label">Compromissos de hoje</span>
-        {c.todayEvents.length === 0 ? <div className="dcc-sub">Nenhum compromisso salvo no painel para hoje. (Google/Outlook só aparecem aqui quando sincronizados com a Agenda do painel.)</div>
-          : c.todayEvents.map((e, i) => <div className="dcc-event" key={i}><b>{e.time || "—"}</b><span>{e.title}</span></div>)}
+        {c.agenda.loading && <div className="dcc-sub">Buscando agenda…</div>}
+        {!c.agenda.loading && c.agenda.events.length === 0 && <div className="dcc-sub">Nenhum compromisso para hoje.</div>}
+        {c.agenda.events.map((e, i) => (
+          <div className="dcc-event" key={e.id || i}>
+            <b>{e.time || "dia todo"}</b>
+            <span>{e.title}{e.local ? <span className="dcc-sub"> · {e.local}</span> : null}</span>
+            {evBadge(e) && <span className="dcc-pill dcc-pill-neutral" style={{ marginLeft: "auto" }}>{evBadge(e)}</span>}
+          </div>
+        ))}
+        <div className="dcc-sub" style={{ marginTop: 6 }}>
+          {Object.entries(SRC_LABEL).map(([k, l]) => c.agenda.errors[k] ? `${l}: indisponível agora. ` : c.agenda.status[k] === false ? `${l}: não conectado. ` : "").join("")}
+          {Object.values(c.agenda.status).every(v => v === false) && "Conecte Google ou Outlook na aba Agenda para ver seus compromissos aqui."}
+          {" "}<button className="dcc-btn" style={{ padding: "1px 8px" }} onClick={c.agenda.refresh}>Atualizar</button>
+        </div>
       </div>
       <div className="dcc-field">
         <span className="dcc-label">Escolha o que entra no dia — e até {maxFocus} prioridades (★)</span>
@@ -1028,13 +1101,15 @@ function Picker({ c, onClose }) {
 // ─── contêiner ───────────────────────────────────────────────────────────────
 const TABS = [["day", "Meu Dia"], ["inbox", "Caixa de Entrada"], ["upcoming", "Próximos Dias"], ["all", "Todas as Tarefas"], ["history", "Histórico"]];
 
-export default function DailyCenter({ tasks, setTasks, board, synced, ui }) {
+export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }) {
   const { useKV, pedroNotify } = ui;
   const [view, setView] = useState("day");
   const [today, setToday] = useState(() => L.dateStr());
   const [reviews, setReviews] = useKV("daily_reviews_v1", {});
   const [focusLog, setFocusLog] = useKV("focus_log_v1", []);
   const [events] = useKV("events_v1", []);
+  const [timer, setTimer] = useKV("dcc_focus_timer_v1", {});
+  const timerRef = useRef(timer); timerRef.current = timer;
   const [editId, setEditId] = useState(null);
   const [ritual, setRitual] = useState(null);
   const [picker, setPicker] = useState(false);
@@ -1122,12 +1197,12 @@ export default function DailyCenter({ tasks, setTasks, board, synced, ui }) {
   const summary = L.daySummary(tasks, today);
   const focus = L.focusTasks(tasks, today);
   const inboxCount = tasks.filter(t => L.bucketOf(t, today) === "inbox").length;
-  const todayEvents = (Array.isArray(events) ? events : []).filter(e => e.date === today).sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
+  const agenda = useAgenda(today, events, ui);
   const prevKey = Object.keys(reviews || {}).filter(k => k < today && reviews[k].firstTomorrow && L.addDays(k, 3) >= today).sort().pop();
   const prevNote = prevKey ? reviews[prevKey].firstTomorrow : "";
 
   const c = {
-    tasks, today, summary, focus, allTags, todayEvents, prevNote, reviews: reviews || {}, focusLog: Array.isArray(focusLog) ? focusLog : [],
+    tasks, today, summary, focus, allTags, agenda, prevNote, timer, timerRef, setTimer, reviews: reviews || {}, focusLog: Array.isArray(focusLog) ? focusLog : [],
     synced, sort, setSort, act, mutate, flash, saveReview, logFocus,
     setEditId, setRitual, setPicker, setFocusOn,
     patch: (id, p) => mutate(prev => L.patchTask(prev, id, p)),
@@ -1149,7 +1224,16 @@ export default function DailyCenter({ tasks, setTasks, board, synced, ui }) {
         )}
       </div>
 
-      {view === "day" && <DayView c={c} />}
+      {sync && sync.error && (
+        <div className="dcc-banner" role="alert">
+          <span>Sem conexão com a nuvem. Suas tarefas continuam salvas neste dispositivo e serão reenviadas quando a conexão voltar.</span>
+          <button className="dcc-btn" onClick={() => sync.retry()}>Tentar novamente</button>
+        </div>
+      )}
+      {view === "day" && !synced && tasks.length === 0 && (
+        <div className="dcc-card" aria-busy="true" role="status"><div className="dcc-empty"><b>Carregando suas tarefas…</b>Sincronizando com a nuvem.</div></div>
+      )}
+      {view === "day" && (synced || tasks.length > 0) && <DayView c={c} />}
       {view === "inbox" && <InboxView c={c} />}
       {view === "upcoming" && <UpcomingView c={c} />}
       {view === "all" && board}

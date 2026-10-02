@@ -10,6 +10,8 @@ assert.equal(L.bucketOf(mk(3, { plannedDate: TM }), T), "future");
 assert.equal(L.bucketOf(mk(4, { plannedDate: "2026-10-01" }), T), "stale");
 assert.equal(L.bucketOf(mk(5, { status: "standby" }), T), "standby");
 assert.equal(L.bucketOf(mk(6, { inbox: true }), T), "inbox");
+assert.equal(L.bucketOf(mk(6, { inbox: true, status: "today" }), T), "today"); // triada por fora (Kanban/Pedro)
+assert.equal(L.bucketOf(mk(6, { inbox: true, status: "standby" }), T), "standby");
 assert.equal(L.bucketOf(mk(7, { status: "done", doneAt: new Date(2026, 9, 2, 10, 20).toISOString() }), T), "today");
 assert.equal(L.bucketOf(mk(8, { status: "done", doneAt: new Date(2026, 9, 1, 10, 20).toISOString() }), T), "archive");
 assert.equal(L.bucketOf({ id: 9, text: "x", done: true }, T), "archive"); // legado: só done:true, sem status/doneAt
