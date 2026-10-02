@@ -48,3 +48,16 @@ vite.config.js  # Configuração Vite
 | Pessoal | Diário, Documentos, Contas, Compromissos |
 | Profissional | (em construção) |
 | Informações | Curiosidades, Notícias, Indicadores |
+
+## Tarefas — Daily Command Center
+
+A aba Tarefas abre em **Meu Dia**; o Kanban original continua em **Todas as Tarefas**.
+Visões: Meu Dia · Caixa de Entrada · Próximos Dias · Todas as Tarefas · Histórico.
+
+- `src/DailyCenter.jsx` — telas, rituais (planejar / revisar / encerrar), captura rápida e Modo Foco
+- `src/daily-lib.js` — regras puras (testadas com `npm test`)
+- `src/daily.css` — tokens e estilos (escopo `.dcc`)
+
+Dados: continua em `tasks_v1`. Campos novos e opcionais por tarefa: `plannedDate`, `focusDate`/`focusOrder`,
+`estimatedMinutes`, `nextAction`, `steps`, `inbox`, `deferredCount`/`deferrals`. Novas chaves de sync: `daily_reviews_v1`, `focus_log_v1`.
+O timer do Modo Foco fica em localStorage (por dispositivo).

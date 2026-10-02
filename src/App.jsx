@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
+import DailyCenter from "./DailyCenter.jsx";
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 const Icon = ({ path, size = 18, color = "currentColor" }) => (
@@ -2376,8 +2377,9 @@ function IdeasPage() {
 }
 
 // ─── TASKS PAGE ───────────────────────────────────────────────────────────────
-function TasksPage() {
-  const [tasks, setTasks, synced] = useKV("tasks_v1",[]);
+// Kanban completo (visão "Todas as Tarefas"). Recebe as tarefas do TasksPage para que
+// o Meu Dia e o Kanban compartilhem exatamente o mesmo estado sincronizado (tasks_v1).
+function TasksBoard({ tasks, setTasks }) {
   const [text, setText]   = useState("");
   const [prio, setPrio]   = useState("normal");
   const [editModal, setEditModal] = useState(null);
@@ -2486,7 +2488,13 @@ function TasksPage() {
 
   const setStatus = (id, status) => {
     const prevTask = tasksRef.current.find(t => t.id===id);
-    const n = tasksRef.current.map(t => t.id===id ? { ...t, status, done: status==="done", doneAt: status==="done" ? nowISO() : t.doneAt } : t);
+    // Daily Command Center: "Para Agora/De Hoje/Em Andamento" = planejada para hoje; Pendente/Stand By = fora do dia.
+    const changed = getStatus(prevTask||{}) !== status;
+    const todayS = toDateStr(new Date());
+    const plan = !changed || status==="done" ? {}
+      : ["now","today","doing"].includes(status) ? { plannedDate: todayS, inbox:false }
+      : { plannedDate:null, focusDate:null, focusOrder:null, ...(status==="standby" ? { inbox:false } : {}) };
+    const n = tasksRef.current.map(t => t.id===id ? { ...t, ...plan, status, done: status==="done", doneAt: status==="done" ? nowISO() : t.doneAt } : t);
     save(n);
     if (status === "done" && prevTask?.status !== "done") {
       pedroNotify("task_done", { text: prevTask?.text });
@@ -2853,6 +2861,18 @@ function TasksPage() {
             <div style={{fontSize:10,color:"var(--text-3)",marginBottom:16}}>Criada em {new Date(editModal.date).toLocaleString("pt-BR")}</div>
 
             <div style={{marginBottom:16}}>
+              <div style={{fontSize:10,color:"var(--accent)",letterSpacing:2,fontWeight:700,marginBottom:10}}>PRÓXIMA AÇÃO · TEMPO ESTIMADO</div>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                <input key={"na"+editModal.id} defaultValue={editModal.nextAction||""} placeholder="Primeira ação concreta..."
+                  onBlur={e=>{ const v=e.target.value.trim()||null; if(v!==(editModal.nextAction||null)){ const n=tasksRef.current.map(t=>t.id===editModal.id?{...t,nextAction:v}:t); save(n); setEditModal(n.find(t=>t.id===editModal.id)); } }}
+                  style={{...inp,flex:1,minWidth:200,padding:"6px 10px",fontSize:12}}/>
+                <input key={"em"+editModal.id} type="number" min="1" defaultValue={editModal.estimatedMinutes||""} placeholder="min"
+                  onBlur={e=>{ const v=e.target.value?Math.max(1,Math.round(Number(e.target.value))):null; if(v!==(editModal.estimatedMinutes||null)){ const n=tasksRef.current.map(t=>t.id===editModal.id?{...t,estimatedMinutes:v}:t); save(n); setEditModal(n.find(t=>t.id===editModal.id)); } }}
+                  style={{...inp,width:80,padding:"6px 10px",fontSize:12}}/>
+              </div>
+            </div>
+
+            <div style={{marginBottom:16}}>
               <div style={{fontSize:10,color:"var(--accent)",letterSpacing:2,fontWeight:700,marginBottom:10}}>TAGS</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"center"}}>
                 {(editModal.tags||[]).map(tag=>(
@@ -2915,6 +2935,19 @@ function TasksPage() {
         </Modal>
       )}
     </div>
+  );
+}
+
+// ─── TASKS PAGE — Daily Command Center ────────────────────────────────────────
+// Meu Dia é a tela padrão; o Kanban original continua em "Todas as Tarefas".
+function TasksPage() {
+  const [tasks, setTasks, synced] = useKV("tasks_v1",[]);
+  return (
+    <DailyCenter
+      tasks={tasks} setTasks={setTasks} synced={synced}
+      ui={{ useKV, pedroNotify }}
+      board={<TasksBoard tasks={tasks} setTasks={setTasks}/>}
+    />
   );
 }
 
