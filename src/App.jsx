@@ -6367,6 +6367,30 @@ function ProjectsPage() {
 }
 
 
+// Desliza na vertical entre o painel de cima (Menu/Projetos) e o de baixo, igual ao deslize lateral
+function VerticalSlide({ showBottom, bottom, children }) {
+  const topRef = useRef(null);
+  const botRef = useRef(null);
+  const [h, setH] = useState({ top:null, bot:null });
+  useEffect(() => {
+    const measure = () => setH({ top: topRef.current?.offsetHeight ?? null, bot: botRef.current?.offsetHeight ?? null });
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (topRef.current) ro.observe(topRef.current);
+    if (botRef.current) ro.observe(botRef.current);
+    return () => ro.disconnect();
+  }, []);
+  const ready = h.top != null && h.bot != null;
+  return (
+    <div style={{overflow:"hidden", height: ready ? (showBottom ? h.bot : h.top) : undefined, transition:"height .35s ease"}}>
+      <div style={{transform: ready && showBottom ? `translateY(-${h.top}px)` : "none", transition:"transform .35s ease"}}>
+        <div ref={topRef}>{children}</div>
+        <div ref={botRef} style={{minHeight: h.top || undefined}}>{bottom}</div>
+      </div>
+    </div>
+  );
+}
+
 // Tela "de baixo" do Menu: DJ Mix e Raporizador (acessada pela setinha para baixo)
 function BelowPage({ onNavigate }) {
   return (
@@ -8059,18 +8083,19 @@ export default function App() {
 
       {/* CONTENT */}
       <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below")?"hidden":"visible",position:"relative"}}>
-        {page==="below" ? (
-          <div style={{position:"relative"}}>
-            <BelowPage onNavigate={setPage}/>
-            <button onClick={()=>setPage("home")} title="Voltar ao Menu"
-              style={{position:"absolute",left:"50%",top:6,transform:"translateX(-50%) rotate(90deg)",zIndex:20,
-                width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.08)",border:"1px solid var(--border)",
-                display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)"}}>
-              <Icon path={I.back} size={18}/>
-            </button>
-          </div>
-        ) : (page==="home"||page==="projects") ? (
-          <div style={{display:"flex",width:"200%",transform:`translateX(${page==="home"?"0%":"-50%"})`,transition:"transform .35s ease"}}>
+        {(page==="home"||page==="projects"||page==="below") ? (
+          <VerticalSlide showBottom={page==="below"} bottom={
+            <div style={{position:"relative"}}>
+              <BelowPage onNavigate={setPage}/>
+              <button onClick={()=>setPage("home")} title="Voltar ao Menu"
+                style={{position:"absolute",left:"50%",top:6,transform:"translateX(-50%) rotate(90deg)",zIndex:20,
+                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.08)",border:"1px solid var(--border)",
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)"}}>
+                <Icon path={I.back} size={18}/>
+              </button>
+            </div>
+          }>
+          <div style={{display:"flex",width:"200%",transform:`translateX(${page==="projects"?"-50%":"0%"})`,transition:"transform .35s ease"}}>
             <div style={{width:"50%",flexShrink:0,position:"relative"}}>
               <HomePage onNavigate={setPage}/>
               <button onClick={()=>setPage("projects")} title="Ir para Projetos"
@@ -8096,6 +8121,7 @@ export default function App() {
               </button>
             </div>
           </div>
+          </VerticalSlide>
         ) : renderPage()}
       </main>
 
