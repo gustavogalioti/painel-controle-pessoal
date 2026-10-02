@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
+import DailyCenter from "./DailyCenter.jsx";
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 const Icon = ({ path, size = 18, color = "currentColor" }) => (
@@ -93,14 +94,23 @@ const KV = {
       return v ? JSON.parse(v) : null;
     } catch { return null; }
   },
+  // Como get, mas distingue "não existe" (null) de "falhou" (lança) — usado para exibir estado de erro
+  getStrict: async (key) => {
+    const r = await fetch(`/api/db?table=sync_kv&key=${encodeURIComponent(key)}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const v = await r.json();
+    if (v && typeof v === "object") throw new Error("resposta inesperada");
+    return v ? JSON.parse(v) : null;
+  },
   set: async (key, value) => {
     try {
-      await fetch(`/api/db?table=sync_kv`, {
+      const r = await fetch(`/api/db?table=sync_kv`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key, value: JSON.stringify(value) }),
       });
-    } catch {}
+      return r.ok;
+    } catch { return false; }
   },
   del: async (key) => {
     try { await fetch(`/api/db?table=sync_kv&key=${encodeURIComponent(key)}`, { method: "DELETE" }); } catch {}
@@ -119,12 +129,22 @@ function useKV(key, def) {
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch { return def; }
   });
   const [synced, setSynced] = useState(false);
+  const [syncError, setSyncError] = useState(false);
   const dataRef = useRef(data);
   dataRef.current = data;
   const savingRef = useRef(false); // true briefly after a local save, to avoid self-clobber
+  const dirtyRef = useRef(false);  // true quando a última escrita na nuvem falhou (não sobrescrever o local)
 
   const pull = () => {
-    KV.get(key).then(cloud => {
+    // Escrita pendente que falhou: reenvia o local em vez de sobrescrevê-lo com o valor antigo da nuvem
+    if (dirtyRef.current) {
+      return KV.set(key, dataRef.current).then(ok => {
+        if (ok) { dirtyRef.current = false; setSyncError(false); }
+        setSynced(true);
+      });
+    }
+    return KV.getStrict(key).then(cloud => {
+      setSyncError(false);
       if (cloud !== null && !savingRef.current) {
         // Only update if actually different (avoid needless re-renders)
         const cloudStr = JSON.stringify(cloud);
@@ -134,8 +154,7 @@ function useKV(key, def) {
           try { localStorage.setItem(key, cloudStr); } catch {}
         }
       }
-      setSynced(true);
-    });
+    }).catch(() => { setSyncError(true); }).finally(() => setSynced(true));
   };
 
   // On mount: pull from cloud
@@ -162,13 +181,17 @@ function useKV(key, def) {
     setData(value);
     try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
     savingRef.current = true;
-    KV.set(key, value).finally(() => {
+    KV.set(key, value).then(ok => {
+      if (ok) { dirtyRef.current = false; setSyncError(false); }
+      else { dirtyRef.current = true; setSyncError(true); }
+    }).finally(() => {
       setTimeout(() => { savingRef.current = false; }, 1000);
     });
     return value;
   };
 
-  return [data, save, synced];
+  // 4º item (opcional): { error, retry } — quem não precisa, ignora
+  return [data, save, synced, { error: syncError, retry: pull }];
 }
 
 function useDB(table, localKey, def=[]) {
@@ -2376,8 +2399,9 @@ function IdeasPage() {
 }
 
 // ─── TASKS PAGE ───────────────────────────────────────────────────────────────
-function TasksPage() {
-  const [tasks, setTasks, synced] = useKV("tasks_v1",[]);
+// Kanban completo (visão "Todas as Tarefas"). Recebe as tarefas do TasksPage para que
+// o Meu Dia e o Kanban compartilhem exatamente o mesmo estado sincronizado (tasks_v1).
+function TasksBoard({ tasks, setTasks }) {
   const [text, setText]   = useState("");
   const [prio, setPrio]   = useState("normal");
   const [editModal, setEditModal] = useState(null);
@@ -2486,7 +2510,13 @@ function TasksPage() {
 
   const setStatus = (id, status) => {
     const prevTask = tasksRef.current.find(t => t.id===id);
-    const n = tasksRef.current.map(t => t.id===id ? { ...t, status, done: status==="done", doneAt: status==="done" ? nowISO() : t.doneAt } : t);
+    // Daily Command Center: "Para Agora/De Hoje/Em Andamento" = planejada para hoje; Pendente/Stand By = fora do dia.
+    const changed = getStatus(prevTask||{}) !== status;
+    const todayS = toDateStr(new Date());
+    const plan = !changed || status==="done" ? {}
+      : ["now","today","doing"].includes(status) ? { plannedDate: todayS, inbox:false }
+      : { plannedDate:null, focusDate:null, focusOrder:null, ...(status==="standby" ? { inbox:false } : {}) };
+    const n = tasksRef.current.map(t => t.id===id ? { ...t, ...plan, status, done: status==="done", doneAt: status==="done" ? nowISO() : t.doneAt } : t);
     save(n);
     if (status === "done" && prevTask?.status !== "done") {
       pedroNotify("task_done", { text: prevTask?.text });
@@ -2853,6 +2883,18 @@ function TasksPage() {
             <div style={{fontSize:10,color:"var(--text-3)",marginBottom:16}}>Criada em {new Date(editModal.date).toLocaleString("pt-BR")}</div>
 
             <div style={{marginBottom:16}}>
+              <div style={{fontSize:10,color:"var(--accent)",letterSpacing:2,fontWeight:700,marginBottom:10}}>PRÓXIMA AÇÃO · TEMPO ESTIMADO</div>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                <input key={"na"+editModal.id} defaultValue={editModal.nextAction||""} placeholder="Primeira ação concreta..."
+                  onBlur={e=>{ const v=e.target.value.trim()||null; if(v!==(editModal.nextAction||null)){ const n=tasksRef.current.map(t=>t.id===editModal.id?{...t,nextAction:v}:t); save(n); setEditModal(n.find(t=>t.id===editModal.id)); } }}
+                  style={{...inp,flex:1,minWidth:200,padding:"6px 10px",fontSize:12}}/>
+                <input key={"em"+editModal.id} type="number" min="1" defaultValue={editModal.estimatedMinutes||""} placeholder="min"
+                  onBlur={e=>{ const v=e.target.value?Math.max(1,Math.round(Number(e.target.value))):null; if(v!==(editModal.estimatedMinutes||null)){ const n=tasksRef.current.map(t=>t.id===editModal.id?{...t,estimatedMinutes:v}:t); save(n); setEditModal(n.find(t=>t.id===editModal.id)); } }}
+                  style={{...inp,width:80,padding:"6px 10px",fontSize:12}}/>
+              </div>
+            </div>
+
+            <div style={{marginBottom:16}}>
               <div style={{fontSize:10,color:"var(--accent)",letterSpacing:2,fontWeight:700,marginBottom:10}}>TAGS</div>
               <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"center"}}>
                 {(editModal.tags||[]).map(tag=>(
@@ -2915,6 +2957,19 @@ function TasksPage() {
         </Modal>
       )}
     </div>
+  );
+}
+
+// ─── TASKS PAGE — Daily Command Center ────────────────────────────────────────
+// Meu Dia é a tela padrão; o Kanban original continua em "Todas as Tarefas".
+function TasksPage() {
+  const [tasks, setTasks, synced, sync] = useKV("tasks_v1",[]);
+  return (
+    <DailyCenter
+      tasks={tasks} setTasks={setTasks} synced={synced} sync={sync}
+      ui={{ useKV, pedroNotify, fromGoogleEvent, fromOutlookEvent }}
+      board={<TasksBoard tasks={tasks} setTasks={setTasks}/>}
+    />
   );
 }
 
@@ -7951,15 +8006,17 @@ export default function App() {
   return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
       {/* TOP BAR */}
-      <header style={{background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",padding:"0 20px",height:64,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
+      <header style={{background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",padding:"0 20px",height:64,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,minWidth:0}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <div style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center"}}>
             <img src="/radioactive-icon.png" alt="logo" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
           </div>
-          <div style={{fontWeight:800,fontSize:14,letterSpacing:0.5,lineHeight:1}}>PAINEL DE CONTROLE</div>
+          <div className="app-brand-title" style={{fontWeight:800,fontSize:14,letterSpacing:0.5,lineHeight:1}}>PAINEL DE CONTROLE</div>
         </div>
-        <div style={{flex:1,overflow:"hidden",display:"flex",justifyContent:"center"}}>
-          <IndicatorsRow data={indicData} error={indicError}/>
+        <div style={{flex:1,minWidth:0,overflow:"hidden",display:"flex"}}>
+          <div style={{margin:"0 auto",minWidth:0,maxWidth:"100%",display:"flex"}}>
+            <IndicatorsRow data={indicData} error={indicError}/>
+          </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
           {[["search",()=>{}],["bell",()=>{}],["calendar",()=>setPage("events")],["gear",()=>{}]].map(([ic,fn])=>(

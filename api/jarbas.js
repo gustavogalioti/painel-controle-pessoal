@@ -314,7 +314,7 @@ async function getNovidades(sql) {
 async function cmdAddTask(sql, texto) {
   if (!texto) return { reply: "Faltou dizer o texto da tarefa." };
   const tasks = await getKvList(sql, "tasks_v1");
-  const t = { id: Date.now(), text: texto, prio: "normal", status: "todo", done: false, date: new Date().toISOString(), notes: [], updates: [] };
+  const t = { id: Date.now(), text: texto, prio: "normal", status: "todo", done: false, date: new Date().toISOString(), notes: [], updates: [], inbox: true };
   await setKvList(sql, "tasks_v1", [t, ...tasks]);
   return { reply: `Criei a tarefa "${texto}".` };
 }

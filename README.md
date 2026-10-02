@@ -48,3 +48,31 @@ vite.config.js  # Configuração Vite
 | Pessoal | Diário, Documentos, Contas, Compromissos |
 | Profissional | (em construção) |
 | Informações | Curiosidades, Notícias, Indicadores |
+
+## Tarefas — Daily Command Center
+
+A aba Tarefas abre em **Meu Dia**; o Kanban original continua em **Todas as Tarefas**.
+Visões: Meu Dia · Caixa de Entrada · Próximos Dias · Todas as Tarefas · Histórico.
+
+- `src/DailyCenter.jsx` — telas, rituais (planejar / revisar / encerrar), captura rápida e Modo Foco
+- `src/daily-lib.js` — regras puras (testadas com `npm test`)
+- `src/daily.css` — tokens e estilos (escopo `.dcc`)
+
+Dados: continua em `tasks_v1`. Campos novos e opcionais por tarefa: `plannedDate`, `focusDate`/`focusOrder`,
+`estimatedMinutes`, `nextAction`, `steps`, `inbox`, `deferredCount`/`deferrals`. Novas chaves de sync: `daily_reviews_v1`, `focus_log_v1`.
+O timer do Modo Foco usa timestamps e sincroniza via `dcc_focus_timer_v1` (inicie no PC, retome no celular).
+A agenda do planejamento junta `events_v1` + Google + Outlook (pessoal/corporativo) conectados.
+Tarefas criadas pelo Pedro, Jarbas e ChatGPT sem tag/prazo entram com `inbox: true` (Caixa de Entrada).
+`useKV` expõe `{ error, retry }` como 4º retorno; escritas que falham são reenviadas em vez de sobrescritas pela nuvem.
+
+## Deploy (Vercel)
+
+O projeto é um app Vite (`dist/`) + funções edge em `api/` — a Vercel detecta tudo sozinha, não há `vercel.json`.
+A branch de produção é `main`; qualquer outra branch gera um **Preview Deployment** (URL própria) a cada push.
+
+Variáveis de ambiente usadas por `api/` (Project → Settings → Environment Variables):
+`DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET`,
+`OUTLOOK_REDIRECT_URI`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `JARBAS_API_KEY`, `GROQ_API_KEY`, `CRON_SECRET`, `CHATGPT_API_SECRET`.
+O Daily Command Center **não adiciona** nenhuma variável nova.
+
+Fluxo: abrir PR da branch → testar no Preview → mesclar em `main` → a Vercel publica em produção.

@@ -174,7 +174,7 @@ function matchCommand(message) {
 async function cmdAddTask(sql, title) {
   if (!title) return { reply: "Me fala o texto da tarefa! Tipo \"cria tarefa: comprar ração\" 🐾" };
   const tasks = await getKvList(sql, "tasks_v1");
-  const t = { id: Date.now(), text: title, prio: "normal", status: "todo", done: false, date: new Date().toISOString(), notes: [], updates: [] };
+  const t = { id: Date.now(), text: title, prio: "normal", status: "todo", done: false, date: new Date().toISOString(), notes: [], updates: [], inbox: true };
   await setKvList(sql, "tasks_v1", [t, ...tasks]);
   return { reply: `Anotado! ✅ Criei a tarefa "${title}" pra você 🐾` };
 }
