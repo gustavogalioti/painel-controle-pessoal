@@ -66,6 +66,19 @@ const q = L.newInboxTask({ text: " ligar ", tag: "", due: "" });
 assert.equal(q.inbox, true); assert.equal(q.text, "ligar"); assert.deepEqual(q.tags, []);
 assert.equal(L.newInboxTask({ text: "x", tag: "C2LZ", due: "2026-10-09" }).dueDate, "2026-10-09T23:59");
 
+// compromisso ↔ tarefa
+const ev = { id: "g_abc", title: "Reunião", time: "14:00", date: T };
+const et = L.newEventTask(ev, T);
+assert.equal(et.eventLink.id, "g_abc"); assert.equal(et.plannedDate, T); assert.equal(L.bucketOf(et, T), "today");
+
+// triagem: só pendentes soltos (sem tag/prazo/plano), nunca concluídas/standby/já na caixa
+ts = [mk(1), mk(2, { tags: ["C2LZ"] }), mk(3, { dueDate: "2026-10-05T10:00" }), mk(4, { plannedDate: TM }), mk(5, { inbox: true }),
+      mk(6, { status: "standby" }), mk(7, { status: "today" }), mk(8, { status: "done", done: true }), mk(9)];
+assert.deepEqual(L.untriaged(ts).map(t => t.id).sort(), [1, 9]);
+const mv = L.moveToInbox(ts, [1]);
+assert.equal(mv.find(t => t.id === 1).inbox, true); assert.equal(mv.find(t => t.id === 9).inbox, undefined);
+assert.equal(L.bucketOf(mv.find(t => t.id === 1), T), "inbox");
+
 // util
 assert.equal(L.fmtMin(10), "10 min"); assert.equal(L.fmtMin(90), "1h30"); assert.equal(L.fmtMin(120), "2h"); assert.equal(L.fmtMin(""), "");
 assert.equal(L.addDays("2026-10-31", 1), "2026-11-01");

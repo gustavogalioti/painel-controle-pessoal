@@ -64,3 +64,15 @@ O timer do Modo Foco usa timestamps e sincroniza via `dcc_focus_timer_v1` (inici
 A agenda do planejamento junta `events_v1` + Google + Outlook (pessoal/corporativo) conectados.
 Tarefas criadas pelo Pedro, Jarbas e ChatGPT sem tag/prazo entram com `inbox: true` (Caixa de Entrada).
 `useKV` expõe `{ error, retry }` como 4º retorno; escritas que falham são reenviadas em vez de sobrescritas pela nuvem.
+
+## Deploy (Vercel)
+
+O projeto é um app Vite (`dist/`) + funções edge em `api/` — a Vercel detecta tudo sozinha, não há `vercel.json`.
+A branch de produção é `main`; qualquer outra branch gera um **Preview Deployment** (URL própria) a cada push.
+
+Variáveis de ambiente usadas por `api/` (Project → Settings → Environment Variables):
+`DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET`,
+`OUTLOOK_REDIRECT_URI`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `JARBAS_API_KEY`, `GROQ_API_KEY`, `CRON_SECRET`, `CHATGPT_API_SECRET`.
+O Daily Command Center **não adiciona** nenhuma variável nova.
+
+Fluxo: abrir PR da branch → testar no Preview → mesclar em `main` → a Vercel publica em produção.

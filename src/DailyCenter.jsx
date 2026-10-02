@@ -65,6 +65,7 @@ const dueLabel = (t, today) => {
 };
 const longDate = ds => new Date(ds + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
 const shortDate = ds => new Date(ds + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+const evText = t => (t.eventLink ? `${t.eventLink.time || "dia todo"} · ${t.eventLink.title}` : null);
 const stepsInfo = t => { const s = t.steps || []; return s.length ? `${s.filter(x => x.done).length}/${s.length} passos` : null; };
 
 // ─── blocos reutilizáveis ────────────────────────────────────────────────────
@@ -149,12 +150,13 @@ function CaptureCard({ tags, onSave, autoFocus }) {
 }
 
 // ─── editor de tarefa (próxima ação, estimativa, passos, planejamento) ──────
-function TaskEditor({ task, tags, onSave, onDelete, onClose }) {
+function TaskEditor({ task, tags, events, onSave, onDelete, onClose }) {
   const [d, setD] = useState(() => ({
     text: task.text || "", prio: task.prio || "normal", status: L.getStatus(task),
     tags: task.tags || [], plannedDate: task.plannedDate || "",
     dueDate: task.dueDate ? String(task.dueDate).slice(0, 16) : "",
     est: task.estimatedMinutes || "", next: task.nextAction || "", steps: task.steps || [],
+    ev: task.eventLink ? task.eventLink.id : "",
   }));
   const [tagIn, setTagIn] = useState("");
   const [stepIn, setStepIn] = useState("");
@@ -176,6 +178,7 @@ function TaskEditor({ task, tags, onSave, onDelete, onClose }) {
       estimatedMinutes: d.est ? Math.max(1, Math.round(Number(d.est))) : null,
       nextAction: d.next.trim() || null,
       steps: d.steps,
+      eventLink: !d.ev ? null : (events.find(e => String(e.id) === d.ev) ? L.eventLinkOf(events.find(e => String(e.id) === d.ev)) : task.eventLink || null),
       status: st, done: st === "done",
       ...(st === "done" && L.getStatus(task) !== "done" ? { doneAt: new Date().toISOString() } : {}),
       inbox: false,
@@ -212,6 +215,15 @@ function TaskEditor({ task, tags, onSave, onDelete, onClose }) {
         <div><label htmlFor="te-due">Prazo real</label><input id="te-due" type="datetime-local" value={d.dueDate} onChange={e => set("dueDate", e.target.value)} /></div>
       </div>
       <div className="dcc-sub" style={{ margin: "-4px 0 14px" }}>“Planejada para” é quando você pretende fazer; “Prazo real” é quando precisa estar pronto.</div>
+
+      <div className="dcc-field">
+        <label htmlFor="te-ev">Compromisso de hoje vinculado</label>
+        <select id="te-ev" value={d.ev} onChange={e => set("ev", e.target.value)}>
+          <option value="">Nenhum</option>
+          {task.eventLink && !events.some(e => String(e.id) === task.eventLink.id) && <option value={task.eventLink.id}>{evText(task)} (de outro dia)</option>}
+          {events.map(e => <option key={e.id} value={String(e.id)}>{e.time || "dia todo"} · {e.title}</option>)}
+        </select>
+      </div>
 
       <div className="dcc-field">
         <span className="dcc-label">Tags</span>
@@ -500,6 +512,7 @@ function FocusCard({ c, t, index, active, drag }) {
           : t.estimatedMinutes ? <span className="dcc-time">{L.fmtMin(t.estimatedMinutes)}</span> : null}
       </div>
       <div className="dcc-title"><button onClick={() => c.setEditId(t.id)}>{t.text}</button></div>
+      {evText(t) && <div className="dcc-li-meta" style={{ marginBottom: 4 }}><Ic d="calendar" size={12} /> {evText(t)}</div>}
       {done ? (
         <div className="dcc-next">Concluída às {hhmm(t.doneAt)}. <button className="dcc-btn" style={{ padding: "2px 9px", marginLeft: 6 }} onClick={() => c.act.reopen(t.id)}>Reabrir</button></div>
       ) : (
@@ -572,7 +585,7 @@ function sortActions(items, mode, today) {
 
 function ActionRow({ c, t, right }) {
   const due = dueLabel(t, c.today);
-  const meta = [areaOf(t), t.estimatedMinutes ? L.fmtMin(t.estimatedMinutes) : null].filter(Boolean).join(" · ");
+  const meta = [areaOf(t), t.estimatedMinutes ? L.fmtMin(t.estimatedMinutes) : null, evText(t) ? `🗓 ${evText(t)}` : null].filter(Boolean).join(" · ");
   return (
     <div className="dcc-li">
       <span className="dcc-li-ico"><Ic d={taskIcon(t.text)} size={19} /></span>
@@ -706,11 +719,45 @@ function InboxItem({ c, t }) {
   );
 }
 
+// Triagem opt-in: traz pendências soltas antigas (ex.: criadas pelo Pedro/ChatGPT antes da Caixa) para a Caixa de Entrada
+function TriageModal({ c, onClose }) {
+  const list = useMemo(() => L.untriaged(c.tasks), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [sel, setSel] = useState(() => new Set(list.map(t => t.id)));
+  const toggle = id => setSel(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  return (
+    <Sheet title="Triagem de tarefas antigas" onClose={onClose} footer={<>
+      <button className="dcc-btn" onClick={onClose}>Cancelar</button>
+      <button className="dcc-btn dcc-btn-primary" disabled={sel.size === 0} onClick={() => { c.act.moveToInbox([...sel]); onClose(); }}>Mover {sel.size} para a Caixa de Entrada</button>
+    </>}>
+      <div className="dcc-sub" style={{ marginBottom: 10 }}>Pendências sem tag, sem prazo e sem planejamento. Nada é apagado ou alterado além de ir para a Caixa — de lá você decide uma a uma. Desmarque o que quiser deixar onde está.</div>
+      <div className="dcc-btn-row" style={{ marginBottom: 8 }}>
+        <button className="dcc-btn" onClick={() => setSel(new Set(list.map(t => t.id)))}>Marcar todas</button>
+        <button className="dcc-btn" onClick={() => setSel(new Set())}>Desmarcar todas</button>
+      </div>
+      {list.map(t => (
+        <label key={t.id} className="dcc-plan-row" style={{ display: "flex", gap: 10, alignItems: "center", cursor: "pointer" }}>
+          <input type="checkbox" checked={sel.has(t.id)} onChange={() => toggle(t.id)} />
+          <span style={{ flex: 1 }}>{t.text}<span className="dcc-sub"> · criada em {shortDate(L.localDay(t.date))}</span></span>
+        </label>
+      ))}
+    </Sheet>
+  );
+}
+
 function InboxView({ c }) {
   const items = c.tasks.filter(t => L.bucketOf(t, c.today) === "inbox").sort((a, b) => new Date(b.date) - new Date(a.date));
+  const loose = L.untriaged(c.tasks).length;
+  const [triage, setTriage] = useState(false);
   return (
     <>
       <CaptureCard tags={c.allTags} onSave={c.act.capture} />
+      {loose > 0 && (
+        <div className="dcc-card" style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+          <span><b>{loose} {loose === 1 ? "pendência solta" : "pendências soltas"}</b> <span className="dcc-sub">(sem tag, prazo ou plano) em “Todas as Tarefas”.</span></span>
+          <button className="dcc-btn" onClick={() => setTriage(true)}>Triar tarefas antigas</button>
+        </div>
+      )}
+      {triage && <TriageModal c={c} onClose={() => setTriage(false)} />}
       <div className="dcc-sec-head"><h2 style={{ fontSize: 18, color: "var(--d-navy)", margin: 0 }}>A organizar</h2><span className="dcc-pill dcc-pill-neutral">{items.length}</span></div>
       <div className="dcc-sub" style={{ marginBottom: 12 }}>Capture agora, decida depois: para hoje, outro dia, ou arquive.</div>
       {items.length === 0
@@ -880,7 +927,10 @@ function PlanModal({ c, onClose }) {
   }, []);
   const [sel, setSel] = useState(() => Object.fromEntries(cands.map(t => [t.id, {
     plan: L.bucketOf(t, today) === "today", est: t.estimatedMinutes || "", next: t.nextAction || "",
+    ev: t.eventLink ? t.eventLink.id : "",
   }])));
+  const [created, setCreated] = useState([]);
+  const linkedIds = new Set([...created, ...tasks.filter(t => t.eventLink && !L.isDone(t)).map(t => t.eventLink.id)]);
   const [focusIds, setFocusIds] = useState(() => L.focusTasks(tasks, today).filter(t => !L.isDone(t)).map(t => t.id));
   const [q, setQ] = useState("");
   const lockedFocus = L.focusTasks(tasks, today).filter(L.isDone).length; // prioridades já concluídas continuam ocupando vaga
@@ -907,6 +957,7 @@ function PlanModal({ c, onClose }) {
         out = L.patchTask(out, t.id, {
           estimatedMinutes: s.est ? Math.max(1, Math.round(Number(s.est))) : null,
           nextAction: s.next.trim() || null,
+          eventLink: !s.ev ? null : (c.agenda.events.find(e => String(e.id) === s.ev) ? L.eventLinkOf(c.agenda.events.find(e => String(e.id) === s.ev)) : t.eventLink || null),
           ...(focusIds.includes(t.id) && s.plan ? { focusDate: today, focusOrder: 100 + focusIds.indexOf(t.id) } : { focusDate: null, focusOrder: null }),
         });
       });
@@ -933,7 +984,12 @@ function PlanModal({ c, onClose }) {
           <div className="dcc-event" key={e.id || i}>
             <b>{e.time || "dia todo"}</b>
             <span>{e.title}{e.local ? <span className="dcc-sub"> · {e.local}</span> : null}</span>
-            {evBadge(e) && <span className="dcc-pill dcc-pill-neutral" style={{ marginLeft: "auto" }}>{evBadge(e)}</span>}
+            <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+              {evBadge(e) && <span className="dcc-pill dcc-pill-neutral">{evBadge(e)}</span>}
+              {linkedIds.has(String(e.id))
+                ? <span className="dcc-pill dcc-pill-ok">tarefa vinculada</span>
+                : <button className="dcc-btn" style={{ padding: "2px 9px" }} onClick={() => { c.act.fromEvent(e); setCreated(x => [...x, String(e.id)]); }}>+ Tarefa</button>}
+            </span>
           </div>
         ))}
         <div className="dcc-sub" style={{ marginTop: 6 }}>
@@ -959,6 +1015,13 @@ function PlanModal({ c, onClose }) {
             </div>
             {s.plan && (
               <div className="dcc-plan-extra">
+                {c.agenda.events.length > 0 && (
+                  <select style={{ gridColumn: "1 / -1" }} value={s.ev} onChange={e => patchSel(t.id, { ev: e.target.value })} aria-label={`Compromisso vinculado: ${t.text}`}>
+                    <option value="">Sem compromisso vinculado</option>
+                    {t.eventLink && !c.agenda.events.some(e => String(e.id) === t.eventLink.id) && <option value={t.eventLink.id}>{evText(t)} (de outro dia)</option>}
+                    {c.agenda.events.map(e => <option key={e.id} value={String(e.id)}>{e.time || "dia todo"} · {e.title}</option>)}
+                  </select>
+                )}
                 <input type="number" min="1" value={s.est} onChange={e => patchSel(t.id, { est: e.target.value })} placeholder="Minutos" aria-label={`Tempo estimado: ${t.text}`} />
                 <input value={s.next} onChange={e => patchSel(t.id, { next: e.target.value })} placeholder="Primeira ação concreta…" aria-label={`Próxima ação: ${t.text}`} />
               </div>
@@ -1181,6 +1244,16 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
       mutate(p => p.filter(t => t.id !== id));
       flash("Tarefa excluída.", () => mutate(p => L.restoreTask(p, old)));
     },
+    fromEvent: e => {
+      const t = L.newEventTask(e, today);
+      mutate(p => [t, ...p]);
+      flash("Tarefa criada a partir do compromisso.", () => mutate(p => p.filter(x => x.id !== t.id)));
+    },
+    moveToInbox: ids => {
+      const olds = tasksRef.current.filter(t => ids.includes(t.id));
+      mutate(p => L.moveToInbox(p, ids));
+      flash(`${ids.length} ${ids.length === 1 ? "tarefa movida" : "tarefas movidas"} para a Caixa de Entrada.`, () => mutate(p => olds.reduce((acc, o) => L.restoreTask(acc, o), p)));
+    },
     capture: ({ text, tag, due }) => {
       const t = L.newInboxTask({ text, tag, due });
       mutate(p => [t, ...p]);
@@ -1249,7 +1322,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
       {ritual === "review" && <ReviewModal c={c} onClose={() => setRitual(null)} />}
       {ritual === "close" && <CloseModal c={c} onClose={() => setRitual(null)} />}
       {editing && (
-        <TaskEditor key={editing.id} task={editing} tags={allTags}
+        <TaskEditor key={editing.id} task={editing} tags={allTags} events={agenda.events}
           onClose={() => setEditId(null)}
           onSave={patch => { mutate(p => L.patchTask(p, editing.id, patch)); setEditId(null); }}
           onDelete={() => { setEditId(null); act.remove(editing.id); }} />

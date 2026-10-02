@@ -173,3 +173,23 @@ export function focusByHour(log, day) {
   });
   return out;
 }
+
+// ── compromisso ↔ tarefa ──
+// Vínculo leve: guarda uma cópia mínima do compromisso na tarefa (a agenda continua sendo a fonte da verdade).
+export const eventLinkOf = e => ({ id: String(e.id), title: e.title, time: e.time || "", date: e.date });
+
+export function newEventTask(e, today) {
+  return {
+    id: Date.now(), text: e.title, prio: "normal", status: "today", done: false, date: nowISO(),
+    notes: [], updates: [], tags: [], dueDate: null, plannedDate: today, eventLink: eventLinkOf(e),
+  };
+}
+
+// ── triagem de tarefas antigas ──
+// Pendentes sem tag, sem prazo e sem planejamento: típicas de captura rápida (Pedro/ChatGPT) anteriores à Caixa de Entrada.
+export const untriaged = tasks =>
+  tasks.filter(t => getStatus(t) === "todo" && !t.inbox && !(t.tags && t.tags.length) && !t.dueDate && !t.plannedDate)
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+export const moveToInbox = (tasks, ids) =>
+  tasks.map(t => (ids.includes(t.id) ? { ...t, inbox: true } : t));
