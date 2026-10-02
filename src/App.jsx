@@ -8082,7 +8082,7 @@ export default function App() {
       )}
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below")?"hidden":"visible",position:"relative"}}>
+      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"||page==="tasks"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below")?"hidden":"visible",position:"relative"}}>
         {(page==="home"||page==="projects"||page==="below") ? (
           <VerticalSlide showBottom={page==="below"} bottom={
             <div style={{position:"relative"}}>

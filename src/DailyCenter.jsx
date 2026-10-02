@@ -661,13 +661,17 @@ function Attention({ c }) {
 
 function DayView({ c }) {
   return (
-    <>
-      <Hero c={c} />
-      <FocusSection c={c} />
-      <NextActions c={c} />
-      <Attention c={c} />
-      <CaptureCard tags={c.allTags} onSave={c.act.capture} />
-    </>
+    <div className="dcc-day">
+      <div className="dcc-col">
+        <Hero c={c} />
+        <FocusSection c={c} />
+      </div>
+      <div className="dcc-col">
+        <NextActions c={c} />
+        <Attention c={c} />
+        <CaptureCard tags={c.allTags} onSave={c.act.capture} />
+      </div>
+    </div>
   );
 }
 
