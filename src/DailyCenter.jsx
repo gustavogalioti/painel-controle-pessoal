@@ -119,9 +119,9 @@ function CaptureCard({ tags, onSave, autoFocus }) {
     if (inputRef.current) inputRef.current.focus();
   };
   return (
-    <section className="dcc-capture" aria-label="Captura rápida">
+    <section className="dcc-capture" aria-label="Adicionar tarefa">
       <div className="dcc-capture-head">
-        <span><Ic d="plusCircle" size={18} /> Capturar tarefa</span>
+        <span><Ic d="plusCircle" size={18} /> Adicionar tarefa</span>
         <span className="dcc-pill">Rápido</span>
       </div>
       <div className="dcc-capture-body">
@@ -445,6 +445,7 @@ function Hero({ c }) {
   const hour = new Date().getHours();
   const hello = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
   const { planned, done, remaining, pct } = c.summary;
+  const n = c.counts;
   const evs = c.agenda.events;
   const tmr = c.timer || {};
   const tmTask = tmr.taskId && (tmr.running || (tmr.accumMs > 0 && !tmr.finished)) ? c.tasks.find(t => t.id === tmr.taskId && !L.isDone(t)) : null;
@@ -461,15 +462,17 @@ function Hero({ c }) {
         <div className="dcc-sun" aria-hidden="true"><Ic d={hour >= 18 || hour < 5 ? "moon" : "sun"} size={26} /></div>
       </div>
       <hr />
-      <div className="dcc-stats">
-        <div className="dcc-stat"><b style={{ color: "#2272c3" }}>{pad(planned)}</b><span>Planejadas</span></div>
-        <div className="dcc-stat"><b style={{ color: "var(--d-ok)" }}>{pad(done)}</b><span>Concluídas</span></div>
-        <div className="dcc-stat"><b style={{ color: "#c8940f" }}>{pad(remaining)}</b><span>Restantes</span></div>
+      <div className="dcc-stats dcc-stats-5">
+        <div className="dcc-stat"><b style={{ color: "#dc2626" }}>{pad(n.now)}</b><span>De agora</span></div>
+        <div className="dcc-stat"><b style={{ color: "#2272c3" }}>{pad(n.today)}</b><span>De hoje</span></div>
+        <div className="dcc-stat"><b style={{ color: "#607b91" }}>{pad(n.todo)}</b><span>Pendentes</span></div>
+        <div className="dcc-stat"><b style={{ color: "#c8940f" }}>{pad(n.doing)}</b><span>Em andamento</span></div>
+        <div className="dcc-stat"><b style={{ color: "var(--d-ok)" }}>{pad(n.done)}</b><span>Concluídas hoje</span></div>
       </div>
-      <div className="dcc-progress-row"><span id="dcc-prog-l">Progresso do dia</span><span>{pct}%</span></div>
+      <div className="dcc-progress-row"><span id="dcc-prog-l">Progresso do dia · {done} de {planned} planejadas</span><span>{pct}%</span></div>
       <div className="dcc-bar" role="progressbar" aria-labelledby="dcc-prog-l" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><i style={{ width: `${pct}%` }} /></div>
 
-      {planned === 0 && <div className="dcc-note">Nenhuma tarefa planejada para hoje ainda. Escolha o que importa em <b>Planejar meu dia</b> ou capture algo rápido abaixo.</div>}
+      {planned === 0 && <div className="dcc-note">Nenhuma tarefa planejada para hoje ainda. Escolha o que importa em <b>Planejar meu dia</b> ou adicione uma tarefa ao lado.</div>}
       {planned > 0 && remaining === 0 && <div className="dcc-note">Você concluiu o que planejou para hoje. Se quiser, revise o que ficou para amanhã.</div>}
       {hint && <div className="dcc-note"><b>Deixado de ontem:</b> {hint}</div>}
       {evs.length > 0 && <div className="dcc-note"><Ic d="calendar" size={13} /> {evs.length} compromisso{evs.length > 1 ? "s" : ""} hoje{nextEv ? ` · próximo: ${nextEv.time ? nextEv.time + " " : ""}${nextEv.title}` : ""}</div>}
@@ -553,7 +556,7 @@ function FocusSection({ c }) {
   return (
     <section className="dcc-card" aria-labelledby="dcc-focus-h">
       <div className="dcc-sec-head">
-        <h2 id="dcc-focus-h">Meu foco de hoje</h2>
+        <h2 id="dcc-focus-h">Foco de hoje</h2>
         {list.length > 0 && <span className="dcc-pill dcc-pill-count">{pad(doneN)}/{pad(list.length)} concluídas</span>}
       </div>
       <div className="dcc-sub">{list.length ? "As entregas que você escolheu como mais importantes." : "Escolha até três entregas que realmente importam hoje. Você decide — o painel não escolhe por você."}</div>
@@ -585,7 +588,11 @@ function sortActions(items, mode, today) {
 
 function ActionRow({ c, t, right }) {
   const due = dueLabel(t, c.today);
-  const meta = [areaOf(t), t.estimatedMinutes ? L.fmtMin(t.estimatedMinutes) : null, evText(t) ? `🗓 ${evText(t)}` : null].filter(Boolean).join(" · ");
+  const meta = [
+    areaOf(t), t.estimatedMinutes ? L.fmtMin(t.estimatedMinutes) : null, evText(t) ? `🗓 ${evText(t)}` : null,
+    t.inbox && L.getStatus(t) === "todo" ? "na caixa de entrada" : null,
+    t.plannedDate && t.plannedDate > c.today ? `planejada para ${shortDate(t.plannedDate)}` : null,
+  ].filter(Boolean).join(" · ");
   return (
     <div className="dcc-li">
       <span className="dcc-li-ico"><Ic d={taskIcon(t.text)} size={19} /></span>
@@ -598,11 +605,16 @@ function ActionRow({ c, t, right }) {
   );
 }
 
+const NEXT_FILTERS = [["todo", "Pendentes"], ["now", "De agora"], ["today", "De hoje"]];
 function NextActions({ c }) {
   const [expanded, setExpanded] = useState(false);
+  const [filter, setFilter] = useState("todo");
+  // quem já está em destaque (foco) ou em andamento aparece nos outros boxes — aqui só o que ainda espera sua vez
   const focusIds = c.focus.map(t => t.id);
-  const items = sortActions(c.summary.day.filter(t => !L.isDone(t) && !focusIds.includes(t.id)), c.sort, c.today);
+  const pool = st => c.tasks.filter(t => L.getStatus(t) === st && !focusIds.includes(t.id));
+  const items = sortActions(pool(filter), c.sort, c.today);
   const shown = expanded ? items : items.slice(0, 4);
+  const label = NEXT_FILTERS.find(f => f[0] === filter)[1].toLowerCase();
   return (
     <section className="dcc-card" aria-labelledby="dcc-next-h">
       <div className="dcc-sec-head">
@@ -616,15 +628,21 @@ function NextActions({ c }) {
           <span className="dcc-pill dcc-pill-neutral">{items.length} {items.length === 1 ? "tarefa" : "tarefas"}</span>
         </span>
       </div>
+      <div className="dcc-seg" role="group" aria-label="Filtrar próximas ações">
+        {NEXT_FILTERS.map(([id, l]) => (
+          <button key={id} aria-pressed={filter === id} onClick={() => { setFilter(id); setExpanded(false); }}>{l} <span className="dcc-count">{pool(id).length}</span></button>
+        ))}
+      </div>
       {items.length === 0 ? (
-        <Empty title={c.summary.planned > 0 ? "Fila de ações vazia." : "Nada planejado para hoje."}>
-          {c.summary.planned > 0 ? "O que sobrou do dia está no seu foco, ou já foi concluído." : "Use “Planejar meu dia” para trazer tarefas para hoje."}
+        <Empty title={`Nenhuma tarefa ${filter === "todo" ? "pendente" : label}.`}>
+          {filter === "todo" ? "Tudo o que estava pendente já foi movido, iniciado ou concluído." : "Use “Planejar meu dia” para trazer tarefas para cá."}
         </Empty>
       ) : (
         <div className="dcc-list">
           {shown.map(t => (
             <ActionRow key={t.id} c={c} t={t} right={<>
               <span className={`dcc-pill ${t.prio === "alta" ? "dcc-pill-alta" : "dcc-pill-neutral"}`}>{PRIO_SHORT[t.prio] || "Normal"}</span>
+              {filter === "todo" && <button className="dcc-btn" style={{ padding: "4px 10px" }} onClick={() => c.act.plan(t.id)}>Hoje</button>}
               <button className="dcc-ico" title="Iniciar" aria-label={`Iniciar: ${t.text}`} onClick={() => { c.act.start(t.id); c.setFocusOn(t.id); }}><Ic d="play" size={14} /></button>
               <button className="dcc-ico" title="Concluir" aria-label={`Concluir: ${t.text}`} onClick={() => c.act.complete(t.id)}><Ic d="check" size={16} /></button>
               <button className="dcc-ico" title="Adiar para amanhã" aria-label={`Adiar para amanhã: ${t.text}`} onClick={() => c.act.defer(t.id, L.addDays(c.today, 1))}><Ic d="calendar" size={15} /></button>
@@ -633,7 +651,61 @@ function NextActions({ c }) {
         </div>
       )}
       {items.length > 4 && (
-        <button className="dcc-btn dcc-btn-ghost" onClick={() => setExpanded(e => !e)}>{expanded ? "Mostrar menos" : `Explorar todas as ações (${items.length})`}</button>
+        <button className="dcc-btn dcc-btn-ghost" onClick={() => setExpanded(e => !e)}>{expanded ? "Mostrar menos" : `Ver todas (${items.length})`}</button>
+      )}
+    </section>
+  );
+}
+
+// 3) Em andamento: o que está correndo agora e qual é o próximo passo de cada uma
+const since = iso => {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!iso || isNaN(ms) || ms < 0) return null;
+  const m = Math.floor(ms / 60000);
+  if (m < 60) return `há ${Math.max(1, m)} min`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `há ${h} h` : `há ${Math.floor(h / 24)} d`;
+};
+function DoingBox({ c }) {
+  const items = c.tasks.filter(t => L.getStatus(t) === "doing")
+    .sort((a, b) => new Date(b.startedAt || b.date) - new Date(a.startedAt || a.date));
+  const tm = c.timer || {};
+  const focusIds = c.focus.map(t => t.id);
+  return (
+    <section className="dcc-card" aria-labelledby="dcc-doing-h">
+      <div className="dcc-sec-head">
+        <h2 id="dcc-doing-h">Em andamento</h2>
+        <span className="dcc-pill dcc-pill-doing">{items.length} em execução</span>
+      </div>
+      <div className="dcc-sub">O que está correndo agora e o que fazer em seguida.</div>
+      {items.length === 0 ? (
+        <Empty title="Nada em andamento.">Toque em ▶ numa tarefa para começar — ela aparece aqui.</Empty>
+      ) : (
+        <div className="dcc-list">
+          {items.map(t => {
+            const steps = stepsInfo(t);
+            const running = tm.running && tm.taskId === t.id;
+            const ago = since(t.startedAt);
+            const meta = [areaOf(t), t.estimatedMinutes ? L.fmtMin(t.estimatedMinutes) : null, ago ? `iniciada ${ago}` : null, steps].filter(Boolean).join(" · ");
+            return (
+              <div className="dcc-li" key={t.id}>
+                <span className="dcc-li-ico" style={{ color: "#c8602a" }}><Ic d={running ? "clock" : "play"} size={19} /></span>
+                <div className="dcc-li-main">
+                  <div className="dcc-li-title"><button onClick={() => c.setEditId(t.id)}>{t.text}</button></div>
+                  <div className="dcc-li-meta">{meta}{running && <> · <b style={{ color: "var(--d-ok)" }}>timer rodando</b></>}{focusIds.includes(t.id) && <> · foco de hoje</>}</div>
+                  <div className="dcc-li-meta" style={{ marginTop: 3 }}>
+                    {t.nextAction ? <>Próxima ação: <b style={{ color: "var(--d-text)", fontWeight: 600 }}>{t.nextAction}</b></> : <button className="dcc-btn" style={{ padding: "1px 8px" }} onClick={() => c.setEditId(t.id)}>+ Definir próxima ação</button>}
+                  </div>
+                </div>
+                <div className="dcc-li-right">
+                  <button className="dcc-btn dcc-btn-primary" style={{ padding: "5px 12px" }} onClick={() => c.setFocusOn(t.id)}>Continuar</button>
+                  <button className="dcc-ico" title="Concluir" aria-label={`Concluir: ${t.text}`} onClick={() => c.act.complete(t.id)}><Ic d="check" size={16} /></button>
+                  <button className="dcc-ico" title="Devolver para De Hoje" aria-label={`Devolver para De Hoje: ${t.text}`} onClick={() => c.act.pause(t.id)}><Ic d="pause" size={14} /></button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </section>
   );
@@ -660,17 +732,16 @@ function Attention({ c }) {
 }
 
 function DayView({ c }) {
+  const attn = L.needsAttention(c.tasks, c.today).length > 0;
+  // Desktop: [resumo | adicionar] / [foco | próximas ações] / [em andamento | atenção]. Mobile: tudo empilhado nessa ordem.
   return (
     <div className="dcc-day">
-      <div className="dcc-col">
-        <Hero c={c} />
-        <FocusSection c={c} />
-      </div>
-      <div className="dcc-col">
-        <NextActions c={c} />
-        <Attention c={c} />
-        <CaptureCard tags={c.allTags} onSave={c.act.capture} />
-      </div>
+      <div className="dcc-area" style={{ gridArea: "hero" }}><Hero c={c} /></div>
+      <div className="dcc-area" style={{ gridArea: "add" }}><CaptureCard tags={c.allTags} onSave={c.act.capture} /></div>
+      <div className="dcc-area" style={{ gridArea: "focus" }}><FocusSection c={c} /></div>
+      <div className="dcc-area" style={{ gridArea: "next" }}><NextActions c={c} /></div>
+      <div className="dcc-area" style={{ gridArea: "doing" }}><DoingBox c={c} /></div>
+      {attn && <div className="dcc-area" style={{ gridArea: "attn" }}><Attention c={c} /></div>}
     </div>
   );
 }
@@ -1222,6 +1293,8 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
       flash("Tarefa concluída.", () => mutate(p => L.restoreTask(p, old)));
     },
     reopen: id => mutate(p => L.reopenTask(p, id, today)),
+    // tira de "Em andamento" sem perder nada: volta para De Hoje
+    pause: id => { const old = byId(id); mutate(p => L.patchTask(p, id, { status: "today", plannedDate: today })); flash("Devolvida para De Hoje.", old ? () => mutate(p => L.restoreTask(p, old)) : undefined); },
     plan: id => { mutate(p => L.planForToday(p, id, today)); flash("Trazida para hoje."); },
     defer: (id, to) => {
       const old = byId(id); if (!old) return;
@@ -1272,6 +1345,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
   }, [tasks]);
 
   const summary = L.daySummary(tasks, today);
+  const counts = L.statusCounts(tasks, today);
   const focus = L.focusTasks(tasks, today);
   const inboxCount = tasks.filter(t => L.bucketOf(t, today) === "inbox").length;
   const agenda = useAgenda(today, events, ui);
@@ -1279,7 +1353,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
   const prevNote = prevKey ? reviews[prevKey].firstTomorrow : "";
 
   const c = {
-    tasks, today, summary, focus, allTags, agenda, prevNote, timer, timerRef, setTimer, reviews: reviews || {}, focusLog: Array.isArray(focusLog) ? focusLog : [],
+    tasks, today, summary, counts, focus, allTags, agenda, prevNote, timer, timerRef, setTimer, reviews: reviews || {}, focusLog: Array.isArray(focusLog) ? focusLog : [],
     synced, sort, setSort, act, mutate, flash, saveReview, logFocus,
     setEditId, setRitual, setPicker, setFocusOn,
     patch: (id, p) => mutate(prev => L.patchTask(prev, id, p)),
@@ -1297,7 +1371,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
         ))}
         <span className="dcc-spacer" />
         {view !== "day" && view !== "inbox" && (
-          <button className="dcc-btn dcc-btn-primary" onClick={() => setCapOpen(true)}><Ic d="plus" size={14} /> Capturar tarefa</button>
+          <button className="dcc-btn dcc-btn-primary" onClick={() => setCapOpen(true)}><Ic d="plus" size={14} /> Adicionar tarefa</button>
         )}
       </div>
 
@@ -1317,7 +1391,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
       {view === "history" && <HistoryView c={c} />}
 
       {capOpen && (
-        <Sheet title="Captura rápida" onClose={() => setCapOpen(false)}>
+        <Sheet title="Adicionar tarefa" onClose={() => setCapOpen(false)}>
           <CaptureCard tags={allTags} autoFocus onSave={d => { act.capture(d); setCapOpen(false); }} />
         </Sheet>
       )}

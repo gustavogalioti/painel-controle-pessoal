@@ -193,3 +193,15 @@ export const untriaged = tasks =>
 
 export const moveToInbox = (tasks, ids) =>
   tasks.map(t => (ids.includes(t.id) ? { ...t, inbox: true } : t));
+
+// Contadores do cabeçalho do Meu Dia — espelham as colunas do Kanban.
+// "Concluídas" conta só as concluídas hoje (o total histórico cresce sem parar e não diz nada sobre o dia).
+export function statusCounts(tasks, today) {
+  const out = { now: 0, today: 0, todo: 0, doing: 0, done: 0 };
+  tasks.forEach(t => {
+    const s = getStatus(t);
+    if (s === "done") { if (localDay(t.doneAt) === today) out.done++; }
+    else if (s in out) out[s]++;
+  });
+  return out;
+}
