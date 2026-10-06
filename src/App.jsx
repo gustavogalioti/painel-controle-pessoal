@@ -5412,6 +5412,171 @@ function SaudeBars({ data, color, unit }) {
   );
 }
 
+// ─── RAIO X: peso, IMC e peso ideal (dentro de saude_v1 → body:{height, weights:[{k,v}]}) ───
+const RX_DEFAULT_H = 1.79;
+const rxParse = (s) => { const n = parseFloat(String(s||"").trim().replace(",",".")); return isNaN(n) ? null : n; };
+const rxImc = (kg, h) => kg / (h*h);
+const rxClass = (imc) =>
+  imc < 18.5 ? { t:"Abaixo do peso",   c:"#d4980a" } :
+  imc < 25   ? { t:"Peso normal",      c:"#18a870" } :
+  imc < 30   ? { t:"Sobrepeso",        c:"#d07030" } :
+  imc < 35   ? { t:"Obesidade grau I", c:"#d95050" } :
+  imc < 40   ? { t:"Obesidade grau II",c:"#c03030" } :
+               { t:"Obesidade grau III",c:"#9b1c1c" };
+
+function SaudeRaioX({ store, setStore, chip, card }) {
+  const body = store?.body || {};
+  const h = body.height || RX_DEFAULT_H;
+  const weights = useMemo(() => [...(body.weights||[])].sort((a,b)=>a.k<b.k?-1:1), [body.weights]);
+  const today = saudeKey(new Date());
+  const [date, setDate] = useState(today);
+  const [wIn, setWIn] = useState("");
+  const [hIn, setHIn] = useState(String(h).replace(".",","));
+  const [editH, setEditH] = useState(false);
+
+  const last = weights[weights.length-1];
+  const prev = weights[weights.length-2];
+  const first = weights[0];
+  const lo = 18.5*h*h, hi = 24.9*h*h, ideal = 22*h*h;
+
+  const patchBody = (fn) => setStore(p => {
+    const b = { height:h, weights:[], ...((p||{}).body||{}) };
+    return { ...(p||{}), exercises:(p||{}).exercises, logs:(p||{}).logs||{}, body: fn(b) };
+  });
+  const saveWeight = () => {
+    const v = rxParse(wIn);
+    if (v===null || v<20 || v>400) return;
+    patchBody(b => ({ ...b, weights: [...b.weights.filter(x=>x.k!==date), { k:date, v:Math.round(v*10)/10 }] }));
+    setWIn("");
+  };
+  const delWeight = (k) => patchBody(b => ({ ...b, weights: b.weights.filter(x=>x.k!==k) }));
+  const saveHeight = () => {
+    let v = rxParse(hIn); if (v===null) return;
+    if (v > 3) v = v/100;
+    if (v < 1 || v > 2.5) return;
+    patchBody(b => ({ ...b, height: Math.round(v*100)/100 }));
+    setEditH(false);
+  };
+
+  const imc = last ? rxImc(last.v, h) : null;
+  const cls = imc ? rxClass(imc) : null;
+  const toTarget = last ? last.v - ideal : null;
+  const toBand = !last ? null : last.v > hi ? last.v - hi : last.v < lo ? last.v - lo : 0;
+
+  // barra do IMC (15 → 40)
+  const gMin = 15, gMax = 40, pos = imc ? Math.min(100, Math.max(0, (imc-gMin)/(gMax-gMin)*100)) : null;
+  const seg = (a,b,c) => ({ left:`${(a-gMin)/(gMax-gMin)*100}%`, width:`${(b-a)/(gMax-gMin)*100}%`, background:c });
+
+  const chart = () => {
+    const pts = weights.slice(-60);
+    if (pts.length < 2) return <div style={{fontSize:12.5,color:"var(--text-3)",textAlign:"center",padding:"18px 0"}}>Registre pelo menos 2 pesagens para ver a evolução.</div>;
+    const W=620,H=210,pl=40,pr=10,pt=12,pb=24;
+    const vmin = Math.min(lo, ...pts.map(p=>p.v)) - 2, vmax = Math.max(hi, ...pts.map(p=>p.v)) + 2;
+    const t0 = saudeDate(pts[0].k).getTime(), t1 = saudeDate(pts[pts.length-1].k).getTime() || t0+1;
+    const x = (k) => pl + (t1===t0 ? 0.5 : (saudeDate(k).getTime()-t0)/(t1-t0)) * (W-pl-pr);
+    const y = (v) => pt + (H-pt-pb) * (1 - (v-vmin)/(vmax-vmin));
+    return (
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",display:"block"}}>
+        <rect x={pl} y={y(hi)} width={W-pl-pr} height={y(lo)-y(hi)} fill="#18a870" opacity="0.14"/>
+        <text x={W-pr-4} y={y(hi)+12} fontSize="10" fill="#18a870" textAnchor="end">faixa saudável ({saudeFmt(Math.round(lo*10)/10)}–{saudeFmt(Math.round(hi*10)/10)} kg)</text>
+        {[vmin,(vmin+vmax)/2,vmax].map((v,i)=>(
+          <g key={i}><line x1={pl} x2={W-pr} y1={y(v)} y2={y(v)} stroke="var(--border)" strokeDasharray="3 4"/>
+          <text x={pl-6} y={y(v)+4} fontSize="10" fill="var(--text-3)" textAnchor="end">{saudeFmt(Math.round(v))}</text></g>
+        ))}
+        <line x1={pl} x2={W-pr} y1={y(ideal)} y2={y(ideal)} stroke="#18a870" strokeWidth="1.4" strokeDasharray="6 4"/>
+        <polyline fill="none" stroke="var(--accent)" strokeWidth="2.4" strokeLinejoin="round" points={pts.map(p=>`${x(p.k)},${y(p.v)}`).join(" ")}/>
+        {pts.map(p=>(<circle key={p.k} cx={x(p.k)} cy={y(p.v)} r="3.8" fill="var(--accent)"><title>{saudeLabel(p.k)}: {saudeFmt(p.v)} kg</title></circle>))}
+        <text x={x(pts[0].k)} y={H-6} fontSize="10" fill="var(--text-3)" textAnchor="start">{saudeLabel(pts[0].k)}</text>
+        <text x={x(pts[pts.length-1].k)} y={H-6} fontSize="10" fill="var(--text-3)" textAnchor="end">{saudeLabel(pts[pts.length-1].k)}</text>
+      </svg>
+    );
+  };
+
+  const stat = (label, val, sub, color) => (
+    <div style={{...card,padding:14,textAlign:"center"}}>
+      <div style={{fontSize:22,fontWeight:800,color:color||"var(--text-1)"}}>{val}</div>
+      <div style={{fontSize:11.5,color:"var(--text-3)",marginTop:2}}>{label}</div>
+      {sub && <div style={{fontSize:11,color:"var(--text-3)",marginTop:2}}>{sub}</div>}
+    </div>
+  );
+  const sgn = (n) => `${n>0?"+":""}${saudeFmt(Math.round(n*10)/10)}`;
+
+  return (
+    <div style={{display:"grid",gap:14}}>
+      <div style={card}>
+        <div style={{fontWeight:800,fontSize:15,marginBottom:10}}>⚖️ Nova pesagem</div>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+          <input value={wIn} onChange={e=>setWIn(e.target.value)} inputMode="decimal" placeholder="Peso em kg (ex: 82,5)"
+            onKeyDown={e=>{ if(e.key==="Enter") saveWeight(); }} style={{...inp,flex:1,minWidth:150,width:"auto"}}/>
+          <input type="date" value={date} max={today} onChange={e=>setDate(e.target.value||today)} style={{...inp,width:160}}/>
+          <button onClick={saveWeight} style={btn("var(--green)")}>Salvar peso</button>
+        </div>
+        <div style={{fontSize:11.5,color:"var(--text-3)",marginTop:8,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          {!editH ? <>Altura: <b>{saudeFmt(h*100)} cm</b> <button onClick={()=>setEditH(true)} style={{...chip(false),padding:"2px 10px",fontSize:11}}>alterar</button></>
+          : <>Altura (m ou cm): <input value={hIn} onChange={e=>setHIn(e.target.value)} style={{...inp,width:90,padding:"4px 8px"}}/> <button onClick={saveHeight} style={{...chip(true),padding:"3px 10px",fontSize:11}}>ok</button></>}
+          <span>· Uma pesagem por dia (salvar de novo na mesma data corrige).</span>
+        </div>
+      </div>
+
+      {last ? (<>
+        <div style={{...card,textAlign:"center"}}>
+          <div style={{fontSize:12,color:"var(--text-3)",fontWeight:700,letterSpacing:1}}>SEU IMC</div>
+          <div style={{fontSize:46,fontWeight:800,color:cls.c,lineHeight:1.1}}>{saudeFmt(Math.round(imc*10)/10)}</div>
+          <div style={{fontSize:15,fontWeight:800,color:cls.c}}>{cls.t}</div>
+          <div style={{position:"relative",height:14,borderRadius:8,overflow:"hidden",marginTop:16,background:"var(--bg-input)"}}>
+            {[[15,18.5,"#d4980a"],[18.5,25,"#18a870"],[25,30,"#d07030"],[30,35,"#d95050"],[35,40,"#9b1c1c"]].map(([a,b,c])=>(
+              <div key={a} style={{position:"absolute",top:0,bottom:0,opacity:0.85,...seg(a,b,c)}}/>))}
+          </div>
+          <div style={{position:"relative",height:14}}>
+            <div style={{position:"absolute",left:`${pos}%`,transform:"translateX(-50%)",fontSize:14,lineHeight:1}}>▲</div>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:10.5,color:"var(--text-3)"}}><span>15</span><span>18,5</span><span>25</span><span>30</span><span>35</span><span>40</span></div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
+          {stat("peso atual", `${saudeFmt(last.v)} kg`, saudeLabel(last.k))}
+          {stat("vs pesagem anterior", prev?`${sgn(last.v-prev.v)} kg`:"—", prev?saudeLabel(prev.k):"", prev?(last.v-prev.v<=0?"var(--green)":"var(--red)"):undefined)}
+          {stat("desde a primeira", weights.length>1?`${sgn(last.v-first.v)} kg`:"—", weights.length>1?saudeLabel(first.k):"")}
+          {stat("faixa saudável (IMC 18,5–24,9)", `${saudeFmt(Math.round(lo*10)/10)}–${saudeFmt(Math.round(hi*10)/10)} kg`)}
+          {stat("peso ideal (IMC 22)", `${saudeFmt(Math.round(ideal*10)/10)} kg`,
+            toTarget===null?"":Math.abs(toTarget)<0.5?"você está nele 🎯":toTarget>0?`faltam ${saudeFmt(Math.round(toTarget*10)/10)} kg para baixar`:`faltam ${saudeFmt(Math.round(-toTarget*10)/10)} kg para subir`)}
+          {stat("para entrar na faixa", toBand===0?"Dentro ✔":`${sgn(-toBand)} kg`, toBand===0?"":toBand>0?"para chegar ao limite superior":"para chegar ao limite inferior", toBand===0?"var(--green)":undefined)}
+        </div>
+
+        <div style={card}>
+          <div style={{fontWeight:800,fontSize:15,marginBottom:8}}>📉 Evolução do peso</div>
+          {chart()}
+          <div style={{fontSize:11,color:"var(--text-3)",marginTop:6}}>Faixa verde = peso saudável para {saudeFmt(h*100)} cm · linha tracejada = alvo IMC 22</div>
+        </div>
+
+        <div style={card}>
+          <div style={{fontWeight:800,fontSize:15,marginBottom:8}}>🗂 Histórico</div>
+          <div style={{display:"grid",gap:6}}>
+            {[...weights].reverse().slice(0,30).map((w,i,arr)=>{
+              const older = arr[i+1];
+              return (
+                <div key={w.k} style={{display:"flex",alignItems:"center",gap:10,fontSize:13.5,padding:"6px 0",borderBottom:"1px solid var(--border-2)"}}>
+                  <span style={{width:70,color:"var(--text-3)"}}>{saudeLabel(w.k)}</span>
+                  <b style={{width:80}}>{saudeFmt(w.v)} kg</b>
+                  <span style={{width:90,color:"var(--text-3)"}}>IMC {saudeFmt(Math.round(rxImc(w.v,h)*10)/10)}</span>
+                  {older && <span style={{color:w.v-older.v<=0?"var(--green)":"var(--red)",fontWeight:700}}>{sgn(w.v-older.v)}</span>}
+                  <button onClick={()=>delWeight(w.k)} title="Apagar" style={{marginLeft:"auto",background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </>) : (
+        <div style={{...card,textAlign:"center",color:"var(--text-3)",fontSize:14}}>
+          Registre seu primeiro peso acima e o Raio X calcula IMC, faixa saudável e peso ideal para {saudeFmt(h*100)} cm.
+          <div style={{marginTop:10,fontSize:12.5}}>Para {saudeFmt(h*100)} cm: faixa saudável <b>{saudeFmt(Math.round(lo*10)/10)}–{saudeFmt(Math.round(hi*10)/10)} kg</b> · alvo IMC 22 = <b>{saudeFmt(Math.round(ideal*10)/10)} kg</b></div>
+        </div>
+      )}
+      <div style={{fontSize:11,color:"var(--text-3)",textAlign:"center"}}>IMC é uma referência populacional (OMS) e não distingue massa muscular de gordura — como você treina, use junto com medidas e como se sente.</div>
+    </div>
+  );
+}
+
 function SaudePage() {
   const [store, setStore, synced] = useKV("saude_v1", { exercises: SAUDE_DEFAULT_EX, logs: {} });
   const exercises = (store?.exercises?.length ? store.exercises : SAUDE_DEFAULT_EX);
@@ -5667,7 +5832,7 @@ function SaudePage() {
   return (
     <div style={{maxWidth:900,margin:"0 auto"}}>
       <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-        {[["hoje","📝 Registrar"],["cal","📅 Calendário"],["stats","📊 Estatísticas"],["ach","🏅 Conquistas"]].map(([k,l])=>(
+        {[["hoje","📝 Registrar"],["cal","📅 Calendário"],["stats","📊 Estatísticas"],["ach","🏅 Conquistas"],["rx","🩻 Raio X"]].map(([k,l])=>(
           <button key={k} onClick={()=>setTab(k)} style={chip(tab===k)}>{l}</button>
         ))}
         <div style={{marginLeft:"auto",fontSize:13,fontWeight:700,color:"var(--text-2)",alignSelf:"center"}}>🔥 {streak.cur} dia{streak.cur===1?"":"s"} seguidos</div>
@@ -5676,6 +5841,7 @@ function SaudePage() {
       {tab==="cal" && renderCal()}
       {tab==="stats" && renderStats()}
       {tab==="ach" && renderAch()}
+      {tab==="rx" && <SaudeRaioX store={store} setStore={setStore} chip={chip} card={card}/>}
 
       {modal && (
         <Modal title="Novo exercício" onClose={()=>setModal(false)}>
