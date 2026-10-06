@@ -100,6 +100,21 @@
 .dcc-seg .dcc-count { background: var(--d-sel); color: var(--d-primary-h); border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 700; }
 .dcc-seg button[aria-pressed="true"] .dcc-count { background: rgba(255,255,255,.2); color: #fff; }
 
+/* ── mover para / atualizações / destino da tarefa nova ── */
+.dcc-li { flex-wrap: wrap; }
+.dcc-li-below { flex-basis: 100%; padding-left: 34px; }
+.dcc-move { width: auto !important; padding: 4px 8px !important; font-size: 12px !important; border-radius: 999px !important; background: #fff !important; color: var(--d-text-2) !important; font-weight: 600; max-width: 130px; }
+.dcc-upd { margin-top: -4px; }
+.dcc-upd-item { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; background: var(--d-surface); border-left: 3px solid var(--d-primary); border-radius: 8px; padding: 6px 10px; margin-bottom: 6px; font-size: 13px; }
+.dcc-upd-item span { word-break: break-word; }
+.dcc-upd-item time { font-size: 11px; color: var(--d-text-2); white-space: nowrap; }
+.dcc-link { background: none; border: 0; color: var(--d-primary-h); font-size: 12px; font-weight: 600; padding: 0 0 6px; }
+.dcc-upd-input { display: flex; gap: 6px; align-items: center; }
+.dcc-upd-input input { padding: 7px 12px; font-size: 13px; border-radius: 999px; }
+.dcc-send { flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--d-primary); color: #fff; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.dcc-send:hover { background: var(--d-primary-h); }
+.dcc-send[disabled] { background: #c9dceb; cursor: not-allowed; }
+
 /* ── botões ── */
 .dcc-btn { border: 1px solid var(--d-border); background: #fff; color: var(--d-text); border-radius: 10px; padding: 8px 14px; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 .dcc-btn:hover { background: var(--d-surface); }

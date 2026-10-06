@@ -205,3 +205,35 @@ export function statusCounts(tasks, today) {
   });
   return out;
 }
+
+// ── mover entre colunas / destino da tarefa nova / atualizações ──
+export const STATUS_LABEL = { now: "De agora", today: "De hoje", todo: "Pendente", doing: "Em andamento" };
+export const MOVE_OPTIONS = ["now", "today", "todo", "doing"];
+
+// Mesmas regras do Kanban: agora/hoje/andamento = planejada para hoje; pendente = fora do dia.
+export function moveToStatus(tasks, id, status, today) {
+  return upd(tasks, id, t => {
+    const n = { ...t, status, done: false, inbox: false }; // escolheu uma coluna = já foi triada
+    if (ACTIVE.includes(status)) {
+      n.plannedDate = today;
+      if (status === "doing" && !t.startedAt) n.startedAt = nowISO();
+    } else {
+      n.plannedDate = null; n.focusDate = null; n.focusOrder = null;
+    }
+    return n;
+  });
+}
+
+// Mesmo formato que o Kanban já usa em `updates` ({text, date}); `at` (ISO) permite ordenar.
+export function addUpdate(tasks, id, text, now = new Date()) {
+  const clean = String(text || "").trim();
+  if (!clean) return tasks;
+  return upd(tasks, id, t => ({ ...t, updates: [...(t.updates || []), { text: clean, date: now.toLocaleString("pt-BR"), at: now.toISOString() }] }));
+}
+
+// dest: "inbox" (padrão) ou now|today|todo|doing
+export function newTask({ text, tag, due, dest = "inbox" }, today) {
+  const t = newInboxTask({ text, tag, due });
+  if (dest === "inbox" || !MOVE_OPTIONS.includes(dest)) return t;
+  return moveToStatus([t], t.id, dest, today)[0];
+}

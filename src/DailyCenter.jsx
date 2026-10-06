@@ -17,6 +17,7 @@ const P = {
   check: "M20 6 9 17l-5-5",
   checkCircle: "M22 11.08V12a10 10 0 1 1-5.93-9.14 M22 4 12 14.01l-3-3",
   arrow: "M5 12h14 M12 5l7 7-7 7",
+  right: "M9 6l6 6-6 6",
   plusCircle: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 8v8 M8 12h8",
   plus: "M12 5v14 M5 12h14",
   play: "M7 4l13 8-13 8V4z",
@@ -105,7 +106,14 @@ function Empty({ title, children }) {
 }
 
 // Captura rápida: só o texto é obrigatório; tag e prazo são opcionais
+const DEST_KEY = "dcc_capture_dest_v1"; // lembra o último destino escolhido (por dispositivo)
+const DEST_OPTIONS = [["inbox", "Caixa de entrada"], ...L.MOVE_OPTIONS.map(v => [v, L.STATUS_LABEL[v]])];
+const loadDest = () => { try { const v = localStorage.getItem(DEST_KEY); return DEST_OPTIONS.some(o => o[0] === v) ? v : "inbox"; } catch { return "inbox"; } };
+
 function CaptureCard({ tags, onSave, autoFocus }) {
+  const [dest, setDestState] = useState(loadDest);
+  const setDest = v => { setDestState(v); try { localStorage.setItem(DEST_KEY, v); } catch { /* sem storage */ } };
+  const destLabel = DEST_OPTIONS.find(o => o[0] === dest)[1];
   const [text, setText] = useState("");
   const [tag, setTag] = useState("");
   const [due, setDue] = useState("");
@@ -114,7 +122,7 @@ function CaptureCard({ tags, onSave, autoFocus }) {
   useEffect(() => { if (autoFocus && inputRef.current) inputRef.current.focus(); }, [autoFocus]);
   const save = () => {
     if (!text.trim()) { if (inputRef.current) inputRef.current.focus(); return; }
-    onSave({ text, tag, due });
+    onSave({ text, tag, due, dest });
     setText(""); setTag(""); setDue(""); setShowDue(false);
     if (inputRef.current) inputRef.current.focus();
   };
@@ -129,6 +137,9 @@ function CaptureCard({ tags, onSave, autoFocus }) {
         <input id="dcc-cap-text" ref={inputRef} className="dcc-cap-input" value={text} placeholder="Ex.: ligar para o cliente Bruno..."
           onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} />
         <div className="dcc-chips">
+          <select className="dcc-chip dcc-chip-dest" value={dest} onChange={e => setDest(e.target.value)} aria-label="Onde a tarefa entra">
+            {DEST_OPTIONS.map(([v, l]) => <option key={v} value={v}>Entra em: {l}</option>)}
+          </select>
           <select className="dcc-chip" value={tag} onChange={e => setTag(e.target.value)} aria-label="Área ou tag (opcional)">
             <option value="">Sem tag</option>
             {tags.map(t => <option key={t} value={t}>{t}</option>)}
@@ -142,9 +153,9 @@ function CaptureCard({ tags, onSave, autoFocus }) {
             <button className="dcc-chip" type="button" onClick={() => setShowDue(true)}>Sem prazo definido</button>
           )}
         </div>
-        <button className="dcc-btn dcc-btn-ink" onClick={save}>Salvar na caixa de entrada</button>
+        <button className="dcc-btn dcc-btn-ink" onClick={save}>{dest === "inbox" ? "Salvar na caixa de entrada" : `Adicionar em ${destLabel}`}</button>
       </div>
-      <div className="dcc-capture-foot">Sem precisar organizar tudo na hora.</div>
+      <div className="dcc-capture-foot">{dest === "inbox" ? "Sem precisar organizar tudo na hora." : `A tarefa já entra em “${destLabel}”.`}</div>
     </section>
   );
 }
@@ -586,7 +597,7 @@ function sortActions(items, mode, today) {
   return base;
 }
 
-function ActionRow({ c, t, right }) {
+function ActionRow({ c, t, right, below }) {
   const due = dueLabel(t, c.today);
   const meta = [
     areaOf(t), t.estimatedMinutes ? L.fmtMin(t.estimatedMinutes) : null, evText(t) ? `🗓 ${evText(t)}` : null,
@@ -601,6 +612,38 @@ function ActionRow({ c, t, right }) {
         <div className="dcc-li-meta">{meta}{due && <> · <span className={due.late ? "dcc-due-late" : ""}>{due.text}{due.late ? " (atenção)" : ""}</span></>}</div>
       </div>
       <div className="dcc-li-right">{right}</div>
+      {below && <div className="dcc-li-below">{below}</div>}
+    </div>
+  );
+}
+
+// "Mover para…" (De agora / De hoje / Pendente / Em andamento) — mesmas regras do Kanban
+function MoveSelect({ c, t }) {
+  const cur = L.getStatus(t);
+  return (
+    <select className="dcc-move" value="" aria-label={`Mover para: ${t.text}`} onChange={e => { if (e.target.value) c.act.moveTo(t.id, e.target.value); }}>
+      <option value="">Mover para…</option>
+      {L.MOVE_OPTIONS.map(v => <option key={v} value={v} disabled={v === cur}>{L.STATUS_LABEL[v]}{v === cur ? " (atual)" : ""}</option>)}
+    </select>
+  );
+}
+
+// Linha de atualizações: escreve, clica ">" (ou Enter) e a atualização sobe no card da tarefa
+function UpdatesLine({ c, t }) {
+  const [text, setText] = useState("");
+  const [open, setOpen] = useState(false);
+  const list = [...(t.updates || [])].reverse(); // mais recente primeiro
+  const shown = open ? list : list.slice(0, 1);
+  const send = () => { if (!text.trim()) return; c.act.addUpdate(t.id, text); setText(""); };
+  return (
+    <div className="dcc-upd">
+      {shown.map((u, i) => <div className="dcc-upd-item" key={`${u.at || u.date}-${i}`}><span>{u.text}</span><time>{u.date}</time></div>)}
+      {list.length > 1 && <button className="dcc-link" onClick={() => setOpen(o => !o)}>{open ? "Ocultar anteriores" : `Ver ${list.length - 1} ${list.length === 2 ? "anterior" : "anteriores"}`}</button>}
+      <div className="dcc-upd-input">
+        <input value={text} onChange={e => setText(e.target.value)} placeholder="Escreva uma atualização…" aria-label={`Atualização: ${t.text}`}
+          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); send(); } }} />
+        <button className="dcc-send" aria-label={`Enviar atualização: ${t.text}`} title="Enviar atualização" disabled={!text.trim()} onClick={send}><Ic d="right" size={16} /></button>
+      </div>
     </div>
   );
 }
@@ -642,11 +685,11 @@ function NextActions({ c }) {
           {shown.map(t => (
             <ActionRow key={t.id} c={c} t={t} right={<>
               <span className={`dcc-pill ${t.prio === "alta" ? "dcc-pill-alta" : "dcc-pill-neutral"}`}>{PRIO_SHORT[t.prio] || "Normal"}</span>
-              {filter === "todo" && <button className="dcc-btn" style={{ padding: "4px 10px" }} onClick={() => c.act.plan(t.id)}>Hoje</button>}
+              <MoveSelect c={c} t={t} />
               <button className="dcc-ico" title="Iniciar" aria-label={`Iniciar: ${t.text}`} onClick={() => { c.act.start(t.id); c.setFocusOn(t.id); }}><Ic d="play" size={14} /></button>
               <button className="dcc-ico" title="Concluir" aria-label={`Concluir: ${t.text}`} onClick={() => c.act.complete(t.id)}><Ic d="check" size={16} /></button>
               <button className="dcc-ico" title="Adiar para amanhã" aria-label={`Adiar para amanhã: ${t.text}`} onClick={() => c.act.defer(t.id, L.addDays(c.today, 1))}><Ic d="calendar" size={15} /></button>
-            </>} />
+            </>} below={<UpdatesLine c={c} t={t} />} />
           ))}
         </div>
       )}
@@ -702,6 +745,7 @@ function DoingBox({ c }) {
                   <button className="dcc-ico" title="Concluir" aria-label={`Concluir: ${t.text}`} onClick={() => c.act.complete(t.id)}><Ic d="check" size={16} /></button>
                   <button className="dcc-ico" title="Devolver para De Hoje" aria-label={`Devolver para De Hoje: ${t.text}`} onClick={() => c.act.pause(t.id)}><Ic d="pause" size={14} /></button>
                 </div>
+                <div className="dcc-li-below"><UpdatesLine c={c} t={t} /></div>
               </div>
             );
           })}
@@ -1331,11 +1375,17 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
       mutate(p => L.moveToInbox(p, ids));
       flash(`${ids.length} ${ids.length === 1 ? "tarefa movida" : "tarefas movidas"} para a Caixa de Entrada.`, () => mutate(p => olds.reduce((acc, o) => L.restoreTask(acc, o), p)));
     },
-    capture: ({ text, tag, due }) => {
-      const t = L.newInboxTask({ text, tag, due });
+    capture: ({ text, tag, due, dest }) => {
+      const t = L.newTask({ text, tag, due, dest }, today);
       mutate(p => [t, ...p]);
-      flash("Salva na Caixa de Entrada.", () => mutate(p => p.filter(x => x.id !== t.id)));
+      flash(t.inbox ? "Salva na Caixa de Entrada." : `Adicionada em ${L.STATUS_LABEL[t.status]}.`, () => mutate(p => p.filter(x => x.id !== t.id)));
     },
+    moveTo: (id, status) => {
+      const old = byId(id); if (!old || L.getStatus(old) === status) return;
+      mutate(p => L.moveToStatus(p, id, status, today));
+      flash(`Movida para ${L.STATUS_LABEL[status]}.`, () => mutate(p => L.restoreTask(p, old)));
+    },
+    addUpdate: (id, text) => mutate(p => L.addUpdate(p, id, text)),
   };
 
   const allTags = useMemo(() => {

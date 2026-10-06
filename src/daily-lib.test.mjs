@@ -87,6 +87,34 @@ ts = [mk(1, { status: "now" }), mk(2, { status: "today" }), mk(3, { status: "tod
       mk(9, { status: "done", done: true, doneAt: at(YD, 9) })];
 assert.deepEqual(L.statusCounts(ts, T), { now: 1, today: 2, todo: 2, doing: 1, done: 1 });
 
+// mover para (regras do Kanban)
+ts = [mk(1, { inbox: true, focusDate: T, focusOrder: 1 }), mk(2, { status: "today" })];
+let mvd = L.moveToStatus(ts, 1, "doing", T).find(t => t.id === 1);
+assert.equal(mvd.status, "doing"); assert.equal(mvd.plannedDate, T); assert.ok(mvd.startedAt); assert.equal(mvd.inbox, false);
+assert.equal(L.bucketOf(mvd, T), "today");
+const startedOnce = mvd.startedAt;
+assert.equal(L.moveToStatus([mvd], 1, "doing", T)[0].startedAt, startedOnce, "não reinicia startedAt");
+mvd = L.moveToStatus(L.moveToStatus(ts, 2, "now", T), 2, "todo", T).find(t => t.id === 2);
+assert.equal(mvd.status, "todo"); assert.equal(mvd.plannedDate, null); assert.equal(L.bucketOf(mvd, T), "backlog");
+assert.equal(L.moveToStatus(ts, 1, "todo", T).find(t => t.id === 1).focusOrder, null, "sair do dia tira do foco");
+assert.equal(L.moveToStatus(ts, 1, "now", T).find(t => t.id === 1).focusOrder, 1, "continuar no dia mantém o foco");
+
+// atualizações: acumulam no mesmo formato do Kanban; vazio é ignorado
+const when = new Date(2026, 9, 6, 14, 32);
+ts = L.addUpdate([mk(1, { updates: [{ text: "antiga", date: "01/10/2026, 09:00:00" }] })], 1, "  falei com o fornecedor  ", when);
+assert.equal(ts[0].updates.length, 2); assert.equal(ts[0].updates[1].text, "falei com o fornecedor");
+assert.equal(ts[0].updates[1].at, when.toISOString()); assert.match(ts[0].updates[1].date, /06\/10\/2026/);
+assert.equal(L.addUpdate(ts, 1, "   ")[0].updates.length, 2);
+assert.equal(L.addUpdate([mk(2)], 2, "primeira")[0].updates.length, 1); // tarefa sem `updates`
+
+// destino da tarefa nova
+assert.equal(L.newTask({ text: "a" }, T).inbox, true);
+const nd = L.newTask({ text: "b", dest: "now", tag: "C2LZ" }, T);
+assert.equal(nd.status, "now"); assert.equal(nd.plannedDate, T); assert.equal(nd.inbox, false); assert.deepEqual(nd.tags, ["C2LZ"]); assert.equal(L.bucketOf(nd, T), "today");
+assert.equal(L.newTask({ text: "c", dest: "todo" }, T).plannedDate, null);
+assert.ok(L.newTask({ text: "d", dest: "doing" }, T).startedAt);
+assert.equal(L.newTask({ text: "e", dest: "lixo" }, T).inbox, true, "destino inválido cai na caixa");
+
 // util
 assert.equal(L.fmtMin(10), "10 min"); assert.equal(L.fmtMin(90), "1h30"); assert.equal(L.fmtMin(120), "2h"); assert.equal(L.fmtMin(""), "");
 assert.equal(L.addDays("2026-10-31", 1), "2026-11-01"); // virada de mês com data fixa (função pura)
