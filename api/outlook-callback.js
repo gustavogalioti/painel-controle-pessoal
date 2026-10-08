@@ -1,5 +1,6 @@
 export const config = { runtime: "edge" };
 import { neon } from "@neondatabase/serverless";
+import { verifyOAuthState } from "./_auth-lib.js";
 
 const APP_URL = "https://painel-controle-pearl.vercel.app";
 
@@ -7,7 +8,23 @@ export default async function handler(req) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
   const error = searchParams.get("error");
-  const account = searchParams.get("state") === "corporate" ? "corporate" : "personal";
+  const state = searchParams.get("state");
+
+  // state pode vir assinado ("<account>.<token>", quando outlook-auth.js tinha
+  // SESSION_SECRET na ida) ou no formato antigo (só "personal"/"corporate",
+  // sem ponto, transição antes da env var existir). Nos dois casos extrai a
+  // conta; no formato assinado, também confere a assinatura (CSRF).
+  let account = "personal";
+  if (state && state.includes(".")) {
+    if (!process.env.SESSION_SECRET) {
+      return Response.redirect(`${APP_URL}/?outlook=error&account=personal`, 302);
+    }
+    const verified = await verifyOAuthState(process.env.SESSION_SECRET, state, true);
+    if (!verified) return Response.redirect(`${APP_URL}/?outlook=error&account=personal`, 302);
+    account = verified.extra === "corporate" ? "corporate" : "personal";
+  } else {
+    account = state === "corporate" ? "corporate" : "personal";
+  }
 
   if (error || !code) {
     return Response.redirect(`${APP_URL}/?outlook=error&account=${account}`, 302);

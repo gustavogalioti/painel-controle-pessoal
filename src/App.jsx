@@ -122,6 +122,24 @@ const pedroNotify = (type, payload) => {
   try { window.dispatchEvent(new CustomEvent("pedro:event", { detail: { type, payload } })); } catch {}
 };
 
+// ── Sessão expirada/ausente: intercepta qualquer fetch('/api/...') que volte
+// 401 e avisa o AuthGate pra voltar pra tela de login, sem precisar tocar em
+// cada chamada (DB, KV, useKV e qualquer outra espalhadas pelo arquivo). ──────
+if (typeof window !== "undefined" && !window.__painelFetchPatched) {
+  window.__painelFetchPatched = true;
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (...args) => {
+    const res = await originalFetch(...args);
+    try {
+      const url = typeof args[0] === "string" ? args[0] : args[0]?.url;
+      if (res.status === 401 && url && url.includes("/api/")) {
+        window.dispatchEvent(new CustomEvent("painel:unauthorized"));
+      }
+    } catch {}
+    return res;
+  };
+}
+
 
 // useKV — like useState but synced to cloud + localStorage, with polling
 function useKV(key, def) {
@@ -8242,7 +8260,7 @@ function PedroWidget({ page }) {
   );
 }
 
-export default function App() {
+function AppContent() {
   const [page, setPageRaw] = useState(()=>{
     try { const p = localStorage.getItem("current_page"); return (p && PAGE_META[p]) ? p : "home"; } catch { return "home"; }
   });
@@ -8343,6 +8361,14 @@ export default function App() {
               <Icon path={I[ic]} size={15}/>
             </button>
           ))}
+          <button key="logout" title="Sair" onClick={async ()=>{
+              try { await fetch("/api/auth", { method: "DELETE" }); } catch {}
+              window.dispatchEvent(new CustomEvent("painel:unauthorized"));
+            }}
+            style={{width:34,height:34,borderRadius:"50%",background:"var(--bg-card)",border:"1px solid var(--border)",
+              display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)",fontSize:13}}>
+            🔒
+          </button>
         </div>
       </header>
 
@@ -8414,6 +8440,88 @@ export default function App() {
       <PedroWidget page={page}/>
     </div>
   );
+}
+
+// ── Login (sessão única, só o Gustavo) — a aba "Dados" com a senha antiga
+// continua existindo no painel, mas quem protege de verdade agora é isto. ──
+function AuthGate({ children }) {
+  const [status, setStatus] = useState("checking"); // checking | authed | login
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const checkSession = () => {
+    fetch("/api/auth")
+      .then(r => r.json())
+      .then(d => setStatus(d.authenticated ? "authed" : "login"))
+      .catch(() => setStatus("login"));
+  };
+
+  useEffect(() => { checkSession(); }, []);
+
+  useEffect(() => {
+    const onUnauthorized = () => setStatus("login");
+    window.addEventListener("painel:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("painel:unauthorized", onUnauthorized);
+  }, []);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (busy || !password) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (r.ok) {
+        setPassword("");
+        setStatus("authed");
+      } else if (r.status === 429) {
+        const d = await r.json().catch(() => ({}));
+        setError(`Muitas tentativas. Tente de novo em ${d.retryAfterSeconds || 60}s.`);
+      } else {
+        setError("Senha incorreta.");
+      }
+    } catch {
+      setError("Falha ao conectar.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (status === "checking") return null;
+
+  if (status === "login") {
+    return (
+      <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg-main)"}}>
+        <form onSubmit={submit} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,padding:32,width:300,display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{fontWeight:800,fontSize:15,textAlign:"center",marginBottom:4}}>🔒 Painel de Controle</div>
+          <input
+            type="password"
+            autoFocus
+            placeholder="Senha"
+            value={password}
+            onChange={e=>setPassword(e.target.value)}
+            style={{padding:"10px 12px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg-main)",color:"var(--text-1)",fontSize:14}}
+          />
+          {error && <div style={{color:"#e5484d",fontSize:12}}>{error}</div>}
+          <button type="submit" disabled={busy}
+            style={{padding:"10px 12px",borderRadius:8,border:"none",background:"var(--accent)",color:"#fff",fontWeight:700,cursor:busy?"default":"pointer",opacity:busy?0.7:1}}>
+            {busy ? "Entrando..." : "Entrar"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  return children;
+}
+
+export default function App() {
+  return <AuthGate><AppContent/></AuthGate>;
 }
 
 

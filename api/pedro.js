@@ -1,16 +1,21 @@
 export const config = { runtime: "edge" };
 import { neon } from "@neondatabase/serverless";
 import { getValidToken as getGoogleToken, ensureTable as ensureGoogleAuthTable } from "./google-calendar.js";
+import { requireSession } from "./_auth-lib.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // PEDRO (Painel) — assistente IA do Painel de Controle Pessoal.
 // Mesma mecânica do Pedro do Daily (intents + keywords + fuzzy match),
 // porém 100% independente: banco próprio (mesmo Neon do painel, tabelas
 // prefixadas panel_pedro_*), sem nenhuma dependência de código do Daily.
+//
+// Todas as ações aqui (chat, push_subscribe/unsubscribe, admin_*) são
+// chamadas só pelo navegador do painel — nenhum integrador externo usa este
+// arquivo — por isso o handler inteiro exige sessão (quando AUTH_ENFORCE=1),
+// e não precisa de Access-Control-Allow-Origin liberado (mesma origem).
 // ─────────────────────────────────────────────────────────────────────────
 
 const CORS = {
-  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
   "Content-Type": "application/json",
@@ -759,6 +764,9 @@ Como conversar:
 
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+  if (!(await requireSession(req))) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: CORS });
+  }
 
   try {
     const sql = neon(process.env.DATABASE_URL);
@@ -861,8 +869,8 @@ export default async function handler(req) {
     }
 
     // ============ ADMIN — GERENCIAR O CÉREBRO DO PEDRO ============
-    // App pessoal (sem multiusuário), então sem checagem extra de auth aqui —
-    // mesma exposição que as demais rotas /api/db já têm hoje.
+    // Protegido junto com o resto do handler pelo requireSession no topo —
+    // não precisa de checagem extra aqui.
 
     if (action === "admin_intents" && req.method === "GET") {
       const intents = await sql`SELECT * FROM panel_pedro_intents ORDER BY category`;

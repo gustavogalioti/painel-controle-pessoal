@@ -2,6 +2,7 @@ export const config = { runtime: "edge" };
 import { neon } from "@neondatabase/serverless";
 import { getValidToken } from "./google-calendar.js";
 import { getValidToken as getOutlookToken } from "./outlook-calendar.js";
+import { requireSession } from "./_auth-lib.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // JARBAS — ponte entre o companheiro de voz (Jarbas, repo separado) e os
@@ -12,11 +13,15 @@ import { getValidToken as getOutlookToken } from "./outlook-calendar.js";
 // a fonte real dos dados do painel, a mesma que o Pedro e o front-end usam.
 //
 // Protegido por uma chave simples (JARBAS_API_KEY), enviada pelo Worker do
-// Jarbas em cada chamada — nunca exposta ao navegador.
+// Jarbas em cada chamada — nunca exposta ao navegador. A única exceção é
+// log_read (ver handler abaixo): aceita a chave do Worker OU uma sessão
+// válida do painel (é a aba "Diário do Jarbas", chamada pelo navegador).
+//
+// Sem Access-Control-Allow-Origin liberado: o Worker chama isso de servidor
+// pra servidor (CORS não se aplica) e o painel chama da própria origem.
 // ─────────────────────────────────────────────────────────────────────────
 
 const CORS = {
-  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, x-jarbas-key",
   "Content-Type": "application/json",
@@ -636,16 +641,18 @@ export default async function handler(req) {
   const { searchParams } = new URL(req.url);
   const action = searchParams.get("action");
 
-  // log_read é a única ação de LEITURA que a própria aba "Diário do Jarbas" no painel
-  // chama direto do navegador — e o navegador nunca tem o JARBAS_API_KEY (segredo só do
-  // Worker). Mesma lógica de "aberto, protegido só pela URL" que api/db.js já usa pro
-  // resto do painel: fica de fora do gate de autenticação abaixo. Toda ação de ESCRITA
-  // (log_append e os demais comandos) continua exigindo a chave normalmente.
-  const isPublicRead = req.method === "GET" && action === "log_read";
+  const key = req.headers.get("x-jarbas-key") || searchParams.get("key");
+  const hasJarbasKey = !!process.env.JARBAS_API_KEY && key === process.env.JARBAS_API_KEY;
 
-  if (!isPublicRead) {
-    const key = req.headers.get("x-jarbas-key") || searchParams.get("key");
-    if (!process.env.JARBAS_API_KEY || key !== process.env.JARBAS_API_KEY) {
+  // log_read é a única ação de LEITURA que a própria aba "Diário do Jarbas" no painel
+  // chama direto do navegador (sem a JARBAS_API_KEY, que é segredo só do Worker) —
+  // por isso aceita TAMBÉM uma sessão válida do painel, nunca mais fica público sem
+  // nenhuma das duas. Toda ação de ESCRITA (log_append e os demais comandos) continua
+  // exigindo só a chave do Worker, como sempre.
+  const isLogRead = req.method === "GET" && action === "log_read";
+
+  if (!hasJarbasKey) {
+    if (!isLogRead || !(await requireSession(req))) {
       return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: CORS });
     }
   }
