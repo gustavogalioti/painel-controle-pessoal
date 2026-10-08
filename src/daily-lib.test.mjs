@@ -115,6 +115,19 @@ assert.equal(L.newTask({ text: "c", dest: "todo" }, T).plannedDate, null);
 assert.ok(L.newTask({ text: "d", dest: "doing" }, T).startedAt);
 assert.equal(L.newTask({ text: "e", dest: "lixo" }, T).inbox, true, "destino inválido cai na caixa");
 
+// editar / remover atualização (por índice da lista original)
+ts = [mk(1, { updates: [{ text: "a", date: "d1", at: "2026-10-01T10:00:00.000Z" }, { text: "b", date: "d2", at: "2026-10-02T10:00:00.000Z" }, { text: "legado", date: "d3" }] })];
+let eu = L.editUpdate(ts, 1, 1, "  b corrigida ", when);
+assert.equal(eu[0].updates[1].text, "b corrigida"); assert.equal(eu[0].updates[1].editedAt, when.toISOString());
+assert.equal(eu[0].updates[0].text, "a"); assert.equal(eu[0].updates[1].date, "d2", "mantém a data original");
+assert.equal(L.editUpdate(ts, 1, 1, "  ")[0].updates[1].text, "b", "texto vazio não apaga");
+assert.equal(L.editUpdate(ts, 1, 9, "x")[0].updates.length, 3, "índice inválido é ignorado");
+assert.deepEqual(L.removeUpdate(ts, 1, 0)[0].updates.map(u => u.text), ["b", "legado"]);
+assert.equal(L.removeUpdate(ts, 1, 7)[0].updates.length, 3);
+assert.equal(L.removeUpdate([mk(2)], 2, 0)[0].updates, undefined); // sem `updates`: tarefa intacta
+assert.equal(L.lastActivity(ts[0]), Math.max(new Date(ts[0].date).getTime(), new Date("2026-10-02T10:00:00.000Z").getTime()));
+assert.equal(L.lastActivity({}), 0);
+
 // util
 assert.equal(L.fmtMin(10), "10 min"); assert.equal(L.fmtMin(90), "1h30"); assert.equal(L.fmtMin(120), "2h"); assert.equal(L.fmtMin(""), "");
 assert.equal(L.addDays("2026-10-31", 1), "2026-11-01"); // virada de mês com data fixa (função pura)
