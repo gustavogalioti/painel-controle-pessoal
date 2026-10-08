@@ -545,14 +545,83 @@ async function cmdDeleteEvent(sql, titulo) {
   return { reply: `Cancelei "${match.title}" da agenda.` };
 }
 
-async function cmdAnotarDiario(sql, { texto, humor }) {
+export async function cmdAnotarDiario(sql, { texto, humor }) {
   if (!texto || !texto.trim()) return { reply: "" };
   const moodMap = { bom: "🙂", otimo: "😄", ruim: "😔", pessimo: "😤", neutro: "🙂" };
   const mood = moodMap[normalize(humor || "")] || "🙂";
   const entries = await getKvList(sql, "diary_v1");
-  const entry = { id: Date.now(), text: texto.trim(), mood, date: new Date().toISOString() };
+  const id = Date.now();
+  // origem: "jarbas" marca que ESTA entrada pode ser desfeita/corrigida depois pelo
+  // próprio Jarbas (ver cmdDesfazerDiario/cmdCorrigirDiario) — entradas escritas pelo
+  // Gustavo direto no painel nunca têm esse campo, então nunca são elegíveis.
+  const entry = { id, text: texto.trim(), mood, date: new Date().toISOString(), origem: "jarbas" };
   await setKvList(sql, "diary_v1", [entry, ...entries]);
-  return { reply: "" }; // ação de bastidor, não vira fala
+  return { reply: "", id }; // ação de bastidor, não vira fala; id devolvido pro Worker, se precisar
+}
+
+// Janela de segurança pra desfazer/corrigir: só entradas criadas pelo próprio Jarbas
+// (nunca pelo Gustavo) e só dentro das últimas 24h — depois disso, vira "corrija com uma
+// entrada nova", nunca mais mexe na antiga.
+const DIARY_UNDO_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export function isEligibleJarbasEntry(entry, nowMs) {
+  if (!entry || entry.origem !== "jarbas") return false;
+  const created = new Date(entry.date).getTime();
+  if (isNaN(created)) return false;
+  return (nowMs - created) <= DIARY_UNDO_WINDOW_MS;
+}
+
+export function findEligibleDiaryEntry(entries, id, nowMs) {
+  // entries já vem ordenado do mais recente pro mais antigo (toda escrita faz
+  // [entry, ...entries]) — sem id, o primeiro match é automaticamente o mais recente.
+  if (id != null) {
+    const target = entries.find(e => e.id === id);
+    return isEligibleJarbasEntry(target, nowMs) ? target : null;
+  }
+  return entries.find(e => isEligibleJarbasEntry(e, nowMs)) || null;
+}
+
+export async function cmdDesfazerDiario(sql, { id } = {}) {
+  const entries = await getKvList(sql, "diary_v1");
+  const target = findEligibleDiaryEntry(entries, id, Date.now());
+  if (!target) return { reply: "", ok: false, motivo: "Não achei anotação minha recente para desfazer." };
+
+  // Nunca apaga de vez — move pra lixeira, recuperável manualmente se precisar.
+  const trash = await getKvList(sql, "diary_trash_v1");
+  await setKvList(sql, "diary_trash_v1", [{ ...target, deletedAt: new Date().toISOString() }, ...trash]);
+  await setKvList(sql, "diary_v1", entries.filter(e => e.id !== target.id));
+
+  await cmdLogAppend(sql, [{
+    tipo: "acao_pedida", origem: "jarbas",
+    resumo: `Desfez a própria anotação no diário: "${String(target.text || "").slice(0, 120)}".`,
+    detalhes: { ferramenta: "desfazer_diario", ok: true, id: target.id },
+  }]);
+
+  return { reply: "", ok: true, texto: target.text };
+}
+
+export async function cmdCorrigirDiario(sql, { novoTexto, id } = {}) {
+  if (!novoTexto || !novoTexto.trim()) return { reply: "", ok: false, motivo: "Faltou o novo texto da correção." };
+  const entries = await getKvList(sql, "diary_v1");
+  const target = findEligibleDiaryEntry(entries, id, Date.now());
+  if (!target) return { reply: "", ok: false, motivo: "Não achei anotação minha recente para corrigir." };
+
+  const textoAnterior = target.text;
+  const edicoes = Array.isArray(target.edicoes) ? target.edicoes : [];
+  const updatedEntry = {
+    ...target,
+    text: novoTexto.trim(),
+    edicoes: [...edicoes, { textoAnterior, em: new Date().toISOString() }],
+  };
+  await setKvList(sql, "diary_v1", entries.map(e => e.id === target.id ? updatedEntry : e));
+
+  await cmdLogAppend(sql, [{
+    tipo: "acao_pedida", origem: "jarbas",
+    resumo: `Corrigiu a própria anotação no diário, de "${String(textoAnterior || "").slice(0, 80)}" para "${String(updatedEntry.text || "").slice(0, 80)}".`,
+    detalhes: { ferramenta: "corrigir_diario", ok: true, id: target.id },
+  }]);
+
+  return { reply: "", ok: true, texto: updatedEntry.text, textoAnterior };
 }
 
 // ---------- Item 5: Ideias, Lembretes, Listas ----------
@@ -732,6 +801,8 @@ export default async function handler(req) {
       else if (comando === "criar_compromisso") result = await cmdAddEvent(sql, arg || {});
       else if (comando === "apagar_compromisso") result = await cmdDeleteEvent(sql, arg?.titulo);
       else if (comando === "anotar_diario") result = await cmdAnotarDiario(sql, arg || {});
+      else if (comando === "desfazer_diario") result = await cmdDesfazerDiario(sql, arg || {});
+      else if (comando === "corrigir_diario") result = await cmdCorrigirDiario(sql, arg || {});
       else if (comando === "criar_ideia") result = await cmdAddIdea(sql, arg?.texto);
       else if (comando === "apagar_ideia") result = await cmdDeleteIdea(sql, arg?.texto);
       else if (comando === "criar_lembrete") result = await cmdAddReminder(sql, arg?.texto);
