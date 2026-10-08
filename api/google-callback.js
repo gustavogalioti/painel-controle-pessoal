@@ -1,5 +1,6 @@
 export const config = { runtime: "edge" };
 import { neon } from "@neondatabase/serverless";
+import { verifyOAuthState } from "./_auth-lib.js";
 
 const APP_URL = "https://painel-controle-pearl.vercel.app";
 
@@ -7,9 +8,17 @@ export default async function handler(req) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
   const error = searchParams.get("error");
+  const state = searchParams.get("state");
 
   if (error || !code) {
     return Response.redirect(`${APP_URL}/?google=error`, 302);
+  }
+
+  // Confere o state só quando o google-auth.js conseguiu assinar um (precisa de
+  // SESSION_SECRET) — se não tinha SESSION_SECRET na ida, não tem o que validar.
+  if (process.env.SESSION_SECRET && state) {
+    const verified = await verifyOAuthState(process.env.SESSION_SECRET, state, false);
+    if (!verified) return Response.redirect(`${APP_URL}/?google=error`, 302);
   }
 
   try {

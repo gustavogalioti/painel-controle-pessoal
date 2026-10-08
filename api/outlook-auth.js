@@ -1,4 +1,5 @@
 export const config = { runtime: "edge" };
+import { signOAuthState } from "./_auth-lib.js";
 
 export default async function handler(req) {
   const clientId = process.env.OUTLOOK_CLIENT_ID;
@@ -17,7 +18,13 @@ export default async function handler(req) {
   url.searchParams.set("response_type", "code");
   url.searchParams.set("response_mode", "query");
   url.searchParams.set("scope", "offline_access User.Read Calendars.ReadWrite Mail.Read");
-  url.searchParams.set("state", account);
+  // state = "<account>.<token assinado>" — mantém o seletor de conta (personal/
+  // corporate) que o callback já lia, e agora também carrega CSRF verificável.
+  // Sem SESSION_SECRET ainda, cai pro state antigo (só a conta) pra não travar.
+  url.searchParams.set(
+    "state",
+    process.env.SESSION_SECRET ? await signOAuthState(process.env.SESSION_SECRET, account) : account
+  );
   url.searchParams.set("prompt", "select_account");
 
   return Response.redirect(url.toString(), 302);

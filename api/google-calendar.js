@@ -1,8 +1,12 @@
 export const config = { runtime: "edge" };
 import { neon } from "@neondatabase/serverless";
+import { requireSession } from "./_auth-lib.js";
 
+// Sem Access-Control-Allow-Origin liberado: só o navegador do painel (mesma
+// origem) chama o handler HTTP abaixo. getValidToken/ensureTable continuam
+// exportados e usados por import direto (_gusos-lib.js, pedro.js, pedro-cron.js,
+// jarbas.js) — isso nunca passa por aqui nem por sessão/CORS, é chamada de função.
 const CORS = {
-  "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
   "Content-Type": "application/json",
@@ -52,6 +56,9 @@ export async function getValidToken(sql) {
 
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+  if (!(await requireSession(req))) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: CORS });
+  }
 
   try {
     const sql = neon(process.env.DATABASE_URL);

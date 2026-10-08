@@ -1,9 +1,20 @@
 export const config = { runtime: "edge" };
 import { neon } from "@neondatabase/serverless";
+import { requireSession } from "./_auth-lib.js";
 
-const CORS = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
+// Script de migração ÚNICA (tabelas antigas -> sync_kv), rodado manualmente uma
+// vez no passado. Não identifiquei nenhum lugar do app que ainda chame isso —
+// sinalizado no PR pro Gustavo decidir se remove. Por ora, só exige sessão
+// (como o resto do painel) em vez de ficar aberto pra qualquer um disparar
+// (ele SOBRESCREVE sync_kv com o conteúdo das tabelas antigas, então rodar à
+// toa por engano/ataque poderia reverter dados pra um estado velho).
+const CORS = { "Content-Type": "application/json" };
 
 export default async function handler(req) {
+  if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+  if (!(await requireSession(req))) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: CORS });
+  }
   try {
     const sql = neon(process.env.DATABASE_URL);
     const ts = new Date().toISOString();

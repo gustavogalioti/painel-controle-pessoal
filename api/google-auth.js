@@ -1,4 +1,5 @@
 export const config = { runtime: "edge" };
+import { signOAuthState } from "./_auth-lib.js";
 
 export default async function handler(req) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -15,6 +16,11 @@ export default async function handler(req) {
   url.searchParams.set("scope", "https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.readonly");
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", "consent");
+  // state assinado (CSRF) — se SESSION_SECRET ainda não estiver configurado,
+  // segue sem state pra não travar o fluxo (callback também tolera isso).
+  if (process.env.SESSION_SECRET) {
+    url.searchParams.set("state", await signOAuthState(process.env.SESSION_SECRET));
+  }
 
   return Response.redirect(url.toString(), 302);
 }
