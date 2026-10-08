@@ -237,3 +237,24 @@ export function newTask({ text, tag, due, dest = "inbox" }, today) {
   if (dest === "inbox" || !MOVE_OPTIONS.includes(dest)) return t;
   return moveToStatus([t], t.id, dest, today)[0];
 }
+
+// ── aba Em Andamento: editar / remover atualizações, atividade recente ──
+// O índice é o da lista original (`updates` guarda em ordem cronológica; a tela mostra do mais novo para o mais antigo).
+export function editUpdate(tasks, id, idx, text, now = new Date()) {
+  const clean = String(text || "").trim();
+  if (!clean) return tasks;
+  return upd(tasks, id, t => {
+    const list = t.updates || [];
+    if (idx < 0 || idx >= list.length) return t;
+    return { ...t, updates: list.map((u, i) => (i === idx ? { ...u, text: clean, editedAt: now.toISOString() } : u)) };
+  });
+}
+
+export const removeUpdate = (tasks, id, idx) =>
+  upd(tasks, id, t => ((t.updates || [])[idx] === undefined ? t : { ...t, updates: t.updates.filter((_, i) => i !== idx) }));
+
+// Última movimentação da tarefa (atualização, início ou criação) — para ordenar por "atividade recente"
+export function lastActivity(t) {
+  const times = [t.startedAt, t.date, ...(t.updates || []).map(u => u.at)].filter(Boolean).map(x => new Date(x).getTime()).filter(n => !isNaN(n));
+  return times.length ? Math.max(...times) : 0;
+}

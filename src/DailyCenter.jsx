@@ -718,7 +718,10 @@ function DoingBox({ c }) {
     <section className="dcc-card" aria-labelledby="dcc-doing-h">
       <div className="dcc-sec-head">
         <h2 id="dcc-doing-h">Em andamento</h2>
-        <span className="dcc-pill dcc-pill-doing">{items.length} em execução</span>
+        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span className="dcc-pill dcc-pill-doing">{items.length} em execução</span>
+          <button className="dcc-btn" style={{ padding: "3px 10px" }} onClick={() => c.setView("doing")}>Abrir aba</button>
+        </span>
       </div>
       <div className="dcc-sub">O que está correndo agora e o que fazer em seguida.</div>
       {items.length === 0 ? (
@@ -787,6 +790,182 @@ function DayView({ c }) {
       <div className="dcc-area" style={{ gridArea: "doing" }}><DoingBox c={c} /></div>
       {attn && <div className="dcc-area" style={{ gridArea: "attn" }}><Attention c={c} /></div>}
     </div>
+  );
+}
+
+// ─── Aba Em Andamento ────────────────────────────────────────────────────────
+// Tudo o que está rodando, com histórico completo de atualizações e controles para atualizar cada tarefa sem sair da tela.
+const DOING_SORTS = { recente: "Atividade recente", antiga: "Iniciadas há mais tempo", prio: "Prioridade" };
+
+function NextActionField({ c, t }) {
+  const [v, setV] = useState(t.nextAction || "");
+  useEffect(() => { setV(t.nextAction || ""); }, [t.nextAction]);
+  const save = () => { const n = v.trim(); if (n !== (t.nextAction || "")) c.patch(t.id, { nextAction: n || null }); };
+  return (
+    <input value={v} onChange={e => setV(e.target.value)} onBlur={save} placeholder="Qual é o próximo passo concreto?" aria-label={`Próxima ação: ${t.text}`}
+      onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { setV(t.nextAction || ""); e.currentTarget.blur(); } }} />
+  );
+}
+
+function StepsList({ c, t }) {
+  const steps = t.steps || [];
+  const [v, setV] = useState("");
+  const set = next => c.patch(t.id, { steps: next });
+  const add = () => { const x = v.trim(); if (!x) return; set([...steps, { id: Date.now() + steps.length, text: x, done: false }]); setV(""); };
+  const doneN = steps.filter(x => x.done).length;
+  return (
+    <div className="dcc-field">
+      <span className="dcc-label">Passos{steps.length > 0 && ` · ${doneN}/${steps.length}`}</span>
+      {steps.length > 0 && <div className="dcc-bar" style={{ height: 6, marginBottom: 6 }} role="progressbar" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={doneN} aria-label="Passos concluídos"><i style={{ width: `${(doneN / steps.length) * 100}%`, background: "var(--d-ok)" }} /></div>}
+      <ul className="dcc-steps">
+        {steps.map(x => (
+          <li key={x.id} className={x.done ? "is-done" : ""}>
+            <input type="checkbox" checked={!!x.done} aria-label={`Passo: ${x.text}`} onChange={() => set(steps.map(y => (y.id === x.id ? { ...y, done: !y.done } : y)))} />
+            <span>{x.text}</span>
+            <button className="dcc-ico" aria-label={`Remover passo: ${x.text}`} onClick={() => set(steps.filter(y => y.id !== x.id))}><Ic d="x" size={13} /></button>
+          </li>
+        ))}
+      </ul>
+      <div className="dcc-upd-input" style={{ marginTop: 6 }}>
+        <input value={v} onChange={e => setV(e.target.value)} placeholder="Novo passo…" aria-label={`Novo passo: ${t.text}`} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); add(); } }} />
+        <button className="dcc-send" aria-label={`Adicionar passo: ${t.text}`} title="Adicionar passo" disabled={!v.trim()} onClick={add}><Ic d="plus" size={15} /></button>
+      </div>
+    </div>
+  );
+}
+
+// Histórico completo (mais recente em cima): escrever, editar e remover atualizações
+function UpdatesFeed({ c, t }) {
+  const [text, setText] = useState("");
+  const [editing, setEditing] = useState(null); // índice na lista original
+  const [draft, setDraft] = useState("");
+  const list = (t.updates || []).map((u, i) => ({ ...u, i })).reverse();
+  const send = () => { if (!text.trim()) return; c.act.addUpdate(t.id, text); setText(""); };
+  const saveEdit = () => { if (draft.trim()) c.act.editUpdate(t.id, editing, draft); setEditing(null); };
+  return (
+    <div className="dcc-field">
+      <span className="dcc-label">Atualizações{list.length > 0 && ` · ${list.length}`}</span>
+      <div className="dcc-upd-input">
+        <input value={text} onChange={e => setText(e.target.value)} placeholder="Escreva uma atualização…" aria-label={`Atualização: ${t.text}`}
+          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); send(); } }} />
+        <button className="dcc-send" aria-label={`Enviar atualização: ${t.text}`} title="Enviar atualização" disabled={!text.trim()} onClick={send}><Ic d="right" size={16} /></button>
+      </div>
+      {list.length === 0 && <div className="dcc-sub" style={{ marginTop: 8 }}>Nenhuma atualização ainda. Registre o que foi feito ou o que está travando.</div>}
+      <div className="dcc-feed">
+        {list.map(u => (
+          <div className="dcc-upd-item" key={`${u.at || u.date}-${u.i}`} style={{ marginTop: 6, marginBottom: 0 }}>
+            {editing === u.i ? (
+              <span style={{ flex: 1, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <input autoFocus value={draft} onChange={e => setDraft(e.target.value)} aria-label="Editar atualização" style={{ flex: 1, minWidth: 160, padding: "5px 10px" }}
+                  onKeyDown={e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditing(null); }} />
+                <button className="dcc-btn" style={{ padding: "3px 10px" }} onClick={saveEdit}>Salvar</button>
+                <button className="dcc-btn" style={{ padding: "3px 10px" }} onClick={() => setEditing(null)}>Cancelar</button>
+              </span>
+            ) : (
+              <>
+                <span style={{ flex: 1 }}>{u.text}{u.editedAt && <span className="dcc-sub"> (editado)</span>}</span>
+                <time>{u.date}</time>
+                <button className="dcc-ico" style={{ width: 24, height: 24 }} title="Editar atualização" aria-label={`Editar atualização: ${u.text}`} onClick={() => { setEditing(u.i); setDraft(u.text); }}><Ic d="edit" size={12} /></button>
+                <button className="dcc-ico" style={{ width: 24, height: 24 }} title="Remover atualização" aria-label={`Remover atualização: ${u.text}`} onClick={() => c.act.removeUpdate(t.id, u.i)}><Ic d="trash" size={12} /></button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DoingCard({ c, t }) {
+  const running = c.timer && c.timer.running && c.timer.taskId === t.id;
+  const ago = since(t.startedAt);
+  const due = dueLabel(t, c.today);
+  const isFocus = c.focus.some(f => f.id === t.id);
+  const meta = [ago ? `iniciada ${ago}` : null, evText(t) ? `🗓 ${evText(t)}` : null].filter(Boolean).join(" · ");
+  return (
+    <article className="dcc-dcard" aria-label={`Em andamento: ${t.text}`}>
+      <div className="dcc-row-top">
+        <span style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <TagPill tag={areaOf(t)}>{areaOf(t)}</TagPill>
+          <span className={`dcc-pill ${t.prio === "alta" ? "dcc-pill-alta" : "dcc-pill-neutral"}`}>{PRIO_SHORT[t.prio] || "Normal"}</span>
+          {running && <span className="dcc-pill dcc-pill-ok">timer rodando</span>}
+          {isFocus && <span className="dcc-pill dcc-pill-plan">foco de hoje</span>}
+        </span>
+        {t.estimatedMinutes ? <span className="dcc-time">{L.fmtMin(t.estimatedMinutes)}</span> : null}
+      </div>
+      <div className="dcc-title"><button onClick={() => c.setEditId(t.id)}>{t.text}</button></div>
+      <div className="dcc-li-meta" style={{ marginBottom: 12 }}>{meta}{due && <>{meta ? " · " : ""}<span className={due.late ? "dcc-due-late" : ""}>{due.text}</span></>}</div>
+      <div className="dcc-field">
+        <label>Próxima ação</label>
+        <NextActionField c={c} t={t} />
+      </div>
+      <StepsList c={c} t={t} />
+      <UpdatesFeed c={c} t={t} />
+      <div className="dcc-dactions">
+        <button className="dcc-btn dcc-btn-primary" onClick={() => c.setFocusOn(t.id)}><Ic d="play" size={13} /> Continuar</button>
+        <button className="dcc-btn" style={{ color: "var(--d-ok)", borderColor: "#bfe6d6" }} onClick={() => c.act.complete(t.id)}><Ic d="check" size={14} /> Concluir</button>
+        <MoveSelect c={c} t={t} />
+        <button className="dcc-btn" onClick={() => c.act.pause(t.id)} title="Volta para De Hoje, sem perder nada"><Ic d="pause" size={13} /> Pausar</button>
+        <button className="dcc-ico" title="Editar tarefa" aria-label={`Editar tarefa: ${t.text}`} onClick={() => c.setEditId(t.id)}><Ic d="edit" size={15} /></button>
+      </div>
+    </article>
+  );
+}
+
+function DoingView({ c }) {
+  const [sort, setSort] = useState("recente");
+  const [area, setArea] = useState("");
+  const all = c.tasks.filter(t => L.getStatus(t) === "doing");
+  const areas = [...new Set(all.map(areaOf))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const rank = { alta: 0, normal: 1, baixa: 2 };
+  const items = all.filter(t => !area || areaOf(t) === area).sort((a, b) =>
+    sort === "antiga" ? new Date(a.startedAt || a.date) - new Date(b.startedAt || b.date)
+      : sort === "prio" ? (rank[a.prio] ?? 1) - (rank[b.prio] ?? 1) || L.lastActivity(b) - L.lastActivity(a)
+        : L.lastActivity(b) - L.lastActivity(a));
+  const noNext = all.filter(t => !t.nextAction).length;
+  const tm = c.timer || {};
+  const running = tm.running ? all.find(t => t.id === tm.taskId) : null;
+  return (
+    <>
+      <div className="dcc-card">
+        <div className="dcc-sec-head">
+          <h2>Em andamento</h2>
+          <span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {areas.length > 1 && (
+              <select className="dcc-sort" value={area} onChange={e => setArea(e.target.value)} aria-label="Filtrar por área">
+                <option value="">Todas as áreas</option>
+                {areas.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            )}
+            {all.length > 1 && (
+              <select className="dcc-sort" value={sort} onChange={e => setSort(e.target.value)} aria-label="Ordenar em andamento">
+                {Object.entries(DOING_SORTS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+            )}
+            <span className="dcc-pill dcc-pill-doing">{all.length} em execução</span>
+          </span>
+        </div>
+        <div className="dcc-sub">O que está correndo agora, com o histórico de cada uma. Atualize aqui mesmo: próxima ação, passos e atualizações.</div>
+        {(noNext > 0 || running) && (
+          <div className="dcc-note" style={{ background: "var(--d-surface)" }}>
+            {running && <><Ic d="clock" size={13} /> Timer rodando em <b>{running.text}</b>. </>}
+            {noNext > 0 && `${noNext} ${noNext === 1 ? "tarefa está" : "tarefas estão"} sem próxima ação definida.`}
+          </div>
+        )}
+      </div>
+      {all.length === 0 ? (
+        <div className="dcc-card">
+          <Empty title="Nada em andamento.">
+            Inicie uma tarefa com ▶, ou mova uma para “Em andamento”.
+            <div style={{ marginTop: 12 }}><button className="dcc-btn dcc-btn-primary" onClick={() => c.setView("day")}>Ver tarefas no Meu Dia</button></div>
+          </Empty>
+        </div>
+      ) : items.length === 0 ? (
+        <div className="dcc-card"><Empty title="Nenhuma tarefa nesta área.">Mude o filtro para ver as demais.</Empty></div>
+      ) : (
+        <div className="dcc-doing-grid">{items.map(t => <DoingCard key={t.id} c={c} t={t} />)}</div>
+      )}
+    </>
   );
 }
 
@@ -1281,7 +1460,7 @@ function Picker({ c, onClose }) {
 }
 
 // ─── contêiner ───────────────────────────────────────────────────────────────
-const TABS = [["day", "Meu Dia"], ["inbox", "Caixa de Entrada"], ["upcoming", "Próximos Dias"], ["all", "Todas as Tarefas"], ["history", "Histórico"]];
+const TABS = [["day", "Meu Dia"], ["doing", "Em Andamento"], ["inbox", "Caixa de Entrada"], ["upcoming", "Próximos Dias"], ["all", "Todas as Tarefas"], ["history", "Histórico"]];
 
 export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }) {
   const { useKV, pedroNotify } = ui;
@@ -1386,6 +1565,12 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
       flash(`Movida para ${L.STATUS_LABEL[status]}.`, () => mutate(p => L.restoreTask(p, old)));
     },
     addUpdate: (id, text) => mutate(p => L.addUpdate(p, id, text)),
+    editUpdate: (id, idx, text) => mutate(p => L.editUpdate(p, id, idx, text)),
+    removeUpdate: (id, idx) => {
+      const old = byId(id); if (!old) return;
+      mutate(p => L.removeUpdate(p, id, idx));
+      flash("Atualização removida.", () => mutate(p => L.restoreTask(p, old)));
+    },
   };
 
   const allTags = useMemo(() => {
@@ -1398,6 +1583,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
   const counts = L.statusCounts(tasks, today);
   const focus = L.focusTasks(tasks, today);
   const inboxCount = tasks.filter(t => L.bucketOf(t, today) === "inbox").length;
+  const doingCount = counts.doing;
   const agenda = useAgenda(today, events, ui);
   const prevKey = Object.keys(reviews || {}).filter(k => k < today && reviews[k].firstTomorrow && L.addDays(k, 3) >= today).sort().pop();
   const prevNote = prevKey ? reviews[prevKey].firstTomorrow : "";
@@ -1405,7 +1591,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
   const c = {
     tasks, today, summary, counts, focus, allTags, agenda, prevNote, timer, timerRef, setTimer, reviews: reviews || {}, focusLog: Array.isArray(focusLog) ? focusLog : [],
     synced, sort, setSort, act, mutate, flash, saveReview, logFocus,
-    setEditId, setRitual, setPicker, setFocusOn,
+    setEditId, setRitual, setPicker, setFocusOn, setView,
     patch: (id, p) => mutate(prev => L.patchTask(prev, id, p)),
   };
 
@@ -1416,7 +1602,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
       <div className="dcc-tabs" role="tablist" aria-label="Visões de tarefas">
         {TABS.map(([id, label]) => (
           <button key={id} role="tab" aria-selected={view === id} className="dcc-tab" onClick={() => setView(id)}>
-            {label}{id === "inbox" && inboxCount > 0 && <span className="dcc-count">{inboxCount}</span>}
+            {label}{id === "inbox" && inboxCount > 0 && <span className="dcc-count">{inboxCount}</span>}{id === "doing" && doingCount > 0 && <span className="dcc-count">{doingCount}</span>}
           </button>
         ))}
         <span className="dcc-spacer" />
@@ -1435,6 +1621,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
         <div className="dcc-card" aria-busy="true" role="status"><div className="dcc-empty"><b>Carregando suas tarefas…</b>Sincronizando com a nuvem.</div></div>
       )}
       {view === "day" && (synced || tasks.length > 0) && <DayView c={c} />}
+      {view === "doing" && <DoingView c={c} />}
       {view === "inbox" && <InboxView c={c} />}
       {view === "upcoming" && <UpcomingView c={c} />}
       {view === "all" && board}
