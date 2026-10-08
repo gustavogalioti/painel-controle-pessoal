@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node src/daily-lib.test.mjs && node api/_auth-lib.test.mjs && node api/_integrators.test.mjs && node api/_jarbas-diario.test.mjs"
+    "test": "node src/daily-lib.test.mjs && node api/_auth-lib.test.mjs && node api/_integrators.test.mjs && node api/_jarbas-diario.test.mjs && node api/_pedro-llm.test.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

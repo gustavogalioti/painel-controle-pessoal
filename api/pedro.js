@@ -667,17 +667,143 @@ async function executeTool(sql, name, args, coords) {
   }
 }
 
-async function callGroq(messages, tools) {
-  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
-    body: JSON.stringify({ model: GROQ_MODEL, messages, tools, tool_choice: "auto", temperature: 0.7, max_tokens: 600 }),
-  });
-  if (!r.ok) {
-    const errText = await r.text().catch(() => "");
-    throw new Error(`Groq API ${r.status}: ${errText.slice(0, 200)}`);
+// ---------- Roteador de LLM (Groq / OpenAI) com fallback — mesma ideia do roteador do
+// Worker do Jarbas, adaptada pro Pedro (Chat Completions + tools nos dois provedores).
+// A Groq é compartilhada com o Worker do Jarbas e a transcrição de voz, então pode
+// estourar cota/limite de requisições sem nenhum aviso aqui além do console — daí a
+// reserva: se a Groq falhar, tenta a OpenAI antes de cair nas palavras-chave.
+const PEDRO_LLM_TIMEOUT_MS = 20000;
+
+// Circuit breaker em memória da instância — "melhor esforço": cada instância fria da
+// função Edge começa com os contadores zerados (não persiste entre deploys nem é
+// compartilhado entre instâncias), só evita martelar um provedor que falhou agora
+// mesmo dentro da mesma instância "morna".
+const PEDRO_LLM_CIRCUIT = new Map();
+const PEDRO_LLM_CIRCUIT_THRESHOLD = 2;
+const PEDRO_LLM_CIRCUIT_OPEN_MS = 60000;
+
+export function pedroLlmCircuitIsOpen(name) {
+  const c = PEDRO_LLM_CIRCUIT.get(name);
+  return !!(c?.openUntil && Date.now() < c.openUntil);
+}
+function pedroLlmCircuitRecordTransientFailure(name) {
+  const c = PEDRO_LLM_CIRCUIT.get(name) || { failCount: 0, openUntil: 0 };
+  c.failCount++;
+  if (c.failCount >= PEDRO_LLM_CIRCUIT_THRESHOLD) c.openUntil = Date.now() + PEDRO_LLM_CIRCUIT_OPEN_MS;
+  PEDRO_LLM_CIRCUIT.set(name, c);
+}
+export function pedroLlmCircuitReset(name) {
+  PEDRO_LLM_CIRCUIT.set(name, { failCount: 0, openUntil: 0 });
+}
+
+function pedroLlmProviderDefs() {
+  return {
+    groq: { name: "groq", url: "https://api.groq.com/openai/v1/chat/completions", apiKey: process.env.GROQ_API_KEY, model: GROQ_MODEL },
+    openai: { name: "openai", url: "https://api.openai.com/v1/chat/completions", apiKey: process.env.OPENAI_API_KEY, model: process.env.OPENAI_MODEL || "gpt-4o-mini" },
+  };
+}
+
+// Ordem configurável por PEDRO_LLM_ORDER (ex: "openai,groq"); padrão "groq,openai".
+// Só entram na cadeia os provedores com chave configurada — com uma chave só, o
+// comportamento é idêntico a chamar aquele provedor direto, como antes.
+export function pedroLlmChain() {
+  const order = (process.env.PEDRO_LLM_ORDER || "groq,openai").split(",").map(s => s.trim()).filter(Boolean);
+  const defs = pedroLlmProviderDefs();
+  const seen = new Set();
+  const chain = [];
+  for (const name of order) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const def = defs[name];
+    if (def && def.apiKey) chain.push(def);
   }
-  return r.json();
+  return chain;
+}
+
+// 400/401/403/404 = erro permanente (chave inválida, modelo descontinuado etc.) — não
+// adianta repetir pro mesmo provedor, mas ainda tenta o próximo da cadeia. Qualquer
+// outro status (429, 5xx) é tratado como transiente.
+export function pedroLlmIsPermanentStatus(status) {
+  return status === 400 || status === 401 || status === 403 || status === 404;
+}
+
+async function callLlmProvider(def, messages, tools) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PEDRO_LLM_TIMEOUT_MS);
+  try {
+    const r = await fetch(def.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${def.apiKey}` },
+      body: JSON.stringify({ model: def.model, messages, tools, tool_choice: "auto", temperature: 0.7, max_tokens: 600 }),
+      signal: controller.signal,
+    });
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "");
+      const err = new Error(`${def.name} API ${r.status}: ${errText.slice(0, 200)}`);
+      err.status = r.status;
+      err.retryAfter = Number(r.headers.get("retry-after")) || null;
+      throw err;
+    }
+    return r.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Tenta cada provedor da cadeia em ordem. Erro transiente (429/5xx/timeout/rede) passa
+// pro próximo provedor — exceção: 429 com Retry-After curto (até 2s) espera uma vez e
+// tenta de novo o MESMO provedor antes de desistir dele. Erro permanente (400/401/403/
+// 404) loga claro e também passa pro próximo. Só lança (e cai nas palavras-chave) se
+// TODOS os provedores da cadeia falharem — o erro lançado carrega `.motivo` curto
+// (ex: "groq_429") pro chamador expor no fallback.
+export async function callLlmChain(messages, tools) {
+  const chain = pedroLlmChain();
+  if (!chain.length) {
+    const err = new Error("Nenhum provedor de LLM configurado (GROQ_API_KEY/OPENAI_API_KEY ausentes).");
+    err.motivo = "sem_chave";
+    throw err;
+  }
+
+  let lastMotivo = "desconhecido";
+  for (const def of chain) {
+    if (pedroLlmCircuitIsOpen(def.name)) {
+      console.error(`pedro_llm: ${def.name} em circuit breaker (falhou recentemente), pulando.`);
+      lastMotivo = `${def.name}_circuito_aberto`;
+      continue;
+    }
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const data = await callLlmProvider(def, messages, tools);
+        pedroLlmCircuitReset(def.name);
+        data._provider = def.name;
+        return data;
+      } catch (e) {
+        const isTimeout = e.name === "AbortError";
+        const status = e.status || null;
+        const permanente = !isTimeout && status && pedroLlmIsPermanentStatus(status);
+        const motivoCurto = isTimeout ? `${def.name}_timeout` : `${def.name}_${status || "erro_rede"}`;
+        lastMotivo = motivoCurto;
+        console.error(
+          `pedro_llm: ${def.name} falhou (${permanente ? "permanente" : "transiente"}, tentativa ${attempt + 1}):`,
+          isTimeout ? "timeout" : String(e.message || e)
+        );
+
+        if (!permanente) pedroLlmCircuitRecordTransientFailure(def.name);
+
+        // 429 com Retry-After curto: espera uma vez e tenta de novo o mesmo provedor.
+        if (!permanente && status === 429 && attempt === 0 && e.retryAfter && e.retryAfter > 0 && e.retryAfter <= 2) {
+          await new Promise((resolve) => setTimeout(resolve, e.retryAfter * 1000));
+          continue;
+        }
+        break; // qualquer outro caso: desiste deste provedor, vai pro próximo da cadeia
+      }
+    }
+  }
+
+  const err = new Error(`Todos os provedores de LLM falharam (último: ${lastMotivo}).`);
+  err.motivo = lastMotivo;
+  throw err;
 }
 
 function formatMsgTimestamp(ts) {
@@ -742,7 +868,8 @@ Como conversar:
     { role: "user", content: userMessage },
   ];
 
-  let data = await callGroq(messages, PEDRO_TOOLS);
+  let data = await callLlmChain(messages, PEDRO_TOOLS);
+  let engine = data._provider;
   let choice = data.choices[0];
   let loops = 0;
 
@@ -754,12 +881,13 @@ Como conversar:
       const result = await executeTool(sql, call.function.name, args, coords);
       messages.push({ role: "tool", tool_call_id: call.id, content: result });
     }
-    data = await callGroq(messages, PEDRO_TOOLS);
+    data = await callLlmChain(messages, PEDRO_TOOLS);
+    engine = data._provider; // pode trocar de provedor entre chamadas — relata o ÚLTIMO que respondeu de fato
     choice = data.choices[0];
     loops++;
   }
 
-  return choice.message.content?.trim() || "🐾";
+  return { reply: choice.message.content?.trim() || "🐾", engine };
 }
 
 export default async function handler(req) {
@@ -810,22 +938,24 @@ export default async function handler(req) {
         return new Response(JSON.stringify({ reply: "Anotado! 📝🐾 Da próxima vez que rolar essa situação, já sei o que fazer." }), { headers: CORS });
       }
 
-      // Groq (LLM real) é o caminho principal quando a chave está configurada
-      if (process.env.GROQ_API_KEY) {
-        try {
-          const reply = await handleGroqChat(sql, message.trim(), history || [], coords);
-          return new Response(JSON.stringify({ reply, engine: "groq" }), { headers: CORS });
-        } catch (e) {
-          console.error("Groq falhou, caindo pro sistema de keywords:", e.message);
-          // segue pro fallback abaixo em vez de quebrar a conversa
-        }
+      // LLM real (Groq, com reserva na OpenAI) é o caminho principal — só cai nas
+      // palavras-chave abaixo se TODA a cadeia de provedores falhar (ou nenhuma chave
+      // estiver configurada). fallbackMotivo registra o porquê, pra nunca mais ficar
+      // um mistério por que o Pedro "ficou burro" (ver callLlmChain).
+      let fallbackMotivo = null;
+      try {
+        const { reply, engine } = await handleGroqChat(sql, message.trim(), history || [], coords);
+        return new Response(JSON.stringify({ reply, engine }), { headers: CORS });
+      } catch (e) {
+        console.error("LLM do Pedro falhou (todos os provedores), caindo pro sistema de keywords:", e.message);
+        fallbackMotivo = e.motivo || "desconhecido";
       }
 
       // Um novo comando explícito sempre tem prioridade sobre uma clarificação pendente
       const explicitCmd = matchCommand(message.trim());
       if (explicitCmd) {
         const result = await runCommand(sql, explicitCmd);
-        return new Response(JSON.stringify({ reply: result.reply, intent: explicitCmd.type, action: explicitCmd.type, needsClarification: result.needsClarification || null, pendingExtra: result.pendingExtra || null }), { headers: CORS });
+        return new Response(JSON.stringify({ reply: result.reply, intent: explicitCmd.type, action: explicitCmd.type, needsClarification: result.needsClarification || null, pendingExtra: result.pendingExtra || null, engine: "keywords", fallbackMotivo }), { headers: CORS });
       }
 
       // Continuação de uma clarificação pendente (ex: Pedro perguntou "confere o nome?" e o usuário respondeu só o nome)
@@ -835,7 +965,7 @@ export default async function handler(req) {
         else if (pending.type === "set_task_prio") cmd = { type: "set_task_prio", arg: message.trim(), prio: pending.prio };
         else cmd = { type: pending.type, arg: message.trim() };
         const result = await runCommand(sql, cmd);
-        return new Response(JSON.stringify({ reply: result.reply, intent: cmd.type, action: cmd.type, needsClarification: result.needsClarification || null, pendingExtra: result.pendingExtra || null }), { headers: CORS });
+        return new Response(JSON.stringify({ reply: result.reply, intent: cmd.type, action: cmd.type, needsClarification: result.needsClarification || null, pendingExtra: result.pendingExtra || null, engine: "keywords", fallbackMotivo }), { headers: CORS });
       }
 
       const intents = await loadActiveIntents(sql);
@@ -846,7 +976,7 @@ export default async function handler(req) {
         const fallback = intents.find(i => i.name === "fallback");
         const responses = fallback ? await sql`SELECT content FROM panel_pedro_responses WHERE intent_id=${fallback.id} AND active=1` : [];
         const reply = pickRandom(responses.map(r => r.content)) || "Hmm, ainda não sei sobre isso! 🐱";
-        return new Response(JSON.stringify({ reply, intent: "fallback" }), { headers: CORS });
+        return new Response(JSON.stringify({ reply, intent: "fallback", engine: "keywords", fallbackMotivo }), { headers: CORS });
       }
 
       if (matched.is_external) {
@@ -860,12 +990,12 @@ export default async function handler(req) {
         else if (matched.external_type === "current_time") reply = getCurrentTimeReply();
         else if (matched.external_type === "current_date") reply = getCurrentDateReply();
         else reply = "Essa informação ainda não tá pronta aqui, mas em breve! 🐱";
-        return new Response(JSON.stringify({ reply, intent: matched.name }), { headers: CORS });
+        return new Response(JSON.stringify({ reply, intent: matched.name, engine: "keywords", fallbackMotivo }), { headers: CORS });
       }
 
       const responses = await sql`SELECT content FROM panel_pedro_responses WHERE intent_id=${matched.id} AND active=1`;
       const reply = pickRandom(responses.map(r => r.content)) || "🐾";
-      return new Response(JSON.stringify({ reply, intent: matched.name }), { headers: CORS });
+      return new Response(JSON.stringify({ reply, intent: matched.name, engine: "keywords", fallbackMotivo }), { headers: CORS });
     }
 
     // ============ ADMIN — GERENCIAR O CÉREBRO DO PEDRO ============

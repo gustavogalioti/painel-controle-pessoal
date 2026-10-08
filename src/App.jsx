@@ -8030,6 +8030,11 @@ function PedroWidget({ page }) {
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [unread, setUnread] = useState(false);
+  // Qual "cérebro" respondeu a última mensagem — groq, openai (reserva) ou keywords
+  // (quando os dois LLMs falharam) — só pra dar visibilidade discreta de quando o
+  // Pedro está em modo reduzido, sem precisar abrir o console.
+  const [lastEngine, setLastEngine] = useState(null);
+  const [lastFallbackMotivo, setLastFallbackMotivo] = useState(null);
   const [adminOpen, setAdminOpen] = useState(false);
   const [notifPerm, setNotifPerm] = useState(() => (typeof Notification !== "undefined" ? Notification.permission : "unsupported"));
   const scrollRef = useRef(null);
@@ -8196,6 +8201,8 @@ function PedroWidget({ page }) {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, coords, pending, history: historyForRequest }),
       });
       const d = await r.json();
+      setLastEngine(d.engine || null);
+      setLastFallbackMotivo(d.fallbackMotivo || null);
       pushPedro(d.reply || "🐾");
       if (d.needsClarification) {
         pendingRef.current = { type: d.needsClarification, ...(d.pendingExtra || {}) };
@@ -8226,6 +8233,15 @@ function PedroWidget({ page }) {
             <span style={{fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:8}}>
               <img src="/pedro-avatar.jpg" alt="Pedro" style={{width:22,height:22,borderRadius:"50%",objectFit:"cover"}}/>
               Pedro
+              {lastEngine && (() => {
+                const info = {
+                  groq: { color: "#3ecf6e", label: "groq" },
+                  openai: { color: "#4da3ff", label: "openai (reserva)" },
+                  keywords: { color: "#f5a623", label: "atalhos" },
+                }[lastEngine] || { color: "var(--text-3)", label: lastEngine };
+                const title = `cérebro: ${info.label}` + (lastFallbackMotivo ? ` — groq/openai falharam (${lastFallbackMotivo})` : "");
+                return <span title={title} style={{width:7,height:7,borderRadius:"50%",background:info.color,flexShrink:0,cursor:"default"}}/>;
+              })()}
             </span>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               {notifPerm === "default" && (
