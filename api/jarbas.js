@@ -310,6 +310,170 @@ async function getNovidades(sql) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Fase 2 (F2-0) — "Diário do Jarbas": registro permanente de tudo que o
+// Jarbas ouviu, fez e viu. Guardado em sync_kv, uma chave por dia
+// (jarbas_log_YYYY-MM-DD, fuso America/Sao_Paulo), valor = array JSON de
+// eventos. Nunca apagado automaticamente (ver estimativa de crescimento no PR).
+// ─────────────────────────────────────────────────────────────────────────
+const LOG_TIPOS = new Set(["conversa", "acao_pedida", "acao_espontanea", "observacao_painel", "leitura", "aviso_enviado", "erro"]);
+const LOG_ORIGENS = new Set(["usuario", "jarbas", "cron", "painel"]);
+const LOG_MAX_EVENTOS_POR_CHAMADA = 50;
+const LOG_RESUMO_MAX = 500;
+const LOG_DETALHES_MAX_JSON = 1024; // ~1 KB serializado
+const LOG_READ_LIMIT_DEFAULT = 200;
+const LOG_READ_LIMIT_MAX = 1000;
+const LOG_READ_MAX_DIAS = 180; // guarda contra um intervalo gigante gerar centenas de leituras no sync_kv
+
+function diaKeySaoPaulo(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  const base = isNaN(d) ? new Date() : d;
+  const dateStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(base);
+  return `jarbas_log_${dateStr}`;
+}
+
+function newLogId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Valida e normaliza um evento cru vindo do Worker — nunca confia no shape recebido,
+// descarta campos extras (só reconstrói com os campos esperados) e nunca deixa um
+// evento sem tipo/origem válidos ou sem resumo entrar no log.
+function clampLogEvento(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const tipo = LOG_TIPOS.has(raw.tipo) ? raw.tipo : null;
+  const origem = LOG_ORIGENS.has(raw.origem) ? raw.origem : null;
+  if (!tipo || !origem) return null;
+  const resumo = String(raw.resumo || "").slice(0, LOG_RESUMO_MAX).trim();
+  if (!resumo) return null;
+  const atDate = raw.at ? new Date(raw.at) : new Date();
+  const at = isNaN(atDate) ? new Date().toISOString() : atDate.toISOString();
+  let detalhes = {};
+  if (raw.detalhes && typeof raw.detalhes === "object") {
+    try {
+      const json = JSON.stringify(raw.detalhes);
+      detalhes = json.length <= LOG_DETALHES_MAX_JSON ? raw.detalhes : { _truncado: true };
+    } catch { detalhes = {}; }
+  }
+  return { id: newLogId(), at, tipo, origem, resumo, detalhes };
+}
+
+// Append atômico: a concatenação jsonb acontece dentro do próprio UPSERT, então duas
+// chamadas simultâneas pro mesmo dia nunca perdem eventos uma da outra (Postgres
+// serializa via lock de linha; a segunda espera a primeira e enxerga o valor já somado).
+async function appendLogDia(sql, key, eventos) {
+  const value = JSON.stringify(eventos);
+  const ts = new Date().toISOString();
+  await sql`
+    INSERT INTO sync_kv (key, value, updated_at)
+    VALUES (${key}, ${value}, ${ts})
+    ON CONFLICT (key) DO UPDATE
+    SET value = (COALESCE(sync_kv.value::jsonb, '[]'::jsonb) || ${value}::jsonb)::text,
+        updated_at = ${ts}
+  `;
+}
+
+async function cmdLogAppend(sql, eventosRaw) {
+  if (!Array.isArray(eventosRaw) || !eventosRaw.length) return { ok: false, erro: "eventos_vazio" };
+  const cleaned = eventosRaw.slice(0, LOG_MAX_EVENTOS_POR_CHAMADA).map(clampLogEvento).filter(Boolean);
+  if (!cleaned.length) return { ok: false, erro: "nenhum_evento_valido" };
+
+  const porDia = new Map();
+  for (const ev of cleaned) {
+    const key = diaKeySaoPaulo(ev.at);
+    if (!porDia.has(key)) porDia.set(key, []);
+    porDia.get(key).push(ev);
+  }
+  for (const [key, evs] of porDia) await appendLogDia(sql, key, evs);
+  return { ok: true, gravados: cleaned.length };
+}
+
+function diaStrRange(desdeStr, ateStr) {
+  const dias = [];
+  let cur = desdeStr;
+  let guard = 0;
+  while (cur <= ateStr && guard < LOG_READ_MAX_DIAS) {
+    dias.push(cur);
+    cur = addDaysISO(cur, 1);
+    guard++;
+  }
+  return dias;
+}
+
+// Sem `desde`/`ate`, lê os últimos 7 dias por padrão — evita varrer o log inteiro
+// numa leitura simples; a aba do painel pode pedir um intervalo maior explicitamente.
+async function getLogEventos(sql, { desde, ate, tipo, q, limite }) {
+  const todayStr = todayISO();
+  const desdeStr = (desde || "").slice(0, 10) || addDaysISO(todayStr, -7);
+  const ateStr = (ate || "").slice(0, 10) || todayStr;
+  const dayKeys = diaStrRange(desdeStr, ateStr).map(d => `jarbas_log_${d}`);
+  if (!dayKeys.length) return [];
+
+  const rows = await sql`SELECT value FROM sync_kv WHERE key = ANY(${dayKeys}::text[])`;
+  let eventos = [];
+  for (const row of rows) {
+    try {
+      const list = JSON.parse(row.value);
+      if (Array.isArray(list)) eventos.push(...list);
+    } catch { /* dia com valor corrompido — ignora só esse dia */ }
+  }
+
+  if (tipo) {
+    const tipos = tipo.split(",").map(t => t.trim()).filter(Boolean);
+    if (tipos.length) eventos = eventos.filter(e => tipos.includes(e.tipo));
+  }
+  if (q) {
+    const nq = normalize(q);
+    eventos = eventos.filter(e => normalize(e.resumo).includes(nq));
+  }
+
+  eventos.sort((a, b) => new Date(b.at) - new Date(a.at));
+  const lim = Math.min(Math.max(parseInt(limite, 10) || LOG_READ_LIMIT_DEFAULT, 1), LOG_READ_LIMIT_MAX);
+  return eventos.slice(0, lim);
+}
+
+// ---------- "mudancas": snapshot compacto de cada fonte, com hash por item ----------
+// O Worker compara o hash de cada item com o que já viu da última vez, pra saber o que
+// mudou sem precisar carregar (nem registrar no log) os dados completos de novo.
+async function sha256Short(text) {
+  const data = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+}
+
+async function getKvListWithMeta(sql, key) {
+  const rows = await sql`SELECT value, updated_at FROM sync_kv WHERE key=${key}`;
+  if (!rows[0]) return { list: [], updated_at: null };
+  let list = [];
+  try { const v = JSON.parse(rows[0].value); list = Array.isArray(v) ? v : []; } catch { /* valor inválido vira lista vazia */ }
+  return { list, updated_at: rows[0].updated_at };
+}
+
+async function compactSource(sql, key, mapItem) {
+  const { list, updated_at } = await getKvListWithMeta(sql, key);
+  const itens = await Promise.all(list.map(async (item) => {
+    const mapped = mapItem(item);
+    const hash = await sha256Short(JSON.stringify({ titulo: mapped.titulo, status: mapped.status, data: mapped.data }));
+    return { ...mapped, hash };
+  }));
+  return { updated_at, itens };
+}
+
+async function getMudancas(sql) {
+  const [tarefas, contas, agenda, ideias, lembretes, listas, diario, recados] = await Promise.all([
+    compactSource(sql, "tasks_v1", t => ({ id: t.id, titulo: String(t.text || "").slice(0, 120), status: getTaskStatus(t), data: t.date || null })),
+    compactSource(sql, "finance_v1", e => ({ id: e.id, titulo: String(e.name || "").slice(0, 120), status: FIN_RECURRENT_TYPES.includes(e.type) ? (finIsPaid(e) ? "paga" : "pendente") : null, data: e.dueDay != null ? String(e.dueDay) : null })),
+    compactSource(sql, "events_v1", e => ({ id: e.id, titulo: String(e.title || "").slice(0, 120), status: e.cat || null, data: e.date || null })),
+    compactSource(sql, "ideas_v1", i => ({ id: i.id, titulo: String(i.text || "").slice(0, 120), status: null, data: i.date || null })),
+    compactSource(sql, "reminders_v1", r => ({ id: r.id, titulo: String(r.text || "").slice(0, 120), status: r.done ? "feito" : "pendente", data: r.date || null })),
+    compactSource(sql, "lists_v1", l => ({ id: l.id, titulo: String(l.title || "").slice(0, 120), status: null, data: l.created || null })),
+    compactSource(sql, "diary_v1", d => ({ id: d.id, titulo: String(d.text || "").slice(0, 80), status: null, data: d.date || null })),
+    compactSource(sql, JARBAS_RECADOS_KEY, r => ({ id: r.id, titulo: String(r.text || "").slice(0, 120), status: r.done ? "tratado" : "pendente", data: r.at || null })),
+  ]);
+  return { tarefas, contas, agenda, ideias, lembretes, listas, diario, recados };
+}
+
 // ---------- Ações (o que o Jarbas pode "fazer") ----------
 async function cmdAddTask(sql, texto) {
   if (!texto) return { reply: "Faltou dizer o texto da tarefa." };
@@ -469,14 +633,25 @@ async function cmdSaveJarbasMemory(sql, data) {
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
-  const key = req.headers.get("x-jarbas-key") || new URL(req.url).searchParams.get("key");
-  if (!process.env.JARBAS_API_KEY || key !== process.env.JARBAS_API_KEY) {
-    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: CORS });
+  const { searchParams } = new URL(req.url);
+  const action = searchParams.get("action");
+
+  // log_read é a única ação de LEITURA que a própria aba "Diário do Jarbas" no painel
+  // chama direto do navegador — e o navegador nunca tem o JARBAS_API_KEY (segredo só do
+  // Worker). Mesma lógica de "aberto, protegido só pela URL" que api/db.js já usa pro
+  // resto do painel: fica de fora do gate de autenticação abaixo. Toda ação de ESCRITA
+  // (log_append e os demais comandos) continua exigindo a chave normalmente.
+  const isPublicRead = req.method === "GET" && action === "log_read";
+
+  if (!isPublicRead) {
+    const key = req.headers.get("x-jarbas-key") || searchParams.get("key");
+    if (!process.env.JARBAS_API_KEY || key !== process.env.JARBAS_API_KEY) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: CORS });
+    }
   }
 
   try {
     const sql = neon(process.env.DATABASE_URL);
-    const { searchParams } = new URL(req.url);
 
     if (req.method === "GET" && searchParams.get("action") === "snapshot") {
       const texto = await getSnapshotText(sql, searchParams.get("dia") || "");
@@ -518,6 +693,25 @@ export default async function handler(req) {
         searchParams.get("assunto") || ""
       );
       return new Response(JSON.stringify({ texto }), { headers: CORS });
+    }
+    if (req.method === "GET" && action === "log_read") {
+      const eventos = await getLogEventos(sql, {
+        desde: searchParams.get("desde") || "",
+        ate: searchParams.get("ate") || "",
+        tipo: searchParams.get("tipo") || "",
+        q: searchParams.get("q") || "",
+        limite: searchParams.get("limite") || "",
+      });
+      return new Response(JSON.stringify({ eventos }), { headers: CORS });
+    }
+    if (req.method === "GET" && action === "mudancas") {
+      return new Response(JSON.stringify(await getMudancas(sql)), { headers: CORS });
+    }
+
+    if (req.method === "POST" && action === "log_append") {
+      const body = await req.json();
+      const result = await cmdLogAppend(sql, body?.eventos);
+      return new Response(JSON.stringify(result), { status: result.ok ? 200 : 400, headers: CORS });
     }
 
     if (req.method === "POST") {

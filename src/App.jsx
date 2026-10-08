@@ -3050,6 +3050,118 @@ function ListsPage() {
   );
 }
 
+// ─── JARBAS — Diário (Fase 2 / F2-0) ────────────────────────────────────────
+// Registro permanente (conversas, ações pedidas/espontâneas, leituras, avisos,
+// erros) que o Worker grava via POST /api/jarbas?action=log_append. Esta aba só
+// LÊ, via GET /api/jarbas?action=log_read — nunca pelo useKV, porque o log não é
+// um blob único: é uma chave por dia, carregada sob demanda conforme navega.
+const JARBAS_LOG_TIPOS = [
+  { id: "conversa", label: "Conversa", icon: "💬" },
+  { id: "acao_pedida", label: "Ação pedida", icon: "🎯" },
+  { id: "acao_espontanea", label: "Ação espontânea", icon: "✨" },
+  { id: "observacao_painel", label: "Mudança no painel", icon: "👀" },
+  { id: "leitura", label: "Leitura", icon: "📖" },
+  { id: "aviso_enviado", label: "Aviso enviado", icon: "🔔" },
+  { id: "erro", label: "Erro", icon: "⚠️" },
+];
+const JARBAS_LOG_ORIGEM_LABELS = { usuario: "você", jarbas: "Jarbas", cron: "automático", painel: "painel" };
+const todayISODate = () => new Date().toLocaleDateString("en-CA");
+
+function JarbasDiarioTab() {
+  const [dia, setDia] = useState(todayISODate());
+  const [tipo, setTipo] = useState("");
+  const [qInput, setQInput] = useState("");
+  const [q, setQ] = useState("");
+  const [eventos, setEventos] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErro(false);
+    try {
+      const params = new URLSearchParams({ action: "log_read", desde: dia, ate: dia, limite: "300" });
+      if (tipo) params.set("tipo", tipo);
+      if (q.trim()) params.set("q", q.trim());
+      const r = await fetch(`/api/jarbas?${params.toString()}`);
+      const data = await r.json();
+      setEventos(Array.isArray(data?.eventos) ? data.eventos : []);
+    } catch {
+      setErro(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [dia, tipo, q]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const changeDia = (delta) => {
+    const d = new Date(dia + "T12:00:00");
+    d.setDate(d.getDate() + delta);
+    setDia(d.toLocaleDateString("en-CA"));
+  };
+  const diaLabel = new Date(dia + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
+  const isToday = dia >= todayISODate();
+
+  return (
+    <div style={{ maxWidth: 760 }}>
+      <p style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 16 }}>Tudo que o Jarbas ouviu, fez e viu fica registrado aqui.</p>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+        <button onClick={() => changeDia(-1)} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, width: 36, height: 36, cursor: "pointer", color: "var(--text-2)" }}><Icon path={I.back} size={14} /></button>
+        <input type="date" value={dia} max={todayISODate()} onChange={e => setDia(e.target.value || todayISODate())} style={{ ...inp, width: "auto" }} />
+        <button onClick={() => changeDia(1)} disabled={isToday} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, width: 36, height: 36, cursor: isToday ? "default" : "pointer", color: "var(--text-2)", opacity: isToday ? 0.4 : 1 }}><Icon path={I.next} size={14} /></button>
+        <span style={{ fontSize: 13, color: "var(--text-3)", textTransform: "capitalize" }}>{diaLabel}</span>
+        {!isToday && <button onClick={() => setDia(todayISODate())} style={{ marginLeft: "auto", background: "none", border: "1px solid var(--border)", borderRadius: 10, padding: "6px 12px", color: "var(--text-3)", fontSize: 12, cursor: "pointer" }}>Hoje</button>}
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" }}>
+        <select style={{ ...inp, width: "auto" }} value={tipo} onChange={e => setTipo(e.target.value)}>
+          <option value="">Todos os tipos</option>
+          {JARBAS_LOG_TIPOS.map(t => <option key={t.id} value={t.id}>{t.icon} {t.label}</option>)}
+        </select>
+        <input style={{ ...inp, flex: 1, minWidth: 180 }} placeholder="Buscar no texto..." value={qInput}
+          onChange={e => setQInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") setQ(qInput); }} />
+        <button onClick={() => setQ(qInput)} style={{ ...btn(), padding: "10px 16px" }}>Buscar</button>
+      </div>
+
+      {loading && <div style={{ textAlign: "center", color: "var(--text-3)", padding: "30px 0", fontSize: 13 }}>Carregando...</div>}
+      {!loading && erro && <Empty text="Não consegui carregar o registro agora." />}
+      {!loading && !erro && eventos.length === 0 && <Empty text="Nada registrado nesse dia (com esses filtros)." />}
+
+      {!loading && !erro && eventos.map(ev => {
+        const tipoInfo = JARBAS_LOG_TIPOS.find(t => t.id === ev.tipo);
+        const hora = ev.at ? new Date(ev.at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
+        const isOpen = expanded === ev.id;
+        const temDetalhes = ev.detalhes && Object.keys(ev.detalhes).length > 0;
+        return (
+          <div key={ev.id} style={{ padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: temDetalhes ? "pointer" : "default" }}
+              onClick={() => temDetalhes && setExpanded(isOpen ? null : ev.id)}>
+              <span style={{ fontSize: 16, flexShrink: 0 }}>{tipoInfo?.icon || "•"}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, color: "var(--text-3)", fontFamily: "monospace" }}>{hora}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-3)", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6, padding: "1px 6px" }}>{tipoInfo?.label || ev.tipo}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-3)" }}>· {JARBAS_LOG_ORIGEM_LABELS[ev.origem] || ev.origem}</span>
+                </div>
+                <div style={{ fontSize: 14, marginTop: 2 }}>{ev.resumo}</div>
+                {isOpen && temDetalhes && (
+                  <pre style={{ fontSize: 11, color: "var(--text-3)", background: "var(--bg-input)", borderRadius: 8, padding: 10, marginTop: 8, overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    {JSON.stringify(ev.detalhes, null, 2)}
+                  </pre>
+                )}
+              </div>
+              {temDetalhes && <Icon path={isOpen ? I.up : I.down} size={14} color="var(--text-3)" />}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── JARBAS — tile do companheiro de voz (Item 10, Evolução 2) ──────────────
 // Lê/escreve jarbas_memory_v1 (mesma memória que o companion de voz sincroniza,
 // migrada do Cloudflare KV) e jarbas_recados_v1. Nunca sobrescreve o blob
@@ -3147,6 +3259,7 @@ function JarbasPage() {
     { id: "regras", label: "Regras" },
     { id: "atalhos", label: "Atalhos" },
     { id: "recados", label: "Recados" },
+    { id: "diario", label: "Diário do Jarbas" },
     { id: "config", label: "Configuração" },
   ];
 
@@ -3313,6 +3426,8 @@ function JarbasPage() {
           ))}
         </div>
       )}
+
+      {tab === "diario" && <JarbasDiarioTab />}
 
       {tab === "config" && (
         <div style={{ maxWidth: 640, display: "flex", flexDirection: "column", gap: 14 }}>
