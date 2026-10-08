@@ -192,7 +192,7 @@ async function getSnapshotText(sql, dia) {
 
 // Item 12: filtro de tarefas por coluna real (o mesmo campo `status` usado nas colunas do painel).
 const TASK_STATUS_LABELS = { now: "🔥 Para Agora", today: "🌟 De Hoje", todo: "📋 Pendente", doing: "⚡ Em Andamento", done: "✅ Concluído", standby: "⏸ Stand By" };
-const TASK_FILTER_STATUSES = { hoje: ["now", "today"], pendentes: ["todo"], andamento: ["doing"] };
+const TASK_FILTER_STATUSES = { agora: ["now"], hoje: ["now", "today"], pendentes: ["todo"], andamento: ["doing"] };
 function getTaskStatus(t) { return t.status || (t.done ? "done" : "todo"); }
 
 async function getTasksFilteredText(sql, filtro) {
