@@ -3123,8 +3123,7 @@ function JarbasDiarioTab() {
   const isToday = dia >= todayISODate();
 
   return (
-    <div style={{ maxWidth: 760 }}>
-      <p style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 16 }}>Tudo que o Jarbas ouviu, fez e viu fica registrado aqui.</p>
+    <div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <button onClick={() => changeDia(-1)} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, width: 36, height: 36, cursor: "pointer", color: "var(--text-2)" }}><Icon path={I.back} size={14} /></button>
@@ -3180,7 +3179,7 @@ function JarbasDiarioTab() {
   );
 }
 
-// ─── JARBAS — tile do companheiro de voz (Item 10, Evolução 2) ──────────────
+// ─── JARBAS — página do companheiro de voz (Item 10, Evolução 2 + reforma F3) ──
 // Lê/escreve jarbas_memory_v1 (mesma memória que o companion de voz sincroniza,
 // migrada do Cloudflare KV) e jarbas_recados_v1. Nunca sobrescreve o blob
 // inteiro: sempre parte do que já existe (prev) e só atualiza o campo editado,
@@ -3205,10 +3204,523 @@ const JARBAS_ATALHO_ACOES = [
   { id: "resposta_fixa", label: "Resposta fixa (texto livre)" },
 ];
 
+// mem.items (memória v2, F2-2 do companion) — mesmos tipos/rótulos usados lá.
+const JARBAS_ITEM_KIND_LABELS = { duradouro: "Duradouro", episodico: "Episódico", correcao: "Correção", pendencia: "Pendência", insight: "Insight" };
+const JARBAS_ITEM_KIND_ORDER = ["duradouro", "episodico", "correcao", "pendencia", "insight"];
+
+function jarbasItemAgeLabel(at) {
+  if (!at) return "";
+  const dias = Math.floor((Date.now() - new Date(at).getTime()) / 86400000);
+  if (dias <= 0) return "hoje";
+  if (dias === 1) return "há 1 dia";
+  if (dias < 30) return `há ${dias} dias`;
+  const meses = Math.floor(dias / 30);
+  return meses === 1 ? "há 1 mês" : `há ${meses} meses`;
+}
+
+// mem.config (sono/avisos/briefing) — mesmos padrões do Worker (SONO_DEFAULTS +
+// BRIEFING_DEFAULTS em worker/index.js do repo lumeco-bichinho-virtual) e do app
+// (SLEEP_CONFIG_DEFAULTS/BRIEFING_CONFIG_DEFAULTS no companion) — se mudar aqui,
+// mudar lá também.
+const JARBAS_CONFIG_DEFAULTS = {
+  sonoInicio: "23:00", sonoFim: "07:00",
+  maxAvisosDia: 5, antecedenciaCompromissoMin: 30, vigiaAtivo: true,
+  briefingHora: "07:30", briefingAtivo: true, pendenciasAtivas: true,
+};
+
+// mem.config.aparencia (rosto/cenário do Jarbas) — ainda não consumido pelo app
+// (etapa futura); o painel só guarda a configuração desejada.
+const JARBAS_EXPRESSOES = [
+  { id: "neutro", label: "Neutro", emoji: "😐", help: "Estado de repouso, sem nada de especial acontecendo." },
+  { id: "feliz", label: "Feliz", emoji: "🙂", help: "Quando algo bom é dito ou acontece." },
+  { id: "pensando", label: "Pensando", emoji: "🤔", help: "Enquanto processa uma pergunta ou uma ação." },
+  { id: "surpreso", label: "Surpreso", emoji: "😮", help: "Reação a algo inesperado." },
+  { id: "focado", label: "Focado", emoji: "🎯", help: "Prestando atenção séria em algo específico." },
+  { id: "bravo", label: "Bravo", emoji: "😠", help: "Quando algo o incomoda de leve." },
+  { id: "muito_bravo", label: "Muito bravo", emoji: "🔥", help: "Irritação forte — o cenário ao fundo pega fogo." },
+  { id: "confirmado", label: "Confirmado", emoji: "✅", help: "Concordando ou confirmando algo que você disse." },
+  { id: "dormindo", label: "Dormindo", emoji: "😴", help: "Enquanto o Jarbas está no modo sono." },
+  { id: "acordando", label: "Acordando", emoji: "🌅", help: "Na transição ao sair do modo sono." },
+  { id: "alerta", label: "Alerta", emoji: "⚠️", help: "Quando precisa chamar sua atenção pra algo importante." },
+  { id: "curioso", label: "Curioso", emoji: "🧐", help: "Interessado em saber mais sobre algo que você contou." },
+  { id: "piscadinha", label: "Piscadinha", emoji: "😉", help: "Um toque de humor ou cumplicidade." },
+  { id: "empatico", label: "Empático", emoji: "🥺", help: "Quando reage com carinho a algo difícil que você contou." },
+];
+const JARBAS_APARENCIA_DEFAULTS = {
+  velocidade: 1, elasticidade: 0.5, intensidadeExpressoes: 1,
+  olharVivo: true, piscadas: true, voltarAoNeutro: true,
+  fundoIntensidade: 0.3, fundoSegueHumor: true,
+  particulas: 12000, tamanhoTriangulos: 4.5, girar: 0.5, manterSegundos: 9, manterAteDissolver: false, coresMateriais: "neon",
+  qualidadeAutomatica: true, efeitosReduzidos: false,
+  materializacaoEspontanea: { ativa: true, maxPorDia: 4, intervaloMinimoMin: 20 },
+  expressoesAtivas: JARBAS_EXPRESSOES.map(e => e.id),
+};
+
+const JARBAS_NAV = [
+  { id: "geral", label: "Visão geral", items: [{ id: "visao", label: "Visão geral" }] },
+  { id: "memoria", label: "Memória", items: [
+    { id: "itens", label: "O que o Jarbas lembra" },
+    { id: "conhecimento", label: "Conhecimento" },
+    { id: "diario", label: "Diário do Jarbas" },
+  ] },
+  { id: "comportamento", label: "Comportamento", items: [
+    { id: "regras", label: "Regras" },
+    { id: "atalhos", label: "Atalhos" },
+    { id: "rotinas", label: "Rotinas de voz" },
+    { id: "recados", label: "Recados" },
+  ] },
+  { id: "rotina", label: "Rotina e avisos", items: [{ id: "config", label: "Rotina e avisos" }] },
+  { id: "aparencia", label: "Aparência", items: [{ id: "aparencia", label: "Aparência" }] },
+  { id: "criacoes", label: "Criações", items: [{ id: "criacoes", label: "Criações" }] },
+  { id: "sistema", label: "Sistema", items: [{ id: "sistema", label: "Sistema" }] },
+];
+
+function useSaveFlash() {
+  const [saved, setSaved] = useState(false);
+  const flash = () => { setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  return [saved, flash];
+}
+
+// Cartão padrão das seções do Jarbas: título + subtítulo curto + conteúdo, com
+// rodapé "Salvar" opcional (só habilita se `dirty`, mostra "Salvo" depois de clicar).
+function JarbasSectionCard({ title, subtitle, children, onSave, dirty, saved }) {
+  return (
+    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 20, marginBottom: 20 }}>
+      <div style={{ fontWeight: 800, fontSize: 15, marginBottom: subtitle ? 4 : 16 }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 12.5, color: "var(--text-3)", marginBottom: 16 }}>{subtitle}</div>}
+      <div>{children}</div>
+      {onSave && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border-2)" }}>
+          <button onClick={onSave} disabled={!dirty}
+            style={{ ...btn(dirty ? "var(--accent)" : "var(--border)"), cursor: dirty ? "pointer" : "default", opacity: dirty ? 1 : 0.6 }}>
+            Salvar
+          </button>
+          {saved && <span style={{ fontSize: 12, color: "var(--green)" }}>Salvo</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Visão geral: status de tudo que o Jarbas guarda, sem precisar abrir cada aba ───
+function JarbasVisaoGeralTab({ mem, recados, onNavigate }) {
+  const items = mem?.items || [];
+  const hojeISO = todayISODate();
+  const ativos = items.filter(i => i.status === "ativo");
+  const porTipo = JARBAS_ITEM_KIND_ORDER.map(k => ({ k, label: JARBAS_ITEM_KIND_LABELS[k], n: ativos.filter(i => i.kind === k).length }));
+  const pendenciasVencidas = ativos.filter(i => i.kind === "pendencia" && i.followUpAt && i.followUpAt <= hojeISO).length;
+  const creations = mem?.creations || [];
+  const ultimaCriacao = creations[0] || null;
+
+  const [ultimoEvento, setUltimoEvento] = useState(null);
+  const [eventoCarregado, setEventoCarregado] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    fetch("/api/jarbas?action=log_read&limite=1").then(r => r.json()).then(data => {
+      if (vivo) setUltimoEvento(Array.isArray(data?.eventos) ? data.eventos[0] || null : null);
+    }).catch(() => {}).finally(() => { if (vivo) setEventoCarregado(true); });
+    return () => { vivo = false; };
+  }, []);
+
+  const Stat = ({ label, value, accent }) => (
+    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+      <div style={{ fontSize: 11.5, color: "var(--text-3)", marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: accent || "var(--text-1)" }}>{value}</div>
+    </div>
+  );
+
+  return (
+    <div>
+      <p style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 16 }}>Um resumo rápido do que o Jarbas sabe e tem feito — clique em qualquer atalho abaixo pra ver os detalhes.</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 20 }}>
+        {porTipo.map(t => <Stat key={t.k} label={t.label} value={t.n} />)}
+        <Stat label="Pendências vencidas hoje" value={pendenciasVencidas} accent={pendenciasVencidas > 0 ? "var(--orange)" : "var(--green)"} />
+        <Stat label="Regras ensinadas" value={(mem?.learned || []).length} />
+        <Stat label="Atalhos" value={(mem?.shortcuts || []).length} />
+        <Stat label="Recados pendentes" value={(recados || []).filter(r => !r.done).length} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 24 }}>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+          <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 6 }}>Última consolidação de memória</div>
+          <div style={{ fontSize: 14 }}>{mem?.lastConsolidationAt ? new Date(mem.lastConsolidationAt).toLocaleString("pt-BR") : "ainda não rodou"}</div>
+        </div>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+          <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 6 }}>Último evento do Diário</div>
+          <div style={{ fontSize: 14 }}>
+            {!eventoCarregado ? "carregando..." : ultimoEvento ? `${ultimoEvento.resumo} (${new Date(ultimoEvento.at).toLocaleString("pt-BR")})` : "nada registrado ainda"}
+          </div>
+        </div>
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+          <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 6 }}>Última criação</div>
+          <div style={{ fontSize: 14 }}>{ultimaCriacao ? `${ultimaCriacao.title || "sem título"}${ultimaCriacao.at ? ` (${new Date(ultimaCriacao.at).toLocaleDateString("pt-BR")})` : ""}` : "nenhuma ainda"}</div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+        {[
+          ["itens", "💭 Ver memória"], ["config", "🌙 Rotina e avisos"], ["aparencia", "🎨 Aparência"],
+          ["criacoes", "🖼️ Criações"], ["diario", "📖 Diário do Jarbas"],
+        ].map(([id, label]) => (
+          <button key={id} onClick={() => onNavigate(id)}
+            style={{ background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 14px", fontSize: 13, color: "var(--text-2)", cursor: "pointer" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Memória: "O que o Jarbas lembra" — nunca apaga, só arquiva/restaura ───
+function JarbasMemoriaItensTab({ mem, setMem }) {
+  const items = mem?.items || [];
+  const [q, setQ] = useState("");
+  const [tipo, setTipo] = useState("");
+  const [status, setStatus] = useState("ativo");
+
+  const toggleStatus = (id) => {
+    setMem(prev => ({
+      ...(prev || {}),
+      items: (prev?.items || []).map(it => it.id === id ? { ...it, status: it.status === "ativo" ? "arquivado" : "ativo" } : it),
+    }));
+  };
+
+  const nq = q.trim().toLowerCase();
+  const filtered = items.filter(it => {
+    if (tipo && it.kind !== tipo) return false;
+    if (status && it.status !== status) return false;
+    if (nq && !(it.text || "").toLowerCase().includes(nq) && !(it.entidades || []).some(e => e.toLowerCase().includes(nq))) return false;
+    return true;
+  }).sort((a, b) => new Date(b.at) - new Date(a.at));
+
+  return (
+    <JarbasSectionCard title="O que o Jarbas lembra" subtitle="Memória de longo prazo (fatos, correções, pendências, insights) — nada aqui é apagado, só arquivado.">
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <input style={{ ...inp, flex: 1, minWidth: 160 }} placeholder="Buscar por texto ou entidade..." value={q} onChange={e => setQ(e.target.value)} />
+        <select style={{ ...inp, width: "auto" }} value={tipo} onChange={e => setTipo(e.target.value)}>
+          <option value="">Todos os tipos</option>
+          {JARBAS_ITEM_KIND_ORDER.map(k => <option key={k} value={k}>{JARBAS_ITEM_KIND_LABELS[k]}</option>)}
+        </select>
+        <select style={{ ...inp, width: "auto" }} value={status} onChange={e => setStatus(e.target.value)}>
+          <option value="">Ativos e arquivados</option>
+          <option value="ativo">Só ativos</option>
+          <option value="arquivado">Só arquivados</option>
+        </select>
+      </div>
+
+      {filtered.length === 0 && <Empty text="Nada encontrado." />}
+      {filtered.map(it => {
+        const arquivado = it.status === "arquivado";
+        return (
+          <div key={it.id} style={{ padding: "12px 0", borderBottom: "1px solid var(--border-2)", opacity: arquivado ? 0.6 : 1 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: "var(--text-3)", background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: 6, padding: "1px 6px" }}>{JARBAS_ITEM_KIND_LABELS[it.kind] || it.kind}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-3)" }}>{jarbasItemAgeLabel(it.at)}</span>
+                  {arquivado && <span style={{ fontSize: 11, color: "var(--text-3)" }}>· arquivado</span>}
+                  {it.kind === "pendencia" && it.followUpAt && <span style={{ fontSize: 11, color: "var(--orange)" }}>· retorno em {new Date(it.followUpAt + "T12:00").toLocaleDateString("pt-BR")}</span>}
+                </div>
+                <div style={{ fontSize: 14 }}>{it.text}</div>
+                {it.entidades?.length > 0 && <div style={{ fontSize: 11.5, color: "var(--text-3)", marginTop: 3 }}>{it.entidades.join(", ")}</div>}
+              </div>
+              <button onClick={() => toggleStatus(it.id)}
+                style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", color: "var(--text-3)", cursor: "pointer", fontSize: 12, flexShrink: 0 }}>
+                {arquivado ? "Restaurar" : "Arquivar"}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </JarbasSectionCard>
+  );
+}
+
+// ─── Rotina e avisos: sono, orçamento de avisos, briefing matinal, pendências ───
+// Só os campos de sono/avisos/briefing — nunca inclui `aparencia` (campo irmão
+// dentro de mem.config, editado por JarbasAparenciaTab), pra essa aba nunca
+// sobrescrever a aparência com um valor antigo ao salvar.
+const JARBAS_CONFIG_KEYS = ["sonoInicio", "sonoFim", "maxAvisosDia", "antecedenciaCompromissoMin", "vigiaAtivo", "briefingHora", "briefingAtivo", "pendenciasAtivas"];
+
+function JarbasRotinaAvisosTab({ mem, setMem }) {
+  const current = JARBAS_CONFIG_KEYS.reduce((acc, k) => ({ ...acc, [k]: (mem?.config || {})[k] !== undefined ? mem.config[k] : JARBAS_CONFIG_DEFAULTS[k] }), {});
+  const [form, setForm] = useState(current);
+  useEffect(() => { setForm(current); }, [JSON.stringify(current)]);
+  const [saved, flash] = useSaveFlash();
+
+  const dirty = JSON.stringify(form) !== JSON.stringify(current);
+  const save = () => {
+    const clean = {
+      ...form,
+      maxAvisosDia: Math.max(0, parseInt(form.maxAvisosDia, 10) || 0),
+      antecedenciaCompromissoMin: Math.max(1, parseInt(form.antecedenciaCompromissoMin, 10) || JARBAS_CONFIG_DEFAULTS.antecedenciaCompromissoMin),
+      sonoInicio: /^\d{2}:\d{2}$/.test(form.sonoInicio || "") ? form.sonoInicio : JARBAS_CONFIG_DEFAULTS.sonoInicio,
+      sonoFim: /^\d{2}:\d{2}$/.test(form.sonoFim || "") ? form.sonoFim : JARBAS_CONFIG_DEFAULTS.sonoFim,
+      briefingHora: /^\d{2}:\d{2}$/.test(form.briefingHora || "") ? form.briefingHora : JARBAS_CONFIG_DEFAULTS.briefingHora,
+    };
+    // Merge explícito só dos campos conhecidos desta aba — nunca `{...clean}` por
+    // cima de todo o config, pra nunca arrastar um `aparencia` antigo de volta.
+    setMem(prev => ({ ...(prev || {}), config: { ...(prev?.config || {}), ...JARBAS_CONFIG_KEYS.reduce((acc, k) => ({ ...acc, [k]: clean[k] }), {}) } }));
+    flash();
+  };
+
+  const Field = ({ label, help, children }) => (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>{label}</label>
+      {help && <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 6 }}>{help}</div>}
+      {children}
+    </div>
+  );
+
+  return (
+    <JarbasSectionCard title="Rotina e avisos" subtitle="Quando o Jarbas dorme, quantos avisos manda por dia, e o resumo matinal." onSave={save} dirty={dirty} saved={saved}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <Field label="Início do sono" help="A partir desse horário, o Jarbas só avisa sobre compromissos muito próximos.">
+          <input type="time" style={inp} value={form.sonoInicio} onChange={e => setForm(f => ({ ...f, sonoInicio: e.target.value }))} />
+        </Field>
+        <Field label="Fim do sono" help="Depois desse horário, o Jarbas volta ao normal.">
+          <input type="time" style={inp} value={form.sonoFim} onChange={e => setForm(f => ({ ...f, sonoFim: e.target.value }))} />
+        </Field>
+      </div>
+      <Field label="Máximo de avisos espontâneos por dia" help="Não conta compromissos, lembretes nem alarmes que você mesmo marcou.">
+        <input type="number" min={0} max={50} style={inp} value={form.maxAvisosDia} onChange={e => setForm(f => ({ ...f, maxAvisosDia: e.target.value }))} />
+      </Field>
+      <Field label="Avisar compromisso com quantos minutos de antecedência" help="Quanto tempo antes do horário marcado o Jarbas te lembra.">
+        <input type="number" min={1} max={180} style={inp} value={form.antecedenciaCompromissoMin} onChange={e => setForm(f => ({ ...f, antecedenciaCompromissoMin: e.target.value }))} />
+      </Field>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 20 }}>
+        <input type="checkbox" checked={form.vigiaAtivo !== false} onChange={e => setForm(f => ({ ...f, vigiaAtivo: e.target.checked }))} />
+        Vigia ligado (avisos proativos e observação do painel)
+      </label>
+
+      <hr style={{ border: "none", borderTop: "1px solid var(--border-2)", margin: "4px 0 20px" }} />
+
+      <Field label="Horário do resumo matinal" help="Todo dia, nesse horário, o Jarbas te cumprimenta sem você chamar — com clima, agenda, tarefas, contas e pendências do dia.">
+        <input type="time" style={inp} value={form.briefingHora} onChange={e => setForm(f => ({ ...f, briefingHora: e.target.value }))} />
+      </Field>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 10 }}>
+        <input type="checkbox" checked={form.briefingAtivo !== false} onChange={e => setForm(f => ({ ...f, briefingAtivo: e.target.checked }))} />
+        Resumo matinal ligado
+      </label>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+        <input type="checkbox" checked={form.pendenciasAtivas !== false} onChange={e => setForm(f => ({ ...f, pendenciasAtivas: e.target.checked }))} />
+        Lembrar de coisas que você disse que ia fazer
+      </label>
+    </JarbasSectionCard>
+  );
+}
+
+// ─── Aparência: rosto e cenário do Jarbas (ainda não consumido pelo app) ───
+function JarbasAparenciaTab({ mem, setMem, isDesktop }) {
+  const current = { ...JARBAS_APARENCIA_DEFAULTS, ...(mem?.config?.aparencia || {}), materializacaoEspontanea: { ...JARBAS_APARENCIA_DEFAULTS.materializacaoEspontanea, ...(mem?.config?.aparencia?.materializacaoEspontanea || {}) } };
+  const [form, setForm] = useState(current);
+  useEffect(() => { setForm(current); }, [JSON.stringify(current)]);
+  const [saved, flash] = useSaveFlash();
+
+  const dirty = JSON.stringify(form) !== JSON.stringify(current);
+  const save = () => {
+    setMem(prev => ({ ...(prev || {}), config: { ...(prev?.config || {}), aparencia: form } }));
+    flash();
+  };
+  const restaurarPadroes = () => setForm(JARBAS_APARENCIA_DEFAULTS);
+
+  const setNum = (key) => (e) => setForm(f => ({ ...f, [key]: Number(e.target.value) }));
+  const setBool = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.checked }));
+  const setMat = (key) => (e) => setForm(f => ({ ...f, materializacaoEspontanea: { ...f.materializacaoEspontanea, [key]: key === "ativa" ? e.target.checked : Number(e.target.value) } }));
+  const toggleExpressao = (id) => setForm(f => {
+    const ativas = f.expressoesAtivas || [];
+    return { ...f, expressoesAtivas: ativas.includes(id) ? ativas.filter(x => x !== id) : [...ativas, id] };
+  });
+
+  const Slider = ({ label, help, keyName, min, max, step }) => (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{ fontSize: 13, fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
+        <span>{label}</span><span style={{ color: "var(--text-3)", fontWeight: 400 }}>{form[keyName]}</span>
+      </label>
+      {help && <div style={{ fontSize: 12, color: "var(--text-3)", margin: "4px 0 6px" }}>{help}</div>}
+      <input type="range" min={min} max={max} step={step} value={form[keyName]} onChange={setNum(keyName)} style={{ width: "100%" }} />
+    </div>
+  );
+  const Toggle = ({ label, help, keyName }) => (
+    <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, marginBottom: 14 }}>
+      <input type="checkbox" checked={!!form[keyName]} onChange={setBool(keyName)} style={{ marginTop: 2 }} />
+      <span>{label}{help && <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>{help}</div>}</span>
+    </label>
+  );
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: isDesktop ? "minmax(0,1fr) 320px" : "1fr", gap: 20, alignItems: "flex-start" }}>
+      <JarbasSectionCard title="Aparência" subtitle="Configurações do rosto e do cenário do Jarbas. Aplicado quando o app do Jarbas for atualizado com o novo rosto." onSave={save} dirty={dirty} saved={saved}>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <button onClick={restaurarPadroes} style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px", color: "var(--text-3)", cursor: "pointer", fontSize: 12 }}>Restaurar padrões</button>
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: 1, margin: "10px 0 6px" }}>Movimento</div>
+        <Slider label="Velocidade" help="Quão rápido o Jarbas se move e reage." keyName="velocidade" min={0.6} max={1.8} step={0.1} />
+        <Slider label="Elasticidade" help="Quanto o rosto 'balança' antes de assentar." keyName="elasticidade" min={0} max={1} step={0.05} />
+        <Slider label="Intensidade das expressões" help="Quão exagerada cada expressão aparece." keyName="intensidadeExpressoes" min={0.4} max={1.4} step={0.1} />
+        <Toggle label="Olhar vivo" help="O olhar acompanha sutilmente o que está acontecendo na tela." keyName="olharVivo" />
+        <Toggle label="Piscadas" help="Pisca de vez em quando, como um ser vivo." keyName="piscadas" />
+        <Toggle label="Voltar ao neutro" help="Depois de uma expressão, volta sozinho pro estado neutro." keyName="voltarAoNeutro" />
+
+        <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: 1, margin: "20px 0 6px" }}>Cenário de fundo</div>
+        <Slider label="Intensidade do fundo" help="Quão visível é o cenário atrás do rosto." keyName="fundoIntensidade" min={0} max={1} step={0.05} />
+        <Toggle label="Fundo segue o humor" help="As cores do cenário mudam com a emoção do momento." keyName="fundoSegueHumor" />
+
+        <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: 1, margin: "20px 0 6px" }}>Partículas</div>
+        <Slider label="Quantidade de partículas" keyName="particulas" min={3000} max={20000} step={500} />
+        <Slider label="Tamanho dos triângulos" keyName="tamanhoTriangulos" min={2} max={9} step={0.5} />
+        <Slider label="Velocidade de giro" keyName="girar" min={0} max={1.6} step={0.1} />
+        <Slider label="Segundos até dissolver" keyName="manterSegundos" min={3} max={30} step={1} />
+        <Toggle label="Manter até dissolver manualmente" help="As partículas só se desfazem quando você pedir, nunca por tempo." keyName="manterAteDissolver" />
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 6 }}>Cores dos materiais</label>
+          <select style={{ ...inp, width: "auto" }} value={form.coresMateriais} onChange={e => setForm(f => ({ ...f, coresMateriais: e.target.value }))}>
+            <option value="neon">Neon</option>
+            <option value="reais">Reais</option>
+          </select>
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: 1, margin: "20px 0 6px" }}>Desempenho</div>
+        <Toggle label="Qualidade automática" help="Reduz detalhes sozinho em aparelhos mais fracos." keyName="qualidadeAutomatica" />
+        <Toggle label="Efeitos reduzidos" help="Menos movimento — pra aparelhos fracos ou se você preferir uma tela mais quieta." keyName="efeitosReduzidos" />
+
+        <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: 1, margin: "20px 0 6px" }}>Materialização espontânea</div>
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, marginBottom: 14 }}>
+          <input type="checkbox" checked={!!form.materializacaoEspontanea?.ativa} onChange={setMat("ativa")} style={{ marginTop: 2 }} />
+          <span>Ativa<div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>O Jarbas pode criar algo (forma/cena) espontaneamente, sem você pedir.</div></span>
+        </label>
+        <div style={{ marginBottom: 6 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
+            <span>Máximo por dia</span><span style={{ color: "var(--text-3)", fontWeight: 400 }}>{form.materializacaoEspontanea?.maxPorDia}</span>
+          </label>
+          <input type="range" min={0} max={12} step={1} value={form.materializacaoEspontanea?.maxPorDia ?? 0} onChange={setMat("maxPorDia")} style={{ width: "100%" }} />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 13, fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
+            <span>Intervalo mínimo (minutos)</span><span style={{ color: "var(--text-3)", fontWeight: 400 }}>{form.materializacaoEspontanea?.intervaloMinimoMin}</span>
+          </label>
+          <input type="range" min={5} max={120} step={5} value={form.materializacaoEspontanea?.intervaloMinimoMin ?? 5} onChange={setMat("intervaloMinimoMin")} style={{ width: "100%" }} />
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: 1, margin: "20px 0 10px" }}>Expressões ativas</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {JARBAS_EXPRESSOES.map(ex => {
+            const on = (form.expressoesAtivas || []).includes(ex.id);
+            return (
+              <label key={ex.id} title={ex.help}
+                style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, padding: "6px 10px", borderRadius: 8, border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`, background: on ? "var(--accent-dim)" : "transparent", cursor: "pointer" }}>
+                <input type="checkbox" checked={on} onChange={() => toggleExpressao(ex.id)} />
+                {ex.emoji} {ex.label}
+              </label>
+            );
+          })}
+        </div>
+      </JarbasSectionCard>
+
+      <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 18, position: "sticky", top: 20 }}>
+        <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 10 }}>Como o Jarbas fica</div>
+        <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 14 }}>Pré-visualização estática (sem WebGL) — o rosto de verdade varia bem mais que isso.</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+          {JARBAS_EXPRESSOES.map(ex => {
+            const on = (form.expressoesAtivas || []).includes(ex.id);
+            return (
+              <div key={ex.id} style={{ textAlign: "center", opacity: on ? 1 : 0.3, width: 64 }} title={ex.help}>
+                <div style={{ fontSize: 28 }}>{ex.emoji}</div>
+                <div style={{ fontSize: 10.5, color: "var(--text-3)", marginTop: 2 }}>{ex.label}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Criações: galeria somente leitura do que o Jarbas criar (mem.creations) ───
+function JarbasCenaCanvas({ data }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    (Array.isArray(data) ? data : []).forEach(item => {
+      const size = Math.max(10, Number(item.s) || 1) * 18;
+      ctx.font = `${size}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(item.e || "✨", (Number(item.x) || 0.5) * w, (Number(item.y) || 0.5) * h);
+    });
+  }, [data]);
+  return <canvas ref={ref} width={260} height={160} style={{ width: "100%", height: 160, background: "var(--bg-input)", borderRadius: 10 }} />;
+}
+
+function JarbasCriacaoPreview({ c }) {
+  if (c.kind === "cena") return <JarbasCenaCanvas data={c.data} />;
+  if (c.kind === "svg") {
+    const svg = String(c.data || "");
+    if (/<script/i.test(svg)) return <Empty text="Prévia bloqueada (conteúdo suspeito)." />;
+    const dataUri = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)));
+    return <img src={dataUri} alt={c.title || "criação"} style={{ width: "100%", height: 160, objectFit: "contain", background: "var(--bg-input)", borderRadius: 10 }} />;
+  }
+  // "forma" ou "emoji": texto/emoji simples
+  return (
+    <div style={{ height: 160, background: "var(--bg-input)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 48 }}>
+      {c.data || "✨"}
+    </div>
+  );
+}
+
+const JARBAS_CRIACAO_ORIGEM_LABELS = { pedido: "a pedido", conversa: "durante a conversa", espontaneo: "espontâneo" };
+
+function JarbasCriacoesTab({ mem, setMem }) {
+  const creations = mem?.creations || [];
+  const remove = (id) => {
+    if (!confirm("Remover essa criação da galeria?")) return;
+    setMem(prev => ({ ...(prev || {}), creations: (prev?.creations || []).filter(c => c.id !== id) }));
+  };
+  return (
+    <JarbasSectionCard title="Criações" subtitle="Galeria do que o Jarbas já criou (formas, cenas, desenhos) — só leitura, o app preenche isso numa etapa futura.">
+      {creations.length === 0 && <Empty text="Ainda não há criações — elas vão aparecer aqui quando o Jarbas criar algo." />}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 16 }}>
+        {creations.map(c => (
+          <div key={c.id} style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 12, background: "var(--bg-input)" }}>
+            <JarbasCriacaoPreview c={c} />
+            <div style={{ fontWeight: 700, fontSize: 13, marginTop: 10 }}>{c.title || "Sem título"}</div>
+            <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
+              {c.at ? new Date(c.at).toLocaleString("pt-BR") : ""} · {JARBAS_CRIACAO_ORIGEM_LABELS[c.origem] || c.origem || "origem desconhecida"}
+            </div>
+            <button onClick={() => remove(c.id)} style={{ marginTop: 10, background: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", color: "var(--text-3)", cursor: "pointer", fontSize: 12 }}>Remover</button>
+          </div>
+        ))}
+      </div>
+    </JarbasSectionCard>
+  );
+}
+
+// ─── Sistema: só leitura do que já existe no blob ───
+function JarbasSistemaTab({ mem }) {
+  return (
+    <div>
+      <JarbasSectionCard title="URL do Worker (Cloudflare)" subtitle="Onde o app do Jarbas fala com o modelo.">
+        <div style={{ fontSize: 14, fontFamily: "monospace" }}>{mem?.workerUrl || "ainda não sincronizado"}</div>
+      </JarbasSectionCard>
+      <JarbasSectionCard title="Localização atual" subtitle="Usada pra clima e pro briefing matinal.">
+        <div style={{ fontSize: 14 }}>{mem?.location?.cidade || "ainda não configurada"}</div>
+      </JarbasSectionCard>
+      <p style={{ color: "var(--text-3)", fontSize: 12 }}>Pra trocar a URL do Worker ou a senha de sincronização, use o menu Configurações dentro do próprio app do Jarbas (companion).</p>
+    </div>
+  );
+}
+
 function JarbasPage() {
   const [mem, setMem, memSynced] = useKV("jarbas_memory_v1", null);
   const [recados, setRecados] = useKV("jarbas_recados_v1", []);
-  const [tab, setTab] = useState("conhecimento");
+  const [tab, setTab] = useState("visao");
+  const isDesktop = useIsDesktop();
 
   const knowledge = mem?.knowledge || {};
   const routines = mem?.routines || [];
@@ -3217,9 +3729,12 @@ function JarbasPage() {
 
   const [kForm, setKForm] = useState(null);
   useEffect(() => { if (memSynced && !kForm) setKForm(knowledge); }, [memSynced]);
+  const [knowledgeSaved, flashKnowledgeSaved] = useSaveFlash();
+  const knowledgeDirty = !!kForm && JSON.stringify(kForm) !== JSON.stringify(knowledge);
 
   const saveKnowledge = () => {
     setMem(prev => ({ ...(prev || {}), knowledge: { ...(prev?.knowledge || {}), ...kForm } }));
+    flashKnowledgeSaved();
   };
 
   const [routineForm, setRoutineForm] = useState(null);
@@ -3271,51 +3786,95 @@ function JarbasPage() {
   };
   const delShortcut = (id) => setMem(prev => ({ ...(prev || {}), shortcuts: (prev?.shortcuts || []).filter(s => s.id !== id) }));
 
-  const TABS = [
-    { id: "conhecimento", label: "Conhecimento" },
-    { id: "rotinas", label: "Rotinas" },
-    { id: "regras", label: "Regras" },
-    { id: "atalhos", label: "Atalhos" },
-    { id: "recados", label: "Recados" },
-    { id: "diario", label: "Diário do Jarbas" },
-    { id: "config", label: "Configuração" },
-  ];
-
   if (!memSynced) return <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-3)", fontSize: 14 }}>Carregando memória do Jarbas...</div>;
 
-  return (
-    <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            style={{
-              background: tab === t.id ? "var(--accent)" : "var(--bg-card)",
-              border: `1px solid ${tab === t.id ? "var(--accent)" : "var(--border)"}`,
-              color: tab === t.id ? "#fff" : "var(--text-2)",
-              borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer",
-            }}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+  const navItems = JARBAS_NAV.flatMap(g => g.items);
 
-      {tab === "conhecimento" && kForm && (
-        <div style={{ maxWidth: 640, display: "flex", flexDirection: "column", gap: 14 }}>
-          <p style={{ color: "var(--text-3)", fontSize: 13 }}>Mesmo conteúdo da tela "Conhecimento" do companion de voz — sincroniza direto com o Jarbas.</p>
-          {JARBAS_KNOWLEDGE_FIELDS.map(f => (
-            <div key={f.id}>
-              <label style={{ fontSize: 12, color: "var(--text-3)", display: "block", marginBottom: 6 }}>{f.label}</label>
-              <textarea style={{ ...inp, resize: "vertical" }} rows={3} value={kForm[f.id] || ""}
-                onChange={e => setKForm({ ...kForm, [f.id]: e.target.value })} />
+  const renderTab = () => {
+    if (tab === "visao") return <JarbasVisaoGeralTab mem={mem} recados={recados} onNavigate={setTab} />;
+    if (tab === "itens") return <JarbasMemoriaItensTab mem={mem} setMem={setMem} />;
+    if (tab === "conhecimento" && kForm) {
+      return (
+        <JarbasSectionCard title="Conhecimento" subtitle='Mesmo conteúdo da tela "Conhecimento" do companion de voz — sincroniza direto com o Jarbas.' onSave={saveKnowledge} dirty={knowledgeDirty} saved={knowledgeSaved}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {JARBAS_KNOWLEDGE_FIELDS.map(f => (
+              <div key={f.id}>
+                <label style={{ fontSize: 12, color: "var(--text-3)", display: "block", marginBottom: 6 }}>{f.label}</label>
+                <textarea style={{ ...inp, resize: "vertical" }} rows={3} value={kForm[f.id] || ""}
+                  onChange={e => setKForm({ ...kForm, [f.id]: e.target.value })} />
+              </div>
+            ))}
+          </div>
+        </JarbasSectionCard>
+      );
+    }
+    if (tab === "diario") return <JarbasSectionCard title="Diário do Jarbas" subtitle="Tudo que o Jarbas ouviu, fez e viu fica registrado aqui."><JarbasDiarioTab /></JarbasSectionCard>;
+
+    if (tab === "regras") {
+      return (
+        <JarbasSectionCard title="Regras" subtitle='Regras de comportamento que o Jarbas aprendeu (por voz, dizendo "Jarbas, aprenda que...") ou que você escreve aqui direto — ele segue à risca em toda conversa futura.'>
+          <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+            <input style={{ ...inp, flex: 1 }} placeholder="Ex: quando eu perguntar da agenda, responder só a agenda" value={learnedText}
+              onChange={e => setLearnedText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addLearned(); }} />
+            <button onClick={addLearned} style={{ ...btn(), padding: "10px 20px", whiteSpace: "nowrap" }}>+ Adicionar</button>
+          </div>
+          {learned.length === 0 && <Empty text="Nenhuma regra ensinada ainda." />}
+          {[...learned].reverse().map(r => (
+            <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
+              <span style={{ fontSize: 14 }}>{r.text}</span>
+              <button onClick={() => delLearned(r.id)} style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer", flexShrink: 0, marginLeft: 10 }}><Icon path={I.trash} size={14} /></button>
             </div>
           ))}
-          <button onClick={saveKnowledge} style={{ ...btn(), alignSelf: "flex-start" }}>Salvar</button>
-        </div>
-      )}
+        </JarbasSectionCard>
+      );
+    }
 
-      {tab === "rotinas" && (
-        <div style={{ maxWidth: 640 }}>
-          <p style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 16 }}>Gatilhos de voz que juntam várias fontes numa fala só (ex: "bom dia" → clima + notícias + agenda).</p>
+    if (tab === "atalhos") {
+      return (
+        <JarbasSectionCard title="Atalhos" subtitle="Atalhos sem IA: quando a frase gatilho aparecer no que você disser, o Jarbas responde direto (agenda, tarefas, contas ou um texto fixo), sem depender do modelo — mais rápido e nunca falha.">
+          {shortcuts.length === 0 && <Empty text="Nenhum atalho criado ainda." />}
+          {shortcuts.map(s => (
+            <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>"{s.gatilho}"</div>
+                <div style={{ fontSize: 12, color: "var(--text-3)" }}>
+                  {JARBAS_ATALHO_ACOES.find(a => a.id === s.acao)?.label || s.acao}
+                  {s.acao === "resposta_fixa" && s.texto ? `: "${s.texto}"` : ""}
+                </div>
+              </div>
+              <button onClick={() => delShortcut(s.id)} style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer", flexShrink: 0, marginLeft: 10 }}><Icon path={I.trash} size={14} /></button>
+            </div>
+          ))}
+
+          {!shortcutForm ? (
+            <button onClick={() => setShortcutForm({ gatilho: "", acao: "agenda_hoje", texto: "" })}
+              style={{ ...btn("var(--purple)"), marginTop: 16, display: "flex", alignItems: "center", gap: 6, width: "auto" }}>
+              <Icon path={I.plus} size={14} /> Novo atalho
+            </button>
+          ) : (
+            <div style={{ marginTop: 16, background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              <input style={inp} placeholder='Gatilho (ex: "início do dia")' value={shortcutForm.gatilho}
+                onChange={e => setShortcutForm({ ...shortcutForm, gatilho: e.target.value })} />
+              <select style={inp} value={shortcutForm.acao} onChange={e => setShortcutForm({ ...shortcutForm, acao: e.target.value })}>
+                {JARBAS_ATALHO_ACOES.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+              </select>
+              {shortcutForm.acao === "resposta_fixa" && (
+                <textarea style={{ ...inp, resize: "vertical" }} rows={2} placeholder="Texto que o Jarbas deve responder"
+                  value={shortcutForm.texto} onChange={e => setShortcutForm({ ...shortcutForm, texto: e.target.value })} />
+              )}
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={addShortcut} style={btn("var(--purple)")}>Salvar atalho</button>
+                <button onClick={() => setShortcutForm(null)} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 20px", color: "var(--text-3)", cursor: "pointer" }}>Cancelar</button>
+              </div>
+            </div>
+          )}
+        </JarbasSectionCard>
+      );
+    }
+
+    if (tab === "rotinas") {
+      return (
+        <JarbasSectionCard title="Rotinas de voz" subtitle='Gatilhos de voz que juntam várias fontes numa fala só (ex: "bom dia" → clima + notícias + agenda).'>
           {routines.length === 0 && <Empty text="Nenhuma rotina ainda." />}
           {routines.map(r => (
             <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
@@ -3336,7 +3895,7 @@ function JarbasPage() {
               <Icon path={I.plus} size={14} /> Nova rotina
             </button>
           ) : (
-            <div style={{ marginTop: 16, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ marginTop: 16, background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
               <input style={inp} placeholder="Gatilho (ex: bom dia)" value={routineForm.trigger} onChange={e => setRoutineForm({ ...routineForm, trigger: e.target.value })} />
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                 {Object.entries(JARBAS_INGREDIENT_LABELS).map(([id, label]) => (
@@ -3358,72 +3917,13 @@ function JarbasPage() {
               </div>
             </div>
           )}
-        </div>
-      )}
+        </JarbasSectionCard>
+      );
+    }
 
-      {tab === "regras" && (
-        <div style={{ maxWidth: 640 }}>
-          <p style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 16 }}>Regras de comportamento que o Jarbas aprendeu (por voz, dizendo "Jarbas, aprenda que...") ou que você escreve aqui direto — ele segue à risca em toda conversa futura.</p>
-          <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-            <input style={{ ...inp, flex: 1 }} placeholder="Ex: quando eu perguntar da agenda, responder só a agenda" value={learnedText}
-              onChange={e => setLearnedText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addLearned(); }} />
-            <button onClick={addLearned} style={{ ...btn(), padding: "10px 20px", whiteSpace: "nowrap" }}>+ Adicionar</button>
-          </div>
-          {learned.length === 0 && <Empty text="Nenhuma regra ensinada ainda." />}
-          {[...learned].reverse().map(r => (
-            <div key={r.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
-              <span style={{ fontSize: 14 }}>{r.text}</span>
-              <button onClick={() => delLearned(r.id)} style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer", flexShrink: 0, marginLeft: 10 }}><Icon path={I.trash} size={14} /></button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tab === "atalhos" && (
-        <div style={{ maxWidth: 640 }}>
-          <p style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 16 }}>Atalhos sem IA: quando a frase gatilho aparecer no que você disser, o Jarbas responde direto (agenda, tarefas, contas ou um texto fixo), sem depender do modelo — mais rápido e nunca falha.</p>
-          {shortcuts.length === 0 && <Empty text="Nenhum atalho criado ainda." />}
-          {shortcuts.map(s => (
-            <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>"{s.gatilho}"</div>
-                <div style={{ fontSize: 12, color: "var(--text-3)" }}>
-                  {JARBAS_ATALHO_ACOES.find(a => a.id === s.acao)?.label || s.acao}
-                  {s.acao === "resposta_fixa" && s.texto ? `: "${s.texto}"` : ""}
-                </div>
-              </div>
-              <button onClick={() => delShortcut(s.id)} style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer", flexShrink: 0, marginLeft: 10 }}><Icon path={I.trash} size={14} /></button>
-            </div>
-          ))}
-
-          {!shortcutForm ? (
-            <button onClick={() => setShortcutForm({ gatilho: "", acao: "agenda_hoje", texto: "" })}
-              style={{ ...btn("var(--purple)"), marginTop: 16, display: "flex", alignItems: "center", gap: 6, width: "auto" }}>
-              <Icon path={I.plus} size={14} /> Novo atalho
-            </button>
-          ) : (
-            <div style={{ marginTop: 16, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-              <input style={inp} placeholder='Gatilho (ex: "início do dia")' value={shortcutForm.gatilho}
-                onChange={e => setShortcutForm({ ...shortcutForm, gatilho: e.target.value })} />
-              <select style={inp} value={shortcutForm.acao} onChange={e => setShortcutForm({ ...shortcutForm, acao: e.target.value })}>
-                {JARBAS_ATALHO_ACOES.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
-              </select>
-              {shortcutForm.acao === "resposta_fixa" && (
-                <textarea style={{ ...inp, resize: "vertical" }} rows={2} placeholder="Texto que o Jarbas deve responder"
-                  value={shortcutForm.texto} onChange={e => setShortcutForm({ ...shortcutForm, texto: e.target.value })} />
-              )}
-              <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={addShortcut} style={btn("var(--purple)")}>Salvar atalho</button>
-                <button onClick={() => setShortcutForm(null)} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 20px", color: "var(--text-3)", cursor: "pointer" }}>Cancelar</button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {tab === "recados" && (
-        <div style={{ maxWidth: 640 }}>
-          <p style={{ color: "var(--text-3)", fontSize: 13, marginBottom: 16 }}>Deixe recados pro Jarbas tratar numa conversa futura — ele lê e comenta sozinho, e marca como tratado depois.</p>
+    if (tab === "recados") {
+      return (
+        <JarbasSectionCard title="Recados" subtitle="Deixe recados pro Jarbas tratar numa conversa futura — ele lê e comenta sozinho, e marca como tratado depois.">
           <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
             <input style={{ ...inp, flex: 1 }} placeholder="Escrever um recado..." value={recadoText}
               onChange={e => setRecadoText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addRecado(); }} />
@@ -3442,28 +3942,64 @@ function JarbasPage() {
               <button onClick={() => delRecado(r.id)} style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer" }}><Icon path={I.trash} size={14} /></button>
             </div>
           ))}
+        </JarbasSectionCard>
+      );
+    }
+
+    if (tab === "config") return <JarbasRotinaAvisosTab mem={mem} setMem={setMem} />;
+    if (tab === "aparencia") return <JarbasAparenciaTab mem={mem} setMem={setMem} isDesktop={isDesktop} />;
+    if (tab === "criacoes") return <JarbasCriacoesTab mem={mem} setMem={setMem} />;
+    if (tab === "sistema") return <JarbasSistemaTab mem={mem} />;
+    return null;
+  };
+
+  return (
+    <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+      {isDesktop ? (
+        <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
+          <nav style={{ width: 210, flexShrink: 0 }}>
+            {JARBAS_NAV.map(group => (
+              <div key={group.id} style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "var(--text-3)", letterSpacing: 1, textTransform: "uppercase", padding: "0 10px", marginBottom: 6 }}>{group.label}</div>
+                {group.items.map(item => (
+                  <button key={item.id} onClick={() => setTab(item.id)}
+                    style={{
+                      display: "block", width: "100%", textAlign: "left",
+                      background: tab === item.id ? "var(--accent)" : "transparent",
+                      color: tab === item.id ? "#fff" : "var(--text-2)",
+                      border: "none", borderRadius: 10, padding: "9px 10px", fontSize: 13.5,
+                      fontWeight: tab === item.id ? 700 : 500, cursor: "pointer", marginBottom: 2,
+                    }}>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </nav>
+          <div style={{ flex: 1, minWidth: 0 }}>{renderTab()}</div>
         </div>
-      )}
-
-      {tab === "diario" && <JarbasDiarioTab />}
-
-      {tab === "config" && (
-        <div style={{ maxWidth: 640, display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
-            <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 6 }}>URL do Worker (Cloudflare)</div>
-            <div style={{ fontSize: 14, fontFamily: "monospace" }}>{mem?.workerUrl || "ainda não sincronizado"}</div>
+      ) : (
+        <div>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollbarWidth: "none", marginBottom: 20, paddingBottom: 4 }}>
+            {navItems.map(item => (
+              <button key={item.id} onClick={() => setTab(item.id)}
+                style={{
+                  flexShrink: 0, whiteSpace: "nowrap",
+                  background: tab === item.id ? "var(--accent)" : "var(--bg-card)",
+                  border: `1px solid ${tab === item.id ? "var(--accent)" : "var(--border)"}`,
+                  color: tab === item.id ? "#fff" : "var(--text-2)",
+                  borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                }}>
+                {item.label}
+              </button>
+            ))}
           </div>
-          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
-            <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 6 }}>Localização atual</div>
-            <div style={{ fontSize: 14 }}>{mem?.location?.cidade || "ainda não configurada"}</div>
-          </div>
-          <p style={{ color: "var(--text-3)", fontSize: 12 }}>Pra trocar a URL do Worker ou a senha de sincronização, use o menu Configurações dentro do próprio app do Jarbas (companion).</p>
+          {renderTab()}
         </div>
       )}
     </div>
   );
 }
-
 // ─── WEATHER PAGE ─────────────────────────────────────────────────────────────
 function WeatherPage() {
   const w = useWeather();
@@ -8405,7 +8941,7 @@ function AppContent() {
       )}
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"||page==="tasks"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below")?"hidden":"visible",position:"relative"}}>
+      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"||page==="tasks"||page==="jarbas"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below")?"hidden":"visible",position:"relative"}}>
         {(page==="home"||page==="projects"||page==="below") ? (
           <VerticalSlide showBottom={page==="below"} bottom={
             <div style={{position:"relative"}}>
