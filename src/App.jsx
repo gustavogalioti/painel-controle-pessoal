@@ -3759,6 +3759,18 @@ function JarbasCenaCanvas({ data }) {
 }
 
 function JarbasCriacaoPreview({ c }) {
+  // Criações mais antigas podem ter perdido o `data` do SVG (companion limita o peso do
+  // blob sincronizado — só as 15 criações SVG mais recentes guardam o desenho; ver
+  // registerCreation em companion/index.html no repo lumeco-bichinho-virtual). Nunca
+  // tenta montar uma prévia a partir de data nulo — título/origem/data continuam vindo
+  // de JarbasCriacoesTab, aqui só a prévia em si vira esse aviso.
+  if (c.semPrevia || c.data == null) {
+    return (
+      <div style={{ height: 160, background: "var(--bg-input)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-3)", fontSize: 13 }}>
+        sem prévia
+      </div>
+    );
+  }
   if (c.kind === "cena") return <JarbasCenaCanvas data={c.data} />;
   if (c.kind === "svg") {
     const svg = String(c.data || "");
