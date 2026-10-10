@@ -3256,6 +3256,15 @@ const JARBAS_APARENCIA_DEFAULTS = {
   expressoesAtivas: JARBAS_EXPRESSOES.map(e => e.id),
 };
 
+// mem.config.voz (ativação por voz em mãos livres) — mesmos padrões que o app
+// companion usa quando a chave não existe (ver VOZ_CONFIG_DEFAULTS no
+// companion/index.html do repo lumeco-bichinho-virtual); se mudar aqui, mudar lá também.
+const JARBAS_VOZ_DEFAULTS = {
+  apelidos: ["jarbas", "jarbinhas", "jarbuxo", "jarbera", "jarbo", "jarbleatles"],
+  janelaConversaSeg: 20,
+  exigirApelidoSempre: false,
+};
+
 const JARBAS_NAV = [
   { id: "geral", label: "Visão geral", items: [{ id: "visao", label: "Visão geral" }] },
   { id: "memoria", label: "Memória", items: [
@@ -3267,6 +3276,7 @@ const JARBAS_NAV = [
     { id: "regras", label: "Regras" },
     { id: "atalhos", label: "Atalhos" },
     { id: "rotinas", label: "Rotinas de voz" },
+    { id: "voz", label: "Voz e ativação" },
     { id: "recados", label: "Recados" },
   ] },
   { id: "rotina", label: "Rotina e avisos", items: [{ id: "config", label: "Rotina e avisos" }] },
@@ -3506,6 +3516,96 @@ function JarbasRotinaAvisosTab({ mem, setMem }) {
       <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
         <input type="checkbox" checked={form.pendenciasAtivas !== false} onChange={e => setForm(f => ({ ...f, pendenciasAtivas: e.target.checked }))} />
         Lembrar de coisas que você disse que ia fazer
+      </label>
+    </JarbasSectionCard>
+  );
+}
+
+function normalizarApelido(raw) {
+  return String(raw || "").trim().toLowerCase();
+}
+
+// ─── Voz e ativação: apelidos e janela de continuidade do modo mãos livres ───
+// Só o campo `voz` dentro de mem.config — salva com merge explícito (nunca
+// `{...form}` por cima de todo o config), pra nunca arrastar de volta um valor
+// antigo de sono/avisos/briefing nem de aparencia.
+function JarbasVozTab({ mem, setMem }) {
+  const current = { ...JARBAS_VOZ_DEFAULTS, ...(mem?.config?.voz || {}) };
+  const [form, setForm] = useState(current);
+  useEffect(() => { setForm(current); }, [JSON.stringify(current)]);
+  const [saved, flash] = useSaveFlash();
+  const [apelidoInput, setApelidoInput] = useState("");
+  const [apelidoErr, setApelidoErr] = useState("");
+
+  const dirty = JSON.stringify(form) !== JSON.stringify(current);
+  const save = () => {
+    const janela = Math.max(0, Math.min(60, parseInt(form.janelaConversaSeg, 10) || 0));
+    setMem(prev => ({
+      ...(prev || {}),
+      config: {
+        ...(prev?.config || {}),
+        voz: {
+          apelidos: (form.apelidos || []).length ? form.apelidos : JARBAS_VOZ_DEFAULTS.apelidos,
+          janelaConversaSeg: janela,
+          exigirApelidoSempre: !!form.exigirApelidoSempre,
+        },
+      },
+    }));
+    flash();
+  };
+
+  const addApelido = () => {
+    const limpo = normalizarApelido(apelidoInput);
+    if (!limpo) { setApelidoErr(""); return; }
+    if (limpo.length < 4 || limpo.length > 20) { setApelidoErr("O apelido precisa ter entre 4 e 20 letras."); return; }
+    if ((form.apelidos || []).includes(limpo)) { setApelidoErr("Esse apelido já está na lista."); return; }
+    if ((form.apelidos || []).length >= 12) { setApelidoErr("Máximo de 12 apelidos."); return; }
+    setApelidoErr("");
+    setForm(f => ({ ...f, apelidos: [...(f.apelidos || []), limpo] }));
+    setApelidoInput("");
+  };
+  const delApelido = (ap) => setForm(f => ({ ...f, apelidos: (f.apelidos || []).filter(a => a !== ap) }));
+  const restaurarApelidos = () => { setForm(f => ({ ...f, apelidos: [...JARBAS_VOZ_DEFAULTS.apelidos] })); setApelidoErr(""); };
+
+  return (
+    <JarbasSectionCard title="Voz e ativação" subtitle='Como o Jarbas sabe que você está chamando ele em mãos livres — nesse modo, ele só leva em conta o que você fala depois de te ouvir dizer um dos apelidos abaixo, e ignora a própria voz (pra não se confundir ouvindo a si mesmo falar).' onSave={save} dirty={dirty} saved={saved}>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <label style={{ fontSize: 13, fontWeight: 600 }}>Como chamar o Jarbas</label>
+          <button onClick={restaurarApelidos} style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", color: "var(--text-3)", cursor: "pointer", fontSize: 11.5 }}>Restaurar padrão</button>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 10 }}>Qualquer uma dessas palavras, ditas no início da frase, chama o Jarbas em mãos livres.</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+          {(form.apelidos || []).length === 0 && <Empty text="Nenhum apelido — o Jarbas não vai responder em mãos livres." />}
+          {(form.apelidos || []).map(ap => (
+            <span key={ap} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, padding: "6px 6px 6px 12px", borderRadius: 20, border: "1px solid var(--border)", background: "var(--bg-input)" }}>
+              {ap}
+              <button onClick={() => delApelido(ap)} aria-label={`Remover "${ap}"`}
+                style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 4px" }}>×</button>
+            </span>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <input style={{ ...inp, flex: 1 }} placeholder="Adicionar apelido (ex: jarbinho)" value={apelidoInput}
+            onChange={e => setApelidoInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addApelido(); }} />
+          <button onClick={addApelido} style={{ ...btn(), padding: "10px 20px", whiteSpace: "nowrap" }}>+ Adicionar</button>
+        </div>
+        {apelidoErr && <div style={{ fontSize: 12, color: "var(--orange)", marginTop: 6 }}>{apelidoErr}</div>}
+      </div>
+
+      <hr style={{ border: "none", borderTop: "1px solid var(--border-2)", margin: "4px 0 20px" }} />
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 13, fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
+          <span>Janela de continuidade</span><span style={{ color: "var(--text-3)", fontWeight: 400 }}>{form.janelaConversaSeg}s</span>
+        </label>
+        <div style={{ fontSize: 12, color: "var(--text-3)", margin: "4px 0 6px" }}>Depois que o Jarbas termina de falar, você pode continuar por esse tempo sem repetir o nome. 0 = sempre dizer o nome.</div>
+        <input type="range" min={0} max={60} step={1} value={form.janelaConversaSeg} disabled={!!form.exigirApelidoSempre}
+          onChange={e => setForm(f => ({ ...f, janelaConversaSeg: Number(e.target.value) }))} style={{ width: "100%", opacity: form.exigirApelidoSempre ? 0.5 : 1 }} />
+      </div>
+      <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13 }}>
+        <input type="checkbox" checked={!!form.exigirApelidoSempre} onChange={e => setForm(f => ({ ...f, exigirApelidoSempre: e.target.checked }))} style={{ marginTop: 2 }} />
+        <span>Sempre exigir o nome<div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>Ignora a janela de continuidade acima — todo pedido precisa começar com um dos apelidos.</div></span>
       </label>
     </JarbasSectionCard>
   );
@@ -3946,6 +4046,7 @@ function JarbasPage() {
       );
     }
 
+    if (tab === "voz") return <JarbasVozTab mem={mem} setMem={setMem} />;
     if (tab === "config") return <JarbasRotinaAvisosTab mem={mem} setMem={setMem} />;
     if (tab === "aparencia") return <JarbasAparenciaTab mem={mem} setMem={setMem} isDesktop={isDesktop} />;
     if (tab === "criacoes") return <JarbasCriacoesTab mem={mem} setMem={setMem} />;
