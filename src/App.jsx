@@ -3254,6 +3254,10 @@ const JARBAS_APARENCIA_DEFAULTS = {
   qualidadeAutomatica: true, efeitosReduzidos: false,
   materializacaoEspontanea: { ativa: true, maxPorDia: 4, intervaloMinimoMin: 20 },
   expressoesAtivas: JARBAS_EXPRESSOES.map(e => e.id),
+  // Telas ao redor, balões de conversa, sinapses, lousa real e quadro de pensamento
+  // (Lab 3+4, já no app via lumeco-bichinho-virtual#35 e #36) — mesmas chaves que
+  // companion/index.html lê em mem.config.aparencia (default true nas 5).
+  telas: true, baloes: true, sinapses: true, lousa: true, pensamento: true,
 };
 
 // mem.config.voz (ativação por voz em mãos livres) — mesmos padrões que o app
@@ -3681,6 +3685,13 @@ function JarbasAparenciaTab({ mem, setMem, isDesktop }) {
             <option value="reais">Reais</option>
           </select>
         </div>
+
+        <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: 1, margin: "20px 0 6px" }}>Telas, conversa e quadros</div>
+        <Toggle label="Telas ao redor" help="Agenda, tarefas e contas aparecem em telas flutuando perto do rosto." keyName="telas" />
+        <Toggle label="Balões de conversa" help="Cada fala (sua e do Jarbas) aparece num balão, além da legenda." keyName="baloes" />
+        <Toggle label="Linhas de sinapse" help="Linhas pulsantes ligando as telas e balões ao rosto." keyName="sinapses" />
+        <Toggle label="Lousa real" help="Quando pedir uma conta, equação ou esquema, o Jarbas desenha numa lousa ao lado do rosto." keyName="lousa" />
+        <Toggle label="Quadro de pensamento" help="Enquanto ocioso, pode mostrar uma cena curta (praia, fogos, flor, sofá) conforme o humor." keyName="pensamento" />
 
         <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: 1, margin: "20px 0 6px" }}>Desempenho</div>
         <Toggle label="Qualidade automática" help="Reduz detalhes sozinho em aparelhos mais fracos." keyName="qualidadeAutomatica" />
