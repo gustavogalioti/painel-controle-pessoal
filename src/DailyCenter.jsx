@@ -509,7 +509,7 @@ function FocusCard({ c, t, index, active, drag }) {
   const steps = stepsInfo(t);
   const doing = L.getStatus(t) === "doing";
   const cls = `dcc-focus-card${done ? " is-done" : active ? " is-active" : " is-muted"}${drag.over === t.id ? " is-dragover" : ""}`;
-  const dragProps = done ? {} : {
+  const dragProps = done || !drag ? {} : {
     draggable: true,
     onDragStart: e => { drag.set(t.id); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", String(t.id)); } catch { /* ok */ } },
     onDragOver: e => { e.preventDefault(); drag.setOver(t.id); },
@@ -545,10 +545,8 @@ function FocusCard({ c, t, index, active, drag }) {
           <div className="dcc-actions">
             {!active && <button className="dcc-ico" title="Iniciar" aria-label="Iniciar tarefa" onClick={() => { c.act.start(t.id); c.setFocusOn(t.id); }}><Ic d="play" size={14} /></button>}
             <button className="dcc-ico" title="Concluir" aria-label="Concluir tarefa" onClick={() => c.act.complete(t.id)}><Ic d="check" size={15} /></button>
-            <button className="dcc-ico" title="Mover para cima" aria-label="Mover para cima" disabled={index === 0} onClick={() => c.act.moveFocus(t.id, -1)}><Ic d="up" size={15} /></button>
-            <button className="dcc-ico" title="Mover para baixo" aria-label="Mover para baixo" disabled={index >= c.focus.length - 1} onClick={() => c.act.moveFocus(t.id, 1)}><Ic d="down" size={15} /></button>
             <button className="dcc-ico" title="Adiar para amanhã" aria-label="Adiar para amanhã" onClick={() => c.act.defer(t.id, L.addDays(c.today, 1))}><Ic d="calendar" size={14} /></button>
-            <button className="dcc-ico" title="Tirar do foco" aria-label="Tirar do foco de hoje" onClick={() => c.act.focusRemove(t.id)}><Ic d="x" size={15} /></button>
+            <button className="dcc-ico" title="Mover para De hoje" aria-label="Tirar de Para agora (mover para De hoje)" onClick={() => c.act.moveTo(t.id, "today")}><Ic d="x" size={15} /></button>
           </div>
         </>
       )}
@@ -557,27 +555,17 @@ function FocusCard({ c, t, index, active, drag }) {
 }
 
 function FocusSection({ c }) {
-  const list = c.focus;
-  const doneN = list.filter(L.isDone).length;
-  const active = list.find(t => !L.isDone(t) && L.getStatus(t) === "doing") || list.find(t => !L.isDone(t));
-  const [dragId, setDragId] = useState(null);
-  const [over, setOver] = useState(null);
-  const drag = { set: setDragId, setOver, over, drop: toId => { if (dragId && dragId !== toId) c.act.reorderFocus(dragId, toId); setDragId(null); setOver(null); } };
-  const free = L.MAX_FOCUS - list.length;
+  // "Foco de hoje" agora mostra as tarefas "De agora" (status now)
+  const list = sortActions(c.tasks.filter(t => L.getStatus(t) === "now" && !L.isDone(t)), "padrao", c.today);
+  const active = list.find(t => L.getStatus(t) === "doing") || list[0];
   return (
     <section className="dcc-card" aria-labelledby="dcc-focus-h">
       <div className="dcc-sec-head">
-        <h2 id="dcc-focus-h">Foco de hoje</h2>
-        {list.length > 0 && <span className="dcc-pill dcc-pill-count">{pad(doneN)}/{pad(list.length)} concluídas</span>}
+        <h2 id="dcc-focus-h">De agora</h2>
+        {list.length > 0 && <span className="dcc-pill dcc-pill-count">{pad(list.length)} {list.length === 1 ? "tarefa" : "tarefas"}</span>}
       </div>
-      <div className="dcc-sub">{list.length ? "As entregas que você escolheu como mais importantes." : "Escolha até três entregas que realmente importam hoje. Você decide — o painel não escolhe por você."}</div>
-      {list.map((t, i) => <FocusCard key={t.id} c={c} t={t} index={i} active={active && active.id === t.id} drag={drag} />)}
-      {Array.from({ length: free }).map((_, i) => (
-        <button key={i} className="dcc-slot" onClick={() => c.setPicker(true)}>
-          <span>{pad(list.length + i + 1)} · Escolher uma prioridade</span><Ic d="plusCircle" size={18} />
-        </button>
-      ))}
-      {list.length > 1 && <div className="dcc-sub" style={{ marginTop: 10 }}>Dica: arraste os cartões ou use as setas para reordenar.</div>}
+      <div className="dcc-sub">{list.length ? "As tarefas que estão em “Para Agora”." : "Nenhuma tarefa em “Para Agora”. Mova tarefas para cá pelo Kanban ou por “Mover para…”."}</div>
+      {list.map((t, i) => <FocusCard key={t.id} c={c} t={t} index={i} active={active && active.id === t.id} drag={null} />)}
     </section>
   );
 }
@@ -648,13 +636,12 @@ function UpdatesLine({ c, t }) {
   );
 }
 
-const NEXT_FILTERS = [["todo", "Pendentes"], ["now", "De agora"], ["today", "De hoje"]];
+const NEXT_FILTERS = [["todo", "Pendentes"], ["today", "De hoje"]];
 function NextActions({ c }) {
   const [expanded, setExpanded] = useState(false);
   const [filter, setFilter] = useState("todo");
   // quem já está em destaque (foco) ou em andamento aparece nos outros boxes — aqui só o que ainda espera sua vez
-  const focusIds = c.focus.map(t => t.id);
-  const pool = st => c.tasks.filter(t => L.getStatus(t) === st && !focusIds.includes(t.id));
+  const pool = st => c.tasks.filter(t => L.getStatus(t) === st);
   const items = sortActions(pool(filter), c.sort, c.today);
   const shown = expanded ? items : items.slice(0, 4);
   const label = NEXT_FILTERS.find(f => f[0] === filter)[1].toLowerCase();
