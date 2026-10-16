@@ -627,45 +627,48 @@ function UpdatesLine({ c, t }) {
   );
 }
 
-const NEXT_FILTERS = [["todo", "Pendentes"], ["today", "De hoje"]]; // "De agora" tem box próprio
-function NextActions({ c }) {
+// "De hoje": tarefas da coluna De hoje. "Ver pendentes" troca a lista para as pendentes, para puxar alguma para o dia.
+function TodayBox({ c }) {
   const [expanded, setExpanded] = useState(false);
-  const [filter, setFilter] = useState("todo");
+  const [mode, setMode] = useState("today"); // today | todo
+  const pending = mode === "todo";
   const pool = st => c.tasks.filter(t => L.getStatus(t) === st);
-  const items = sortActions(pool(filter), c.sort, c.today);
+  const todoCount = pool("todo").length;
+  const items = sortActions(pool(mode), c.sort, c.today);
   const shown = expanded ? items : items.slice(0, 4);
-  const label = NEXT_FILTERS.find(f => f[0] === filter)[1].toLowerCase();
+  const switchTo = m => { setMode(m); setExpanded(false); };
   return (
-    <section className="dcc-card" aria-labelledby="dcc-next-h">
+    <section className="dcc-card" aria-labelledby="dcc-today-h">
       <div className="dcc-sec-head">
-        <h2 id="dcc-next-h">Próximas ações</h2>
-        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <h2 id="dcc-today-h">{pending ? "Pendentes" : "De hoje"}</h2>
+        <span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
           {items.length > 1 && (
-            <select className="dcc-sort" value={c.sort} onChange={e => c.setSort(e.target.value)} aria-label="Ordenar próximas ações">
+            <select className="dcc-sort" value={c.sort} onChange={e => c.setSort(e.target.value)} aria-label={`Ordenar ${pending ? "pendentes" : "tarefas de hoje"}`}>
               {Object.entries(SORTS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           )}
           <span className="dcc-pill dcc-pill-neutral">{items.length} {items.length === 1 ? "tarefa" : "tarefas"}</span>
+          {pending
+            ? <button className="dcc-btn" style={{ padding: "3px 10px" }} onClick={() => switchTo("today")}>← Voltar para De hoje</button>
+            : <button className="dcc-btn" style={{ padding: "3px 10px" }} onClick={() => switchTo("todo")}>Ver pendentes ({todoCount})</button>}
         </span>
       </div>
-      <div className="dcc-seg" role="group" aria-label="Filtrar próximas ações">
-        {NEXT_FILTERS.map(([id, l]) => (
-          <button key={id} aria-pressed={filter === id} onClick={() => { setFilter(id); setExpanded(false); }}>{l} <span className="dcc-count">{pool(id).length}</span></button>
-        ))}
-      </div>
+      <div className="dcc-sub">{pending ? "Escolha as pendentes que vão ser feitas hoje." : "O que está planejado para hoje."}</div>
       {items.length === 0 ? (
-        <Empty title={`Nenhuma tarefa ${filter === "todo" ? "pendente" : label}.`}>
-          {filter === "todo" ? "Tudo o que estava pendente já foi movido, iniciado ou concluído." : "Use “Planejar meu dia” para trazer tarefas para cá."}
+        <Empty title={pending ? "Nenhuma tarefa pendente." : "Nada em “De hoje”."}>
+          {pending ? "Tudo o que estava pendente já foi movido, iniciado ou concluído."
+            : <>Traga tarefas das pendentes ou use “Planejar meu dia”.<div style={{ marginTop: 12 }}><button className="dcc-btn dcc-btn-primary" onClick={() => switchTo("todo")}>Ver pendentes ({todoCount})</button></div></>}
         </Empty>
       ) : (
         <div className="dcc-list">
           {shown.map(t => (
             <ActionRow key={t.id} c={c} t={t} right={<>
               <span className={`dcc-pill ${t.prio === "alta" ? "dcc-pill-alta" : "dcc-pill-neutral"}`}>{PRIO_SHORT[t.prio] || "Normal"}</span>
+              {pending && <button className="dcc-btn dcc-btn-primary" style={{ padding: "4px 12px" }} onClick={() => c.act.moveTo(t.id, "today")}>Para hoje</button>}
               <MoveSelect c={c} t={t} />
-              <button className="dcc-ico" title="Iniciar" aria-label={`Iniciar: ${t.text}`} onClick={() => { c.act.start(t.id); c.setFocusOn(t.id); }}><Ic d="play" size={14} /></button>
+              {!pending && <button className="dcc-ico" title="Iniciar" aria-label={`Iniciar: ${t.text}`} onClick={() => { c.act.start(t.id); c.setFocusOn(t.id); }}><Ic d="play" size={14} /></button>}
               <button className="dcc-ico" title="Concluir" aria-label={`Concluir: ${t.text}`} onClick={() => c.act.complete(t.id)}><Ic d="check" size={16} /></button>
-              <button className="dcc-ico" title="Adiar para amanhã" aria-label={`Adiar para amanhã: ${t.text}`} onClick={() => c.act.defer(t.id, L.addDays(c.today, 1))}><Ic d="calendar" size={15} /></button>
+              {!pending && <button className="dcc-ico" title="Adiar para amanhã" aria-label={`Adiar para amanhã: ${t.text}`} onClick={() => c.act.defer(t.id, L.addDays(c.today, 1))}><Ic d="calendar" size={15} /></button>}
             </>} below={<UpdatesLine c={c} t={t} />} />
           ))}
         </div>
@@ -762,7 +765,7 @@ function DayView({ c }) {
       <div className="dcc-area" style={{ gridArea: "hero" }}><Hero c={c} /></div>
       <div className="dcc-area" style={{ gridArea: "add" }}><CaptureCard tags={c.allTags} onSave={c.act.capture} /></div>
       <div className="dcc-area" style={{ gridArea: "focus" }}><NowSection c={c} /></div>
-      <div className="dcc-area" style={{ gridArea: "next" }}><NextActions c={c} /></div>
+      <div className="dcc-area" style={{ gridArea: "next" }}><TodayBox c={c} /></div>
       <div className="dcc-area" style={{ gridArea: "doing" }}><DoingBox c={c} /></div>
       {attn && <div className="dcc-area" style={{ gridArea: "attn" }}><Attention c={c} /></div>}
     </div>
