@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { Component, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import "./daily.css";
 import * as L from "./daily-lib.js";
@@ -277,7 +277,7 @@ function TaskEditor({ task, tags, events, onSave, onDelete, onClose }) {
 const freshTimer = (taskId, durationMin = 25) => ({ taskId, durationMin, running: false, startedAt: null, accumMs: 0, finished: false });
 const fmtClock = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`; };
 
-function FocusMode({ c, startId, onClose }) {
+function FocusMode({ c, startId, queue, onClose }) {
   const { tasks, today, act } = c;
   const [taskId, setTaskId] = useState(startId);
   const stored = id => { const s = c.timerRef.current; return s && s.taskId === id ? s : null; };
@@ -287,8 +287,7 @@ function FocusMode({ c, startId, onClose }) {
   useEffect(() => { if (JSON.stringify(tm) !== JSON.stringify(c.timerRef.current)) c.setTimer(tm); }, [tm]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const task = tasks.find(t => t.id === taskId);
-  const focusIds = L.focusTasks(tasks, today).map(t => t.id);
-  const ids = focusIds.includes(taskId) ? focusIds : [taskId];
+  const ids = queue && queue.includes(taskId) ? queue : [taskId]; // fila: a tarefa + as demais De agora de quando abriu
   const pos = ids.indexOf(taskId);
 
   const logSeg = (id, startMs, ms) => {
@@ -503,81 +502,61 @@ function Hero({ c }) {
   );
 }
 
-function FocusCard({ c, t, index, active, drag }) {
-  const done = L.isDone(t);
-  const area = areaOf(t);
+// "De agora": as tarefas da coluna De agora (status "now"), sem limite de quantidade e sem ordem manual.
+// A primeira é a próxima da fila (prioridade, depois prazo/antiguidade); todas têm Iniciar.
+function NowCard({ c, t, next }) {
   const steps = stepsInfo(t);
-  const doing = L.getStatus(t) === "doing";
-  const cls = `dcc-focus-card${done ? " is-done" : active ? " is-active" : " is-muted"}${drag.over === t.id ? " is-dragover" : ""}`;
-  const dragProps = done ? {} : {
-    draggable: true,
-    onDragStart: e => { drag.set(t.id); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", String(t.id)); } catch { /* ok */ } },
-    onDragOver: e => { e.preventDefault(); drag.setOver(t.id); },
-    onDragLeave: () => drag.setOver(null),
-    onDrop: e => { e.preventDefault(); drag.drop(t.id); },
-    onDragEnd: () => { drag.set(null); drag.setOver(null); },
-  };
+  const start = () => { c.act.start(t.id); c.setFocusOn(t.id); };
   return (
-    <article className={cls} {...dragProps} aria-label={`Prioridade ${index + 1}: ${t.text}`}>
+    <article className={`dcc-focus-card ${next ? "is-active" : "is-muted"}`} aria-label={`De agora: ${t.text}`}>
       <div className="dcc-row-top">
-        <TagPill tag={area}>{pad(index + 1)} · {area}</TagPill>
-        {done
-          ? <span style={{ color: "var(--d-ok)" }} role="img" aria-label="Concluída"><Ic d="checkCircle" size={22} /></span>
-          : t.estimatedMinutes ? <span className="dcc-time">{L.fmtMin(t.estimatedMinutes)}</span> : null}
+        <TagPill tag={areaOf(t)}>{areaOf(t)}</TagPill>
+        {t.estimatedMinutes ? <span className="dcc-time">{L.fmtMin(t.estimatedMinutes)}</span> : null}
       </div>
       <div className="dcc-title"><button onClick={() => c.setEditId(t.id)}>{t.text}</button></div>
       {evText(t) && <div className="dcc-li-meta" style={{ marginBottom: 4 }}><Ic d="calendar" size={12} /> {evText(t)}</div>}
-      {done ? (
-        <div className="dcc-next">Concluída às {hhmm(t.doneAt)}. <button className="dcc-btn" style={{ padding: "2px 9px", marginLeft: 6 }} onClick={() => c.act.reopen(t.id)}>Reabrir</button></div>
-      ) : (
-        <>
-          <div className="dcc-next">
-            {t.nextAction ? <>Próxima ação: {t.nextAction}</> : <button className="dcc-btn" style={{ padding: "2px 9px" }} onClick={() => c.setEditId(t.id)}>+ Definir próxima ação</button>}
-            {steps && <span className="dcc-steps-mini"> · {steps}</span>}
-          </div>
-          <div className="dcc-meta-row">
-            <span>{PRIO_LONG[t.prio] || "Prioridade normal"}</span>
-            <span className={`dcc-pill ${doing ? "dcc-pill-doing" : "dcc-pill-plan"}`}>{doing ? "Em execução" : "Planejada"}</span>
-          </div>
-          {active
-            ? <button className="dcc-btn dcc-btn-ink" onClick={() => { c.act.start(t.id); c.setFocusOn(t.id); }}>{doing ? "Continuar tarefa" : "Iniciar tarefa"} <Ic d="arrow" size={15} /></button>
-            : <button className="dcc-btn dcc-btn-ghost" onClick={() => c.setEditId(t.id)}>Ver próximos passos</button>}
-          <div className="dcc-actions">
-            {!active && <button className="dcc-ico" title="Iniciar" aria-label="Iniciar tarefa" onClick={() => { c.act.start(t.id); c.setFocusOn(t.id); }}><Ic d="play" size={14} /></button>}
-            <button className="dcc-ico" title="Concluir" aria-label="Concluir tarefa" onClick={() => c.act.complete(t.id)}><Ic d="check" size={15} /></button>
-            <button className="dcc-ico" title="Mover para cima" aria-label="Mover para cima" disabled={index === 0} onClick={() => c.act.moveFocus(t.id, -1)}><Ic d="up" size={15} /></button>
-            <button className="dcc-ico" title="Mover para baixo" aria-label="Mover para baixo" disabled={index >= c.focus.length - 1} onClick={() => c.act.moveFocus(t.id, 1)}><Ic d="down" size={15} /></button>
-            <button className="dcc-ico" title="Adiar para amanhã" aria-label="Adiar para amanhã" onClick={() => c.act.defer(t.id, L.addDays(c.today, 1))}><Ic d="calendar" size={14} /></button>
-            <button className="dcc-ico" title="Tirar do foco" aria-label="Tirar do foco de hoje" onClick={() => c.act.focusRemove(t.id)}><Ic d="x" size={15} /></button>
-          </div>
-        </>
-      )}
+      <div className="dcc-next">
+        {t.nextAction ? <>Próxima ação: {t.nextAction}</> : <button className="dcc-btn" style={{ padding: "2px 9px" }} onClick={() => c.setEditId(t.id)}>+ Definir próxima ação</button>}
+        {steps && <span className="dcc-steps-mini"> · {steps}</span>}
+      </div>
+      <div className="dcc-meta-row">
+        <span>{PRIO_LONG[t.prio] || "Prioridade normal"}{dueLabel(t, c.today) ? <> · <span className={dueLabel(t, c.today).late ? "dcc-due-late" : ""}>{dueLabel(t, c.today).text}</span></> : null}</span>
+        <span className="dcc-pill dcc-pill-alta">De agora</span>
+      </div>
+      {next
+        ? <button className="dcc-btn dcc-btn-ink" onClick={start}>Iniciar tarefa <Ic d="arrow" size={15} /></button>
+        : <button className="dcc-btn dcc-btn-ghost" onClick={start}>Iniciar tarefa</button>}
+      <div className="dcc-actions">
+        <MoveSelect c={c} t={t} />
+        <button className="dcc-ico" title="Concluir" aria-label={`Concluir: ${t.text}`} onClick={() => c.act.complete(t.id)}><Ic d="check" size={15} /></button>
+        <button className="dcc-ico" title="Adiar para amanhã" aria-label={`Adiar para amanhã: ${t.text}`} onClick={() => c.act.defer(t.id, L.addDays(c.today, 1))}><Ic d="calendar" size={14} /></button>
+        <button className="dcc-ico" title="Editar tarefa" aria-label={`Editar tarefa: ${t.text}`} onClick={() => c.setEditId(t.id)}><Ic d="edit" size={14} /></button>
+      </div>
     </article>
   );
 }
 
-function FocusSection({ c }) {
-  const list = c.focus;
-  const doneN = list.filter(L.isDone).length;
-  const active = list.find(t => !L.isDone(t) && L.getStatus(t) === "doing") || list.find(t => !L.isDone(t));
-  const [dragId, setDragId] = useState(null);
-  const [over, setOver] = useState(null);
-  const drag = { set: setDragId, setOver, over, drop: toId => { if (dragId && dragId !== toId) c.act.reorderFocus(dragId, toId); setDragId(null); setOver(null); } };
-  const free = L.MAX_FOCUS - list.length;
+function NowSection({ c }) {
+  const [expanded, setExpanded] = useState(false);
+  const list = c.nowTasks;
+  const shown = expanded ? list : list.slice(0, 3);
   return (
-    <section className="dcc-card" aria-labelledby="dcc-focus-h">
+    <section className="dcc-card" aria-labelledby="dcc-now-h">
       <div className="dcc-sec-head">
-        <h2 id="dcc-focus-h">Foco de hoje</h2>
-        {list.length > 0 && <span className="dcc-pill dcc-pill-count">{pad(doneN)}/{pad(list.length)} concluídas</span>}
+        <h2 id="dcc-now-h">De agora</h2>
+        <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button className="dcc-btn" style={{ padding: "3px 10px" }} onClick={() => c.setPicker(true)}><Ic d="plus" size={13} /> Trazer tarefa</button>
+          <span className="dcc-pill dcc-pill-count">{pad(list.length)} {list.length === 1 ? "tarefa" : "tarefas"}</span>
+        </span>
       </div>
-      <div className="dcc-sub">{list.length ? "As entregas que você escolheu como mais importantes." : "Escolha até três entregas que realmente importam hoje. Você decide — o painel não escolhe por você."}</div>
-      {list.map((t, i) => <FocusCard key={t.id} c={c} t={t} index={i} active={active && active.id === t.id} drag={drag} />)}
-      {Array.from({ length: free }).map((_, i) => (
-        <button key={i} className="dcc-slot" onClick={() => c.setPicker(true)}>
-          <span>{pad(list.length + i + 1)} · Escolher uma prioridade</span><Ic d="plusCircle" size={18} />
-        </button>
-      ))}
-      {list.length > 1 && <div className="dcc-sub" style={{ marginTop: 10 }}>Dica: arraste os cartões ou use as setas para reordenar.</div>}
+      <div className="dcc-sub">{list.length ? "O que precisa ser feito agora." : "Nada marcado como “De agora”."}</div>
+      {list.length === 0 && (
+        <Empty title="Nenhuma tarefa De agora.">Use “Trazer tarefa”, “Mover para…” ou escolha “Entra em: De agora” ao adicionar uma tarefa.</Empty>
+      )}
+      {shown.map((t, i) => <NowCard key={t.id} c={c} t={t} next={i === 0} />)}
+      {list.length > 3 && (
+        <button className="dcc-btn dcc-btn-ghost" style={{ marginTop: 12 }} onClick={() => setExpanded(e => !e)}>{expanded ? "Mostrar menos" : `Ver todas (${list.length})`}</button>
+      )}
     </section>
   );
 }
@@ -648,13 +627,11 @@ function UpdatesLine({ c, t }) {
   );
 }
 
-const NEXT_FILTERS = [["todo", "Pendentes"], ["now", "De agora"], ["today", "De hoje"]];
+const NEXT_FILTERS = [["todo", "Pendentes"], ["today", "De hoje"]]; // "De agora" tem box próprio
 function NextActions({ c }) {
   const [expanded, setExpanded] = useState(false);
   const [filter, setFilter] = useState("todo");
-  // quem já está em destaque (foco) ou em andamento aparece nos outros boxes — aqui só o que ainda espera sua vez
-  const focusIds = c.focus.map(t => t.id);
-  const pool = st => c.tasks.filter(t => L.getStatus(t) === st && !focusIds.includes(t.id));
+  const pool = st => c.tasks.filter(t => L.getStatus(t) === st);
   const items = sortActions(pool(filter), c.sort, c.today);
   const shown = expanded ? items : items.slice(0, 4);
   const label = NEXT_FILTERS.find(f => f[0] === filter)[1].toLowerCase();
@@ -713,7 +690,6 @@ function DoingBox({ c }) {
   const items = c.tasks.filter(t => L.getStatus(t) === "doing")
     .sort((a, b) => new Date(b.startedAt || b.date) - new Date(a.startedAt || a.date));
   const tm = c.timer || {};
-  const focusIds = c.focus.map(t => t.id);
   return (
     <section className="dcc-card" aria-labelledby="dcc-doing-h">
       <div className="dcc-sec-head">
@@ -738,7 +714,7 @@ function DoingBox({ c }) {
                 <span className="dcc-li-ico" style={{ color: "#c8602a" }}><Ic d={running ? "clock" : "play"} size={19} /></span>
                 <div className="dcc-li-main">
                   <div className="dcc-li-title"><button onClick={() => c.setEditId(t.id)}>{t.text}</button></div>
-                  <div className="dcc-li-meta">{meta}{running && <> · <b style={{ color: "var(--d-ok)" }}>timer rodando</b></>}{focusIds.includes(t.id) && <> · foco de hoje</>}</div>
+                  <div className="dcc-li-meta">{meta}{running && <> · <b style={{ color: "var(--d-ok)" }}>timer rodando</b></>}</div>
                   <div className="dcc-li-meta" style={{ marginTop: 3 }}>
                     {t.nextAction ? <>Próxima ação: <b style={{ color: "var(--d-text)", fontWeight: 600 }}>{t.nextAction}</b></> : <button className="dcc-btn" style={{ padding: "1px 8px" }} onClick={() => c.setEditId(t.id)}>+ Definir próxima ação</button>}
                   </div>
@@ -785,7 +761,7 @@ function DayView({ c }) {
     <div className="dcc-day">
       <div className="dcc-area" style={{ gridArea: "hero" }}><Hero c={c} /></div>
       <div className="dcc-area" style={{ gridArea: "add" }}><CaptureCard tags={c.allTags} onSave={c.act.capture} /></div>
-      <div className="dcc-area" style={{ gridArea: "focus" }}><FocusSection c={c} /></div>
+      <div className="dcc-area" style={{ gridArea: "focus" }}><NowSection c={c} /></div>
       <div className="dcc-area" style={{ gridArea: "next" }}><NextActions c={c} /></div>
       <div className="dcc-area" style={{ gridArea: "doing" }}><DoingBox c={c} /></div>
       {attn && <div className="dcc-area" style={{ gridArea: "attn" }}><Attention c={c} /></div>}
@@ -880,7 +856,6 @@ function DoingCard({ c, t }) {
   const running = c.timer && c.timer.running && c.timer.taskId === t.id;
   const ago = since(t.startedAt);
   const due = dueLabel(t, c.today);
-  const isFocus = c.focus.some(f => f.id === t.id);
   const meta = [ago ? `iniciada ${ago}` : null, evText(t) ? `🗓 ${evText(t)}` : null].filter(Boolean).join(" · ");
   return (
     <article className="dcc-dcard" aria-label={`Em andamento: ${t.text}`}>
@@ -889,7 +864,6 @@ function DoingCard({ c, t }) {
           <TagPill tag={areaOf(t)}>{areaOf(t)}</TagPill>
           <span className={`dcc-pill ${t.prio === "alta" ? "dcc-pill-alta" : "dcc-pill-neutral"}`}>{PRIO_SHORT[t.prio] || "Normal"}</span>
           {running && <span className="dcc-pill dcc-pill-ok">timer rodando</span>}
-          {isFocus && <span className="dcc-pill dcc-pill-plan">foco de hoje</span>}
         </span>
         {t.estimatedMinutes ? <span className="dcc-time">{L.fmtMin(t.estimatedMinutes)}</span> : null}
       </div>
@@ -1007,7 +981,7 @@ function InboxItem({ c, t }) {
       </div>
       <div className="dcc-btn-row">
         <button className="dcc-btn dcc-btn-primary" onClick={() => c.act.plan(t.id)}>Para hoje</button>
-        <button className="dcc-btn" onClick={() => c.act.focusAdd(t.id)}><Ic d="target" size={14} /> Foco de hoje</button>
+        <button className="dcc-btn" onClick={() => c.act.moveTo(t.id, "now")}><Ic d="target" size={14} /> De agora</button>
         <button className="dcc-btn" disabled={!date} onClick={() => c.act.defer(t.id, date)}>Agendar</button>
         <button className="dcc-btn" onClick={() => c.act.organize(t.id)}>Organizado (sem data)</button>
         <button className="dcc-btn" onClick={() => c.act.archive(t.id)}>Arquivar (Stand By)</button>
@@ -1187,7 +1161,7 @@ function HistoryView({ c }) {
       </div>
 
       <div className="dcc-card">
-        <div className="dcc-sec-head"><h2>Foco de hoje</h2><span className="dcc-pill dcc-pill-neutral">{Math.round(totalFocus)} min</span></div>
+        <div className="dcc-sec-head"><h2>Tempo em foco hoje</h2><span className="dcc-pill dcc-pill-neutral">{Math.round(totalFocus)} min</span></div>
         <div className="dcc-sub">Minutos em blocos do Modo Foco, por hora. Só conta quando você inicia o timer.</div>
         <div className="dcc-hours" role="img" aria-label={`Foco por hora: ${hours.filter(h => byHour[h]).map(h => `${h}h ${Math.round(byHour[h])} min`).join(", ") || "sem registros"}`}>
           {hours.map(h => <div key={h}><i title={`${Math.round(byHour[h] || 0)} min`} style={{ height: `${Math.min(100, ((byHour[h] || 0) / 60) * 100)}%` }} /><span>{h}h</span></div>)}
@@ -1225,25 +1199,14 @@ function PlanModal({ c, onClose }) {
   }, []);
   const [sel, setSel] = useState(() => Object.fromEntries(cands.map(t => [t.id, {
     plan: L.bucketOf(t, today) === "today", est: t.estimatedMinutes || "", next: t.nextAction || "",
-    ev: t.eventLink ? t.eventLink.id : "",
+    ev: t.eventLink ? t.eventLink.id : "", now: L.getStatus(t) === "now",
   }])));
   const [created, setCreated] = useState([]);
   const linkedIds = new Set([...created, ...tasks.filter(t => t.eventLink && !L.isDone(t)).map(t => t.eventLink.id)]);
-  const [focusIds, setFocusIds] = useState(() => L.focusTasks(tasks, today).filter(t => !L.isDone(t)).map(t => t.id));
   const [q, setQ] = useState("");
-  const lockedFocus = L.focusTasks(tasks, today).filter(L.isDone).length; // prioridades já concluídas continuam ocupando vaga
-  const maxFocus = L.MAX_FOCUS - lockedFocus;
   const patchSel = (id, p) => setSel(s => ({ ...s, [id]: { ...s[id], ...p } }));
-  const toggleFocus = id => {
-    if (focusIds.includes(id)) { setFocusIds(focusIds.filter(x => x !== id)); return; }
-    if (focusIds.length >= maxFocus) return;
-    setFocusIds([...focusIds, id]); patchSel(id, { plan: true });
-  };
-  const togglePlan = id => {
-    const on = !sel[id].plan;
-    patchSel(id, { plan: on });
-    if (!on) setFocusIds(f => f.filter(x => x !== id));
-  };
+  const toggleNow = id => { const on = !sel[id].now; patchSel(id, { now: on, ...(on ? { plan: true } : {}) }); };
+  const togglePlan = id => { const on = !sel[id].plan; patchSel(id, { plan: on, ...(on ? {} : { now: false }) }); };
   const apply = () => {
     c.mutate(p => {
       let out = p;
@@ -1256,10 +1219,12 @@ function PlanModal({ c, onClose }) {
           estimatedMinutes: s.est ? Math.max(1, Math.round(Number(s.est))) : null,
           nextAction: s.next.trim() || null,
           eventLink: !s.ev ? null : (c.agenda.events.find(e => String(e.id) === s.ev) ? L.eventLinkOf(c.agenda.events.find(e => String(e.id) === s.ev)) : t.eventLink || null),
-          ...(focusIds.includes(t.id) && s.plan ? { focusDate: today, focusOrder: 100 + focusIds.indexOf(t.id) } : { focusDate: null, focusOrder: null }),
+          // De agora ↔ De hoje (tarefas em andamento não mudam de coluna por aqui)
+          ...(s.plan && s.now && L.getStatus(t) !== "doing" ? { status: "now" } : {}),
+          ...(s.plan && !s.now && L.getStatus(t) === "now" ? { status: "today" } : {}),
         });
       });
-      return L.normalizeFocus(out, today);
+      return out;
     });
     c.saveReview({ plannedAt: new Date().toISOString() });
     c.flash("Dia planejado.");
@@ -1270,7 +1235,7 @@ function PlanModal({ c, onClose }) {
   const visible = cands.filter(t => !ql || t.text.toLowerCase().includes(ql) || (t.tags || []).some(x => x.toLowerCase().includes(ql)));
   return (
     <Sheet title="Planejar meu dia" onClose={onClose} footer={<>
-      <span className="dcc-sub" style={{ flex: 1, alignSelf: "center" }}>{planned} para hoje · {focusIds.length}/{maxFocus} no foco</span>
+      <span className="dcc-sub" style={{ flex: 1, alignSelf: "center" }}>{planned} para hoje · {Object.values(sel).filter(x => x.plan && x.now).length} em De agora</span>
       <button className="dcc-btn" onClick={onClose}>Cancelar</button>
       <button className="dcc-btn dcc-btn-primary" onClick={apply}>Confirmar planejamento</button>
     </>}>
@@ -1297,19 +1262,19 @@ function PlanModal({ c, onClose }) {
         </div>
       </div>
       <div className="dcc-field">
-        <span className="dcc-label">Escolha o que entra no dia — e até {maxFocus} prioridades (★)</span>
+        <span className="dcc-label">Escolha o que entra no dia — e o que é De agora (⚡)</span>
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar tarefa ou tag…" aria-label="Buscar tarefas" />
       </div>
       {visible.length === 0 && <Empty title="Nenhuma tarefa para planejar.">Capture tarefas ou crie pela aba “Todas as Tarefas”.</Empty>}
       {visible.slice(0, 40).map(t => {
-        const s = sel[t.id]; const fi = focusIds.indexOf(t.id); const late = L.needsAttention([t], today).length > 0;
+        const s = sel[t.id]; const late = L.needsAttention([t], today).length > 0;
         return (
           <div key={t.id} className={`dcc-plan-row${s.plan ? " is-on" : ""}`}>
             <div className="dcc-plan-head">
               <label><input type="checkbox" checked={s.plan} onChange={() => togglePlan(t.id)} /> <span>{t.text}</span></label>
               {late && <span className="dcc-pill dcc-pill-doing">atenção</span>}
               {L.bucketOf(t, today) === "inbox" && <span className="dcc-pill dcc-pill-neutral">caixa de entrada</span>}
-              <button className="dcc-star" aria-pressed={fi >= 0} onClick={() => toggleFocus(t.id)} disabled={fi < 0 && focusIds.length >= maxFocus}>{fi >= 0 ? `★ ${fi + 1}` : "☆ Foco"}</button>
+              {L.getStatus(t) !== "doing" && <button className="dcc-star" aria-pressed={s.now} onClick={() => toggleNow(t.id)}>{s.now ? "⚡ De agora" : "⚡ Marcar De agora"}</button>}
             </div>
             {s.plan && (
               <div className="dcc-plan-extra">
@@ -1437,22 +1402,21 @@ function CloseModal({ c, onClose }) {
   );
 }
 
-// seletor simples para preencher uma vaga do foco
+// seletor para trazer uma tarefa para a coluna De agora
 function Picker({ c, onClose }) {
   const [q, setQ] = useState("");
   const ql = q.trim().toLowerCase();
-  const focusIds = c.focus.map(t => t.id);
-  const list = c.tasks.filter(t => !L.isDone(t) && !focusIds.includes(t.id) && ["today", "stale", "backlog", "inbox", "future"].includes(L.bucketOf(t, c.today))
+  const list = c.tasks.filter(t => !L.isDone(t) && L.getStatus(t) !== "now" && ["today", "stale", "backlog", "inbox", "future"].includes(L.bucketOf(t, c.today))
     && (!ql || t.text.toLowerCase().includes(ql) || (t.tags || []).some(x => x.toLowerCase().includes(ql))))
     .sort((a, b) => (L.bucketOf(a, c.today) === "today" ? 0 : 1) - (L.bucketOf(b, c.today) === "today" ? 0 : 1) || new Date(b.date) - new Date(a.date)).slice(0, 40);
   return (
-    <Sheet title="Escolher prioridade de hoje" onClose={onClose}>
+    <Sheet title="Trazer tarefa para De agora" onClose={onClose}>
       <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar tarefa ou tag…" aria-label="Buscar tarefas" style={{ marginBottom: 10 }} />
       {list.length === 0 && <Empty title="Nenhuma tarefa encontrada.">Capture uma nova ou ajuste a busca.</Empty>}
       {list.map(t => (
         <div key={t.id} className="dcc-li" style={{ padding: "10px 0" }}>
-          <div className="dcc-li-main"><div className="dcc-li-title" style={{ fontSize: 14 }}>{t.text}</div><div className="dcc-li-meta">{areaOf(t)} · {PRIO_SHORT[t.prio] || "Normal"}{L.bucketOf(t, c.today) === "today" ? " · já está no dia" : ""}</div></div>
-          <button className="dcc-btn dcc-btn-primary" onClick={() => { c.act.focusAdd(t.id); onClose(); }}>Escolher</button>
+          <div className="dcc-li-main"><div className="dcc-li-title" style={{ fontSize: 14 }}>{t.text}</div><div className="dcc-li-meta">{areaOf(t)} · {PRIO_SHORT[t.prio] || "Normal"}{L.getStatus(t) === "doing" ? " · em andamento" : L.bucketOf(t, c.today) === "today" ? " · já está no dia" : ""}</div></div>
+          <button className="dcc-btn dcc-btn-primary" onClick={() => { c.act.moveTo(t.id, "now"); onClose(); }}>Trazer</button>
         </div>
       ))}
     </Sheet>
@@ -1462,7 +1426,7 @@ function Picker({ c, onClose }) {
 // ─── contêiner ───────────────────────────────────────────────────────────────
 const TABS = [["day", "Meu Dia"], ["doing", "Em Andamento"], ["inbox", "Caixa de Entrada"], ["upcoming", "Próximos Dias"], ["all", "Todas as Tarefas"], ["history", "Histórico"]];
 
-export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }) {
+function DailyCenterInner({ tasks, setTasks, board, synced, sync, ui }) {
   const { useKV, pedroNotify } = ui;
   const [view, setView] = useState("day");
   const [today, setToday] = useState(() => L.dateStr());
@@ -1476,6 +1440,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
   const [picker, setPicker] = useState(false);
   const [capOpen, setCapOpen] = useState(false);
   const [focusOn, setFocusOn] = useState(null);
+  const [focusQueue, setFocusQueue] = useState([]);
   const [sort, setSort] = useState("padrao");
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
@@ -1489,6 +1454,13 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   const mutate = fn => setTasks(prev => fn(prev));
+  // Ao iniciar uma tarefa De agora, a fila do Modo Foco são as demais tarefas De agora; de outros lugares, só ela mesma.
+  const openFocus = id => {
+    const was = tasksRef.current.find(t => t.id === id);
+    const others = tasksRef.current.filter(t => t.id !== id && L.getStatus(t) === "now" && !L.isDone(t)).map(t => t.id);
+    setFocusQueue(was && L.getStatus(was) === "now" ? [id, ...others] : [id]);
+    setFocusOn(id);
+  };
   const byId = id => tasksRef.current.find(t => t.id === id);
   const flash = (msg, undo) => {
     clearTimeout(toastTimer.current);
@@ -1524,19 +1496,10 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
       mutate(p => L.deferTask(p, id, to, today));
       flash(`Adiada para ${to === L.addDays(today, 1) ? "amanhã" : shortDate(to)}.`, () => mutate(p => L.restoreTask(p, old)));
     },
-    focusAdd: id => {
-      let full = false;
-      mutate(p => { const n = L.setFocus(p, id, today); if (!n) { full = true; return p; } return n; });
-      if (full) flash("Você já tem 3 prioridades hoje. Tire uma para escolher outra.");
-      return !full;
-    },
-    focusRemove: id => mutate(p => L.removeFocus(p, id, today)),
-    moveFocus: (id, dir) => mutate(p => L.moveFocus(p, id, dir, today)),
-    reorderFocus: (from, to) => mutate(p => L.reorderFocus(p, from, to, today)),
     organize: id => mutate(p => L.patchTask(p, id, { inbox: false })),
     archive: id => {
       const old = byId(id); if (!old) return;
-      mutate(p => L.patchTask(L.removeFocus(p, id, today), id, { status: "standby", inbox: false, plannedDate: null, done: false }));
+      mutate(p => L.patchTask(p, id, { status: "standby", inbox: false, plannedDate: null, done: false, focusDate: null, focusOrder: null }));
       flash("Arquivada em Stand By.", () => mutate(p => L.restoreTask(p, old)));
     },
     remove: id => {
@@ -1581,7 +1544,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
 
   const summary = L.daySummary(tasks, today);
   const counts = L.statusCounts(tasks, today);
-  const focus = L.focusTasks(tasks, today);
+  const nowTasks = sortActions(tasks.filter(t => L.getStatus(t) === "now"), "prio", today);
   const inboxCount = tasks.filter(t => L.bucketOf(t, today) === "inbox").length;
   const doingCount = counts.doing;
   const agenda = useAgenda(today, events, ui);
@@ -1589,9 +1552,9 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
   const prevNote = prevKey ? reviews[prevKey].firstTomorrow : "";
 
   const c = {
-    tasks, today, summary, counts, focus, allTags, agenda, prevNote, timer, timerRef, setTimer, reviews: reviews || {}, focusLog: Array.isArray(focusLog) ? focusLog : [],
+    tasks, today, summary, counts, nowTasks, allTags, agenda, prevNote, timer, timerRef, setTimer, reviews: reviews || {}, focusLog: Array.isArray(focusLog) ? focusLog : [],
     synced, sort, setSort, act, mutate, flash, saveReview, logFocus,
-    setEditId, setRitual, setPicker, setFocusOn, setView,
+    setEditId, setRitual, setPicker, setFocusOn: openFocus, setView,
     patch: (id, p) => mutate(prev => L.patchTask(prev, id, p)),
   };
 
@@ -1642,7 +1605,7 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
           onSave={patch => { mutate(p => L.patchTask(p, editing.id, patch)); setEditId(null); }}
           onDelete={() => { setEditId(null); act.remove(editing.id); }} />
       )}
-      {focusOn && <FocusMode c={c} startId={focusOn} onClose={() => setFocusOn(null)} />}
+      {focusOn && <FocusMode c={c} startId={focusOn} queue={focusQueue} onClose={() => setFocusOn(null)} />}
       {toast && (
         <Portal>
           <div className="dcc-toast" role="status">
@@ -1653,4 +1616,28 @@ export default function DailyCenter({ tasks, setTasks, board, synced, sync, ui }
       )}
     </div>
   );
+}
+
+// Se qualquer tela desta aba falhar ao renderizar, só ela cai: o resto do painel segue funcionando
+// e o Kanban continua acessível como alternativa.
+class DailyBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { try { console.error("[Tarefas] erro de renderização:", error, info && info.componentStack); } catch { /* sem console */ } }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="dcc">
+        <div className="dcc-banner" role="alert">
+          <span><b>Algo deu errado na aba Tarefas.</b> O restante do painel continua funcionando. Suas tarefas não foram alteradas. <span className="dcc-sub">({String(this.state.error && this.state.error.message || this.state.error).slice(0, 120)})</span></span>
+          <button className="dcc-btn" onClick={() => this.setState({ error: null })}>Tentar de novo</button>
+        </div>
+        {this.props.board}
+      </div>
+    );
+  }
+}
+
+export default function DailyCenter(props) {
+  return <DailyBoundary board={props.board}><DailyCenterInner {...props} /></DailyBoundary>;
 }
