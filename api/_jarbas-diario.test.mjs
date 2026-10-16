@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { cmdAnotarDiario, cmdDesfazerDiario, cmdCorrigirDiario, isEligibleJarbasEntry } from "./jarbas.js";
 
+// O Diário do Jarbas guarda o log por dia no fuso de São Paulo (jarbas_log_YYYY-MM-DD). "Hoje" no teste
+// tem que ser calculado no mesmo fuso: com toISOString() (UTC) o teste falhava entre 21h e 00h de Brasília,
+// quando o dia UTC já virou. Calculado aqui de forma independente (não reusa a função do código testado).
+function hojeSaoPaulo() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
 // Mock mínimo do `sql` (tagged template do @neondatabase/serverless) — só o suficiente
 // pra getKvList/setKvList (sobrescreve) e appendLogDia (concatena jsonb), que é tudo que
 // os comandos de diário usam.
@@ -85,7 +92,7 @@ const getList = (store, key) => JSON.parse(store.get(key) || "[]");
   assert.equal(trash[0].text, "anotação incompleta no seu");
   assert.ok(trash[0].deletedAt);
 
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeSaoPaulo();
   const log = getList(store, `jarbas_log_${hoje}`);
   assert.equal(log.length, 1, "registra o desfazer no Diário do Jarbas (log de atividade)");
   assert.equal(log[0].tipo, "acao_pedida");
@@ -128,7 +135,7 @@ const getList = (store, key) => JSON.parse(store.get(key) || "[]");
   assert.equal(entries[0].edicoes[0].textoAnterior, "estamos fazendo um update no seu sistema");
   assert.ok(entries[0].edicoes[0].em);
 
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = hojeSaoPaulo();
   const log = getList(store, `jarbas_log_${hoje}`);
   assert.equal(log.length, 1, "registra a correção no Diário do Jarbas (log de atividade)");
 }
