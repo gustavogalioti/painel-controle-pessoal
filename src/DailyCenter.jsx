@@ -110,7 +110,7 @@ const DEST_KEY = "dcc_capture_dest_v1"; // lembra o último destino escolhido (p
 const DEST_OPTIONS = [["inbox", "Caixa de entrada"], ...L.MOVE_OPTIONS.map(v => [v, L.STATUS_LABEL[v]])];
 const loadDest = () => { try { const v = localStorage.getItem(DEST_KEY); return DEST_OPTIONS.some(o => o[0] === v) ? v : "inbox"; } catch { return "inbox"; } };
 
-function CaptureCard({ tags, onSave, autoFocus }) {
+function CaptureCard({ tags, onSave, autoFocus, inline }) {
   const [dest, setDestState] = useState(loadDest);
   const setDest = v => { setDestState(v); try { localStorage.setItem(DEST_KEY, v); } catch { /* sem storage */ } };
   const destLabel = DEST_OPTIONS.find(o => o[0] === dest)[1];
@@ -127,10 +127,10 @@ function CaptureCard({ tags, onSave, autoFocus }) {
     if (inputRef.current) inputRef.current.focus();
   };
   return (
-    <section className="dcc-capture" aria-label="Adicionar tarefa">
+    <section className={`dcc-capture${inline ? " dcc-capture-inline" : ""}`} aria-label="Adicionar tarefa">
       <div className="dcc-capture-head">
         <span><Ic d="plusCircle" size={18} /> Adicionar tarefa</span>
-        <span className="dcc-pill">Rápido</span>
+        {!inline && <span className="dcc-pill">Rápido</span>}
       </div>
       <div className="dcc-capture-body">
         <label htmlFor="dcc-cap-text">O que você precisa fazer?</label>
@@ -471,6 +471,7 @@ function Hero({ c }) {
         </div>
         <div className="dcc-sun" aria-hidden="true"><Ic d={hour >= 18 || hour < 5 ? "moon" : "sun"} size={26} /></div>
       </div>
+      <CaptureCard inline tags={c.allTags} onSave={c.act.capture} />
       <hr />
       <div className="dcc-stats dcc-stats-5">
         <div className="dcc-stat"><b style={{ color: "#dc2626" }}>{pad(n.now)}</b><span>De agora</span></div>
@@ -608,16 +609,16 @@ function MoveSelect({ c, t }) {
 }
 
 // Linha de atualizações: escreve, clica ">" (ou Enter) e a atualização sobe no card da tarefa
-function UpdatesLine({ c, t }) {
+function UpdatesLine({ c, t, compact }) {
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
   const list = [...(t.updates || [])].reverse(); // mais recente primeiro
-  const shown = open ? list : list.slice(0, 1);
+  const shown = compact ? [] : open ? list : list.slice(0, 1);
   const send = () => { if (!text.trim()) return; c.act.addUpdate(t.id, text); setText(""); };
   return (
     <div className="dcc-upd">
       {shown.map((u, i) => <div className="dcc-upd-item" key={`${u.at || u.date}-${i}`}><span>{u.text}</span><time>{u.date}</time></div>)}
-      {list.length > 1 && <button className="dcc-link" onClick={() => setOpen(o => !o)}>{open ? "Ocultar anteriores" : `Ver ${list.length - 1} ${list.length === 2 ? "anterior" : "anteriores"}`}</button>}
+      {!compact && list.length > 1 && <button className="dcc-link" onClick={() => setOpen(o => !o)}>{open ? "Ocultar anteriores" : `Ver ${list.length - 1} ${list.length === 2 ? "anterior" : "anteriores"}`}</button>}
       <div className="dcc-upd-input">
         <input value={text} onChange={e => setText(e.target.value)} placeholder="Escreva uma atualização…" aria-label={`Atualização: ${t.text}`}
           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); send(); } }} />
@@ -689,14 +690,66 @@ const since = iso => {
   const h = Math.floor(m / 60);
   return h < 24 ? `há ${h} h` : `há ${Math.floor(h / 24)} d`;
 };
-function DoingBox({ c }) {
-  const items = c.tasks.filter(t => L.getStatus(t) === "doing")
-    .sort((a, b) => new Date(b.startedAt || b.date) - new Date(a.startedAt || a.date));
+// Relógio ao vivo só para a tarefa com timer rodando
+function RunningClock({ tm }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const id = setInterval(() => tick(n => n + 1), 1000); return () => clearInterval(id); }, []);
+  return <>{fmtClock(L.timerElapsedMs(tm))}</>;
+}
+
+function DoingItem({ c, t }) {
   const tm = c.timer || {};
+  const running = tm.running && tm.taskId === t.id;
+  const ago = since(t.startedAt);
+  const steps = t.steps || [];
+  const doneN = steps.filter(x => x.done).length;
+  const pct = steps.length ? Math.round((doneN / steps.length) * 100) : 0;
+  const due = dueLabel(t, c.today);
+  const lastUpd = (t.updates || []).slice(-1)[0];
   return (
-    <section className="dcc-card" aria-labelledby="dcc-doing-h">
+    <article className={`dcc-doing-item${running ? " is-running" : ""}`} aria-label={`Em andamento: ${t.text}`}>
+      <div className="dcc-row-top">
+        <span style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <TagPill tag={areaOf(t)}>{areaOf(t)}</TagPill>
+          <span className={`dcc-pill ${t.prio === "alta" ? "dcc-pill-alta" : "dcc-pill-neutral"}`}>{PRIO_SHORT[t.prio] || "Normal"}</span>
+          {running && <span className="dcc-pill dcc-pill-ok"><span className="dcc-live" aria-hidden="true" /> timer <RunningClock tm={tm} /></span>}
+        </span>
+        <span className="dcc-time">{[ago ? `iniciada ${ago}` : null, t.estimatedMinutes ? L.fmtMin(t.estimatedMinutes) : null].filter(Boolean).join(" · ")}</span>
+      </div>
+      <div className="dcc-title"><button onClick={() => c.setEditId(t.id)}>{t.text}</button></div>
+      {(due || evText(t)) && <div className="dcc-li-meta" style={{ marginBottom: 6 }}>{evText(t) ? `🗓 ${evText(t)}` : ""}{evText(t) && due ? " · " : ""}{due && <span className={due.late ? "dcc-due-late" : ""}>{due.text}</span>}</div>}
+      {steps.length > 0 && (
+        <div className="dcc-doing-steps" aria-label={`${doneN} de ${steps.length} passos`}>
+          <div className="dcc-bar" style={{ height: 8 }} role="progressbar" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={doneN} aria-label="Passos concluídos"><i style={{ width: `${pct}%`, background: "var(--d-ok)" }} /></div>
+          <span>{doneN}/{steps.length} passos</span>
+        </div>
+      )}
+      <div className="dcc-next-pill">
+        <Ic d="arrow" size={15} />
+        {t.nextAction
+          ? <span><small>Próxima ação</small>{t.nextAction}</span>
+          : <button className="dcc-btn" style={{ padding: "2px 9px" }} onClick={() => c.setEditId(t.id)}>+ Definir próxima ação</button>}
+      </div>
+      {lastUpd && <div className="dcc-upd-last" title="Última atualização">💬 {lastUpd.text} <time>{lastUpd.date}</time></div>}
+      <UpdatesLine c={c} t={t} compact />
+      <div className="dcc-doing-actions">
+        <button className="dcc-btn dcc-btn-doing" onClick={() => c.setFocusOn(t.id)}><Ic d="play" size={13} /> Continuar</button>
+        <button className="dcc-btn" style={{ color: "var(--d-ok)", borderColor: "#bfe6d6" }} title="Concluir" aria-label={`Concluir: ${t.text}`} onClick={() => c.act.complete(t.id)}><Ic d="check" size={14} /> Concluir</button>
+        <button className="dcc-ico" title="Devolver para De Hoje" aria-label={`Devolver para De Hoje: ${t.text}`} onClick={() => c.act.pause(t.id)}><Ic d="pause" size={14} /></button>
+      </div>
+    </article>
+  );
+}
+
+function DoingBox({ c }) {
+  const [expanded, setExpanded] = useState(false);
+  const items = c.tasks.filter(t => L.getStatus(t) === "doing")
+    .sort((a, b) => L.lastActivity(b) - L.lastActivity(a));
+  const shown = expanded ? items : items.slice(0, 2);
+  return (
+    <section className="dcc-card dcc-doing-box" aria-labelledby="dcc-doing-h">
       <div className="dcc-sec-head">
-        <h2 id="dcc-doing-h">Em andamento</h2>
+        <h2 id="dcc-doing-h">{items.length > 0 && <span className="dcc-live" aria-hidden="true" />}Em andamento</h2>
         <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span className="dcc-pill dcc-pill-doing">{items.length} em execução</span>
           <button className="dcc-btn" style={{ padding: "3px 10px" }} onClick={() => c.setView("doing")}>Abrir aba</button>
@@ -704,34 +757,14 @@ function DoingBox({ c }) {
       </div>
       <div className="dcc-sub">O que está correndo agora e o que fazer em seguida.</div>
       {items.length === 0 ? (
-        <Empty title="Nada em andamento.">Toque em ▶ numa tarefa para começar — ela aparece aqui.</Empty>
-      ) : (
-        <div className="dcc-list">
-          {items.map(t => {
-            const steps = stepsInfo(t);
-            const running = tm.running && tm.taskId === t.id;
-            const ago = since(t.startedAt);
-            const meta = [areaOf(t), t.estimatedMinutes ? L.fmtMin(t.estimatedMinutes) : null, ago ? `iniciada ${ago}` : null, steps].filter(Boolean).join(" · ");
-            return (
-              <div className="dcc-li" key={t.id}>
-                <span className="dcc-li-ico" style={{ color: "#c8602a" }}><Ic d={running ? "clock" : "play"} size={19} /></span>
-                <div className="dcc-li-main">
-                  <div className="dcc-li-title"><button onClick={() => c.setEditId(t.id)}>{t.text}</button></div>
-                  <div className="dcc-li-meta">{meta}{running && <> · <b style={{ color: "var(--d-ok)" }}>timer rodando</b></>}</div>
-                  <div className="dcc-li-meta" style={{ marginTop: 3 }}>
-                    {t.nextAction ? <>Próxima ação: <b style={{ color: "var(--d-text)", fontWeight: 600 }}>{t.nextAction}</b></> : <button className="dcc-btn" style={{ padding: "1px 8px" }} onClick={() => c.setEditId(t.id)}>+ Definir próxima ação</button>}
-                  </div>
-                </div>
-                <div className="dcc-li-right">
-                  <button className="dcc-btn dcc-btn-primary" style={{ padding: "5px 12px" }} onClick={() => c.setFocusOn(t.id)}>Continuar</button>
-                  <button className="dcc-ico" title="Concluir" aria-label={`Concluir: ${t.text}`} onClick={() => c.act.complete(t.id)}><Ic d="check" size={16} /></button>
-                  <button className="dcc-ico" title="Devolver para De Hoje" aria-label={`Devolver para De Hoje: ${t.text}`} onClick={() => c.act.pause(t.id)}><Ic d="pause" size={14} /></button>
-                </div>
-                <div className="dcc-li-below"><UpdatesLine c={c} t={t} /></div>
-              </div>
-            );
-          })}
+        <div className="dcc-doing-empty">
+          <span className="dcc-doing-empty-ico" aria-hidden="true"><Ic d="play" size={26} /></span>
+          <b>Nada em andamento.</b>
+          <span>Toque em ▶ numa tarefa de “De agora” ou “De hoje” — ela aparece aqui, com próxima ação e atualizações.</span>
         </div>
+      ) : shown.map(t => <DoingItem key={t.id} c={c} t={t} />)}
+      {items.length > 2 && (
+        <button className="dcc-btn dcc-btn-ghost" style={{ marginTop: 12 }} onClick={() => setExpanded(e => !e)}>{expanded ? "Mostrar menos" : `Ver todas (${items.length})`}</button>
       )}
     </section>
   );
@@ -759,14 +792,13 @@ function Attention({ c }) {
 
 function DayView({ c }) {
   const attn = L.needsAttention(c.tasks, c.today).length > 0;
-  // Desktop: [resumo | adicionar] / [foco | próximas ações] / [em andamento | atenção]. Mobile: tudo empilhado nessa ordem.
+  // Desktop: [resumo + adicionar tarefa | em andamento] / [de agora | de hoje] / [atenção]. Mobile: empilha nessa ordem.
   return (
     <div className="dcc-day">
       <div className="dcc-area" style={{ gridArea: "hero" }}><Hero c={c} /></div>
-      <div className="dcc-area" style={{ gridArea: "add" }}><CaptureCard tags={c.allTags} onSave={c.act.capture} /></div>
+      <div className="dcc-area" style={{ gridArea: "doing" }}><DoingBox c={c} /></div>
       <div className="dcc-area" style={{ gridArea: "focus" }}><NowSection c={c} /></div>
       <div className="dcc-area" style={{ gridArea: "next" }}><TodayBox c={c} /></div>
-      <div className="dcc-area" style={{ gridArea: "doing" }}><DoingBox c={c} /></div>
       {attn && <div className="dcc-area" style={{ gridArea: "attn" }}><Attention c={c} /></div>}
     </div>
   );
