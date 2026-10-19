@@ -27,7 +27,7 @@
   .dcc-day {
     display: grid; gap: 0 22px; align-items: stretch;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-    grid-template-areas: "hero add" "focus next" "doing attn";
+    grid-template-areas: "hero doing" "focus next" "attn attn";
   }
 }
 .dcc *, .dcc-portal * { box-sizing: border-box; }
@@ -123,6 +123,37 @@
 .dcc-feed { max-height: 280px; overflow-y: auto; padding-right: 2px; }
 .dcc-dactions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; border-top: 1px solid var(--d-divider); padding-top: 12px; margin-top: 4px; }
 .dcc-dactions .dcc-move { max-width: 150px; }
+
+/* ── adicionar tarefa embutido no quadro da saudação ── */
+.dcc-capture.dcc-capture-inline { background: #fff; border: 1px solid #c3d9ec; color: var(--d-text); margin: 16px 0 0; padding: 12px 14px; border-radius: 14px; }
+.dcc-capture.dcc-capture-inline .dcc-capture-head { color: var(--d-navy); margin-bottom: 6px; font-size: 14px; }
+.dcc-capture.dcc-capture-inline .dcc-capture-body { padding: 0; background: transparent; border-radius: 0; }
+.dcc-capture.dcc-capture-inline .dcc-capture-body label { margin-bottom: 4px; }
+.dcc-capture.dcc-capture-inline .dcc-capture-foot { color: var(--d-text-2); margin-top: 8px; }
+
+/* ── Em andamento visual ── */
+@keyframes dcc-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(232,135,58,.55); } 50% { box-shadow: 0 0 0 7px rgba(232,135,58,0); } }
+.dcc-live { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #e8873a; margin-right: 8px; vertical-align: 1px; animation: dcc-pulse 1.8s infinite; }
+.dcc-pill-ok .dcc-live { background: var(--d-ok); margin-right: 4px; width: 7px; height: 7px; }
+.dcc-doing-box { background: linear-gradient(180deg, #fffaf5 0, #fff 120px); border-color: #f6dcc4; }
+.dcc-doing-item { border: 1px solid #f3d3b8; border-left: 5px solid #e8873a; background: linear-gradient(135deg, #fff6ec, #fff 70%); border-radius: 14px; padding: 14px 16px; margin-top: 12px; }
+.dcc-doing-item.is-running { border-color: #bfe6d6; border-left-color: var(--d-ok); background: linear-gradient(135deg, #effaf5, #fff 70%); }
+.dcc-doing-item .dcc-title { font-size: 17px; margin: 10px 0 4px; }
+.dcc-doing-steps { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 12.5px; color: var(--d-text-2); font-weight: 600; white-space: nowrap; }
+.dcc-doing-steps .dcc-bar { flex: 1; }
+.dcc-next-pill { display: flex; gap: 8px; align-items: flex-start; background: #ffeede; color: #7a3b10; border-radius: 10px; padding: 8px 12px; font-size: 13.5px; margin: 8px 0; }
+.dcc-next-pill svg { flex-shrink: 0; margin-top: 2px; color: #c8602a; }
+.dcc-next-pill small { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; opacity: .75; }
+.dcc-upd-last { font-size: 12.5px; color: var(--d-text-2); margin: 6px 0 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dcc-upd-last time { font-size: 11px; opacity: .8; margin-left: 4px; }
+.dcc-doing-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.dcc-btn-doing { background: #e8873a; border-color: #e8873a; color: #fff; }
+.dcc-btn-doing:hover { background: #d4762b; }
+.dcc-doing-item.is-running .dcc-btn-doing { background: var(--d-ok); border-color: var(--d-ok); }
+.dcc-doing-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 26px 12px; color: var(--d-text-2); font-size: 13.5px; }
+.dcc-doing-empty b { color: var(--d-navy); font-size: 15px; }
+.dcc-doing-empty-ico { width: 56px; height: 56px; border-radius: 50%; background: #ffeede; color: #e8873a; display: flex; align-items: center; justify-content: center; }
+@media (prefers-reduced-motion: reduce) { .dcc-live { animation: none; } }
 
 /* ── botões ── */
 .dcc-btn { border: 1px solid var(--d-border); background: #fff; color: var(--d-text); border-radius: 10px; padding: 8px 14px; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
