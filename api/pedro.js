@@ -2,6 +2,7 @@ export const config = { runtime: "edge" };
 import { neon } from "@neondatabase/serverless";
 import { getValidToken as getGoogleToken, ensureTable as ensureGoogleAuthTable } from "./google-calendar.js";
 import { requireSession } from "./_auth-lib.js";
+import { pedroAtivo } from "./_pedro-standby.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // PEDRO (Painel) — assistente IA do Painel de Controle Pessoal.
@@ -894,6 +895,13 @@ export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   if (!(await requireSession(req))) {
     return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: CORS });
+  }
+
+  // Pedro em stand by (ver docs/PEDRO-STANDBY.md): responde ANTES de abrir
+  // qualquer conexão com o Neon, chamar o LLM ou mexer em push — nenhuma
+  // action (chat, push_subscribe/unsubscribe, admin_*) escapa disso.
+  if (!pedroAtivo()) {
+    return new Response(JSON.stringify({ standby: true, reply: "O Pedro está em stand by." }), { headers: CORS });
   }
 
   try {

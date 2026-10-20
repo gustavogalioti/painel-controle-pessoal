@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import DailyCenter from "./DailyCenter.jsx";
+import { PEDRO_ATIVO } from "./pedro-standby.js";
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 const Icon = ({ path, size = 18, color = "currentColor" }) => (
@@ -118,7 +119,12 @@ const KV = {
 };
 
 // ── Pedro — barramento leve de eventos (páginas avisam, o widget reage) ──────
+// Em stand by (PEDRO_ATIVO=false), isso é um no-op: as páginas continuam
+// chamando pedroNotify sem erro, só que o evento nunca é disparado de fato
+// (e, de qualquer forma, não há mais ninguém ouvindo "pedro:event" com o
+// PedroWidget desmontado).
 const pedroNotify = (type, payload) => {
+  if (!PEDRO_ATIVO) return;
   try { window.dispatchEvent(new CustomEvent("pedro:event", { detail: { type, payload } })); } catch {}
 };
 
@@ -9361,7 +9367,7 @@ function AppContent() {
         <span style={{fontSize:10,color:"var(--border)"}}>{new Date().toLocaleDateString("pt-BR")}</span>
       </footer>
 
-      <PedroWidget page={page}/>
+      {PEDRO_ATIVO && <PedroWidget page={page}/>}
     </div>
   );
 }
