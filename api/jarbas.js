@@ -167,6 +167,65 @@ async function getAgendaOnlyText(sql, dia) {
   return agendaLine(diaLabel, diaEventos);
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// PARTE D (Jarbas): consulta de agenda por data/intervalo arbitrário — generaliza
+// getAgendaDiaData (que só sabia "hoje"/"amanhã") pra qualquer data ou período de até
+// AGENDA_RANGE_MAX_DIAS, reaproveitando os MESMOS buscadores (local/Google/Outlook) por
+// dia, em paralelo. Só leitura — nada escreve. Usado por ?action=agenda&data=...&ate=...
+// mantendo o endpoint/parâmetro antigo (dia=hoje|amanha) intactos pra não quebrar nada.
+// ─────────────────────────────────────────────────────────────────────────
+const AGENDA_RANGE_MAX_DIAS = 14;
+
+export function diasEntre(dataInicio, dataFim) {
+  const dias = [];
+  let atual = dataInicio;
+  let guard = 0;
+  while (atual <= dataFim && guard < AGENDA_RANGE_MAX_DIAS) {
+    dias.push(atual);
+    atual = addDaysISO(atual, 1);
+    guard++;
+  }
+  return dias;
+}
+
+export function weekdayLabel(dataISO) {
+  const dt = new Date(`${dataISO}T12:00:00-03:00`); // meio-dia evita qualquer borda de fuso
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long" }).format(dt);
+}
+
+async function getEventosDoDia(sql, dataISO) {
+  const [events, googleEventos, outlookEventos] = await Promise.all([
+    getKvList(sql, "events_v1"),
+    getGoogleEventosDia(sql, dataISO), getOutlookEventosDia(sql, dataISO),
+  ]);
+  const localDia = events.filter((e) => e.date === dataISO).map((e) => ({ title: e.title, time: e.time || "" }));
+  return [...localDia, ...googleEventos, ...outlookEventos]
+    .sort((a, b) => (a.time || "").localeCompare(b.time || ""))
+    .map((e) => ({ date: dataISO, time: e.time || "", title: e.title }));
+}
+
+// Devolve { texto, eventos }. Um dia só mantém o MESMO formato de texto que
+// agendaLine/getAgendaOnlyText já produzem (pra parseAgendaTexto, do lado do Worker,
+// continuar funcionando sem mudar); um intervalo de vários dias agrupa por dia.
+export async function getAgendaPorDataText(sql, dataInicio, dataFim) {
+  const dias = diasEntre(dataInicio, dataFim || dataInicio);
+  const porDia = await Promise.all(dias.map((d) => getEventosDoDia(sql, d)));
+  const eventos = porDia.flat();
+  if (dias.length <= 1) {
+    const label = dataInicio === todayISO() ? "hoje" : weekdayLabel(dataInicio);
+    const texto = agendaLine(label, eventos.map((e) => ({ title: e.title, time: e.time })));
+    return { texto, eventos };
+  }
+  const texto = dias.map((d, i) => {
+    const doDia = porDia[i];
+    const label = `${weekdayLabel(d)} (${d.slice(8, 10)}/${d.slice(5, 7)})`;
+    return doDia.length
+      ? `${label}: ${doDia.map((e) => `${e.time ? e.time + " " : ""}${e.title}`).join("; ")}`
+      : `${label}: livre`;
+  }).join(". ");
+  return { texto, eventos };
+}
+
 async function getSnapshotText(sql, dia) {
   const [{ diaLabel, diaEventos }, tasks, finance] = await Promise.all([
     getAgendaDiaData(sql, dia), getKvList(sql, "tasks_v1"), getKvList(sql, "finance_v1"),
@@ -734,6 +793,15 @@ export default async function handler(req) {
       return new Response(JSON.stringify({ texto }), { headers: CORS });
     }
     if (req.method === "GET" && searchParams.get("action") === "agenda") {
+      // PARTE D (Jarbas): data/intervalo arbitrário, se vier `data` (AAAA-MM-DD) — o
+      // parâmetro antigo `dia` (hoje|amanha) continua funcionando quando `data` não vem.
+      const dataParam = searchParams.get("data") || "";
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dataParam)) {
+        const ateParam = searchParams.get("ate") || "";
+        const dataFim = /^\d{4}-\d{2}-\d{2}$/.test(ateParam) && ateParam >= dataParam ? ateParam : dataParam;
+        const { texto, eventos } = await getAgendaPorDataText(sql, dataParam, dataFim);
+        return new Response(JSON.stringify({ texto, eventos }), { headers: CORS });
+      }
       const texto = await getAgendaOnlyText(sql, searchParams.get("dia") || "");
       return new Response(JSON.stringify({ texto }), { headers: CORS });
     }
