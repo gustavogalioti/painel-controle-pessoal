@@ -3,6 +3,7 @@
 import { neon } from "@neondatabase/serverless";
 import webpush from "web-push";
 import { getValidToken as getGoogleToken, ensureTable as ensureGoogleAuthTable } from "./google-calendar.js";
+import { pedroAtivo } from "./_pedro-standby.js";
 
 async function getKvList(sql, key) {
   const rows = await sql`SELECT value FROM sync_kv WHERE key=${key}`;
@@ -77,6 +78,14 @@ export default async function handler(req, res) {
     res.status(401).json({ error: "não autorizado" });
     return;
   }
+
+  // Pedro em stand by (ver docs/PEDRO-STANDBY.md): responde ANTES de abrir
+  // qualquer conexão com o Neon, Google Calendar ou web-push.
+  if (!pedroAtivo()) {
+    res.status(200).json({ ok: true, standby: true });
+    return;
+  }
+
   if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
     res.status(500).json({ error: "VAPID keys não configuradas" });
     return;
