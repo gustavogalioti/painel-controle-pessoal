@@ -3273,6 +3273,7 @@ const JARBAS_NAV = [
   { id: "geral", label: "Visão geral", items: [{ id: "visao", label: "Visão geral" }] },
   { id: "memoria", label: "Memória", items: [
     { id: "itens", label: "O que o Jarbas lembra" },
+    { id: "perfil", label: "O que o Jarbas sabe de mim" },
     { id: "conhecimento", label: "Conhecimento" },
     { id: "diario", label: "Diário do Jarbas" },
   ] },
@@ -3373,7 +3374,7 @@ function JarbasVisaoGeralTab({ mem, recados, onNavigate }) {
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
         {[
-          ["itens", "💭 Ver memória"], ["config", "🌙 Rotina e avisos"], ["aparencia", "🎨 Aparência"],
+          ["itens", "💭 Ver memória"], ["perfil", "🪞 O que o Jarbas sabe de mim"], ["config", "🌙 Rotina e avisos"], ["aparencia", "🎨 Aparência"],
           ["criacoes", "🖼️ Criações"], ["diario", "📖 Diário do Jarbas"],
         ].map(([id, label]) => (
           <button key={id} onClick={() => onNavigate(id)}
@@ -3448,6 +3449,252 @@ function JarbasMemoriaItensTab({ mem, setMem }) {
         );
       })}
     </JarbasSectionCard>
+  );
+}
+
+// ─── Perfil vivo: "O que o Jarbas sabe de mim" ───────────────────────────────
+// mem.perfil é montado pelo PRÓPRIO Worker (consolidação diária) — aqui o Gustavo
+// edita por cima: item novo/editado vira fonte:"manual" (a consolidação nunca toca),
+// item apagado vira entrada em mem.perfilVetos (a consolidação nunca volta a trazer
+// algo equivalente). Mesmas 5 categorias e mesmo limite de 1.500 caracteres que o
+// Worker usa (ver worker/index.js PARTE H) — reimplementado aqui só pro aviso da UI,
+// a garantia de verdade continua sendo o corte do lado do Worker na consolidação.
+const JARBAS_PERFIL_CATEGORIAS = [
+  { id: "pessoal", label: "Pessoal" },
+  { id: "profissional", label: "Profissional" },
+  { id: "emFoco", label: "Em foco agora" },
+  { id: "planos", label: "Planos" },
+  { id: "preocupacoes", label: "Preocupações" },
+];
+const JARBAS_PERFIL_LIMITE_CHARS = 1500;
+const JARBAS_PERFIL_FONTE_LABELS = { conversa: "conversa", painel: "painel", diario: "diário", manual: "você" };
+
+function perfilVazioLocal() {
+  return { pessoal: [], profissional: [], emFoco: [], planos: [], preocupacoes: [], humorRecente: "", atualizadoEm: null };
+}
+
+// Mesma normalização do Worker (normalizeText): minúsculas, sem acento, sem pontuação.
+function normalizarTextoPerfil(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Mesma regra do Worker (adicionarVeto): normaliza, deduplica pelo texto, mais
+// recente primeiro, capado em 100.
+function adicionarVetoLocal(vetosBrutos, textoCru, hojeISO) {
+  const n = normalizarTextoPerfil(textoCru);
+  const atuais = (Array.isArray(vetosBrutos) ? vetosBrutos : [])
+    .filter(v => v && typeof v.texto === "string")
+    .map(v => ({ texto: v.texto, data: v.data || null }));
+  if (!n) return atuais;
+  const semDuplicata = atuais.filter(v => v.texto !== n);
+  return [{ texto: n, data: hojeISO }, ...semDuplicata].slice(0, 100);
+}
+
+function JarbasPerfilTab({ mem, setMem }) {
+  const perfil = mem?.perfil || perfilVazioLocal();
+  const vetos = Array.isArray(mem?.perfilVetos) ? mem.perfilVetos : [];
+  const ideias = Array.isArray(mem?.ideias) ? mem.ideias : [];
+  const vazio = !mem?.perfil || (JARBAS_PERFIL_CATEGORIAS.every(c => !(perfil[c.id] || []).length) && !perfil.humorRecente);
+
+  const [editing, setEditing] = useState(null); // { cat, idx } | null
+  const [editText, setEditText] = useState("");
+  const [addingCat, setAddingCat] = useState(null); // id da categoria com o form de "+ Adicionar" aberto
+  const [addText, setAddText] = useState("");
+  const [erro, setErro] = useState("");
+  const [confirmandoZerar, setConfirmandoZerar] = useState(false);
+
+  const avisarSeCheio = (perfilCandidato) => {
+    if (JSON.stringify(perfilCandidato).length > JARBAS_PERFIL_LIMITE_CHARS) {
+      setErro("Perfil cheio (limite de 1.500 caracteres) — apague algo antes de adicionar mais.");
+      return true;
+    }
+    setErro("");
+    return false;
+  };
+
+  const confirmAdd = (catId) => {
+    const texto = addText.trim().slice(0, 200);
+    if (!texto) { setAddingCat(null); return; }
+    const candidato = { ...perfil, [catId]: [...(perfil[catId] || []), { texto, data: todayISODate(), fonte: "manual" }] };
+    if (avisarSeCheio(candidato)) return;
+    setMem(prev => {
+      const p = (prev && prev.perfil) || perfilVazioLocal();
+      return { ...(prev || {}), perfil: { ...p, [catId]: [...(p[catId] || []), { texto, data: todayISODate(), fonte: "manual" }], atualizadoEm: new Date().toISOString() } };
+    });
+    setAddText("");
+    setAddingCat(null);
+  };
+
+  const startEdit = (catId, idx, textoAtual) => { setErro(""); setEditing({ cat: catId, idx }); setEditText(textoAtual); };
+
+  const confirmEdit = () => {
+    const { cat, idx } = editing;
+    const novoTexto = editText.trim().slice(0, 200);
+    if (!novoTexto) { setEditing(null); return; }
+    const antigo = (perfil[cat] || [])[idx];
+    if (!antigo) { setEditing(null); return; }
+    const candidato = { ...perfil, [cat]: (perfil[cat] || []).map((it, i) => (i === idx ? { texto: novoTexto, data: todayISODate(), fonte: "manual" } : it)) };
+    if (antigo.texto !== novoTexto && avisarSeCheio(candidato)) return;
+    setMem(prev => {
+      const p = (prev && prev.perfil) || perfilVazioLocal();
+      const lista = [...(p[cat] || [])];
+      const antigoReal = lista[idx];
+      if (!antigoReal) return prev || {};
+      lista[idx] = { texto: novoTexto, data: todayISODate(), fonte: "manual" };
+      // Edição = item novo "manual" + veta o texto antigo (PARTE A.3) — só quando o
+      // texto de fato mudou; só corrigir maiúscula/data não precisa vetar nada.
+      const novosVetos = antigoReal.texto !== novoTexto ? adicionarVetoLocal(prev?.perfilVetos, antigoReal.texto, todayISODate()) : (prev?.perfilVetos || []);
+      return { ...(prev || {}), perfil: { ...p, [cat]: lista, atualizadoEm: new Date().toISOString() }, perfilVetos: novosVetos };
+    });
+    setEditing(null);
+  };
+
+  const delItem = (catId, idx) => {
+    const item = (perfil[catId] || [])[idx];
+    if (!item) return;
+    if (!confirm(`Apagar "${item.texto}"? O Jarbas não vai mais registrar algo parecido com isso de novo.`)) return;
+    setMem(prev => {
+      const p = (prev && prev.perfil) || perfilVazioLocal();
+      const lista = [...(p[catId] || [])];
+      const removido = lista[idx];
+      if (!removido) return prev || {};
+      lista.splice(idx, 1);
+      const novosVetos = adicionarVetoLocal(prev?.perfilVetos, removido.texto, todayISODate());
+      return { ...(prev || {}), perfil: { ...p, [catId]: lista, atualizadoEm: new Date().toISOString() }, perfilVetos: novosVetos };
+    });
+  };
+
+  const liberarVeto = (textoNorm) => {
+    setMem(prev => ({ ...(prev || {}), perfilVetos: (prev?.perfilVetos || []).filter(v => v.texto !== textoNorm) }));
+  };
+
+  const delIdeia = (idx) => {
+    if (!confirm("Apagar essa ideia?")) return;
+    setMem(prev => ({ ...(prev || {}), ideias: (prev?.ideias || []).filter((_, i) => i !== idx) }));
+  };
+
+  const zerarPerfil = () => {
+    if (!confirmandoZerar) { setConfirmandoZerar(true); return; }
+    setConfirmandoZerar(false);
+    setMem(prev => {
+      const p = (prev && prev.perfil) || perfilVazioLocal();
+      const todosTextos = JARBAS_PERFIL_CATEGORIAS.flatMap(c => (p[c.id] || []).map(i => i.texto));
+      let novosVetos = Array.isArray(prev?.perfilVetos) ? prev.perfilVetos : [];
+      for (const t of todosTextos) novosVetos = adicionarVetoLocal(novosVetos, t, todayISODate());
+      return { ...(prev || {}), perfil: { ...perfilVazioLocal(), atualizadoEm: new Date().toISOString() }, perfilVetos: novosVetos };
+    });
+  };
+
+  const touchBtn = { background: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 9px", color: "var(--text-3)", cursor: "pointer", display: "flex", alignItems: "center" };
+
+  return (
+    <div>
+      <JarbasSectionCard title="O que o Jarbas sabe de mim" subtitle='O Jarbas monta isto sozinho a partir das nossas conversas e do painel, uma vez por dia. O que você apagar ele não volta a registrar. O que você escrever aqui ele trata como verdade.'>
+        {vazio ? (
+          <Empty text="O Jarbas ainda não montou seu perfil; ele faz isso uma vez por dia, depois de conversar com você." />
+        ) : (
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13, color: "var(--text-3)" }}>
+            <span>Atualizado em {perfil.atualizadoEm ? new Date(perfil.atualizadoEm).toLocaleString("pt-BR") : "nunca"}</span>
+            {perfil.humorRecente && <span>· Humor recente: <strong style={{ color: "var(--text-1)" }}>{perfil.humorRecente}</strong></span>}
+          </div>
+        )}
+        {erro && <div style={{ fontSize: 12.5, color: "var(--orange)", marginTop: 10 }}>{erro}</div>}
+      </JarbasSectionCard>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 20 }}>
+        {JARBAS_PERFIL_CATEGORIAS.map(cat => {
+          const itens = perfil[cat.id] || [];
+          return (
+            <div key={cat.id} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontWeight: 800, fontSize: 14 }}>{cat.label}</div>
+                <button onClick={() => { setErro(""); setAddingCat(addingCat === cat.id ? null : cat.id); setAddText(""); }}
+                  aria-label={`Adicionar em ${cat.label}`} style={{ ...touchBtn, color: "var(--accent)", borderColor: "var(--accent)" }}>
+                  <Icon path={I.plus} size={14} />
+                </button>
+              </div>
+
+              {itens.length === 0 && <div style={{ fontSize: 12.5, color: "var(--text-3)" }}>Nada aqui ainda.</div>}
+
+              {itens.map((item, idx) => (
+                <div key={idx} style={{ padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
+                  {editing && editing.cat === cat.id && editing.idx === idx ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <input autoFocus style={inp} maxLength={200} value={editText} onChange={e => setEditText(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") confirmEdit(); if (e.key === "Escape") setEditing(null); }} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={confirmEdit} style={{ ...touchBtn, color: "var(--green)", borderColor: "var(--green)" }} aria-label="Salvar"><Icon path={I.check} size={14} /></button>
+                        <button onClick={() => setEditing(null)} style={touchBtn} aria-label="Cancelar"><Icon path={I.x} size={14} /></button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14 }}>{item.texto}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>
+                          {item.data ? new Date(item.data + "T12:00").toLocaleDateString("pt-BR") : "sem data"} · {JARBAS_PERFIL_FONTE_LABELS[item.fonte] || item.fonte || "painel"}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        <button onClick={() => startEdit(cat.id, idx, item.texto)} style={touchBtn} aria-label="Editar"><Icon path={I.edit} size={13} /></button>
+                        <button onClick={() => delItem(cat.id, idx)} style={touchBtn} aria-label="Apagar"><Icon path={I.trash} size={13} /></button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {addingCat === cat.id && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+                  <input autoFocus style={inp} maxLength={200} placeholder="Escrever algo novo..." value={addText}
+                    onChange={e => setAddText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") confirmAdd(cat.id); if (e.key === "Escape") setAddingCat(null); }} />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => confirmAdd(cat.id)} style={btn("var(--accent)")}>Adicionar</button>
+                    <button onClick={() => setAddingCat(null)} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 20px", color: "var(--text-3)", cursor: "pointer" }}>Cancelar</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <JarbasSectionCard title="Ideias do dia" subtitle="O que o Jarbas trouxe sozinho, cruzando o que sabe de você com sua agenda e tarefas.">
+        {ideias.length === 0 && <Empty text="Nenhuma ideia ainda." />}
+        {ideias.map((ideia, idx) => (
+          <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--border-2)" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14 }}>{ideia.texto}</div>
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 3 }}>{ideia.data ? new Date(ideia.data + "T12:00").toLocaleDateString("pt-BR") : ""}</div>
+            </div>
+            <button onClick={() => delIdeia(idx)} style={touchBtn} aria-label="Apagar ideia"><Icon path={I.trash} size={13} /></button>
+          </div>
+        ))}
+      </JarbasSectionCard>
+
+      <JarbasSectionCard title={`Vetos ativos: ${vetos.length}`} subtitle="Textos que você apagou — o Jarbas não volta a registrar nada parecido com eles. Expiram sozinhos depois de 180 dias.">
+        {vetos.length === 0 && <Empty text="Nenhum veto ativo." />}
+        {vetos.map((v) => (
+          <div key={v.texto} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--border-2)" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13 }}>{v.texto}</div>
+              <div style={{ fontSize: 11, color: "var(--text-3)" }}>{v.data ? new Date(v.data + "T12:00").toLocaleDateString("pt-BR") : ""}</div>
+            </div>
+            <button onClick={() => liberarVeto(v.texto)} style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 12px", color: "var(--text-3)", cursor: "pointer", fontSize: 12, flexShrink: 0 }}>Liberar</button>
+          </div>
+        ))}
+
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border-2)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={zerarPerfil} style={btn(confirmandoZerar ? "var(--red)" : "var(--border)")}>
+            {confirmandoZerar ? "Confirmar: apagar tudo?" : "Zerar perfil"}
+          </button>
+          {confirmandoZerar && (
+            <button onClick={() => setConfirmandoZerar(false)} style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 20px", color: "var(--text-3)", cursor: "pointer" }}>Cancelar</button>
+          )}
+          <span style={{ fontSize: 12, color: "var(--text-3)" }}>Apaga tudo, inclusive o que você escreveu — e veta tudo até o limite de 100.</span>
+        </div>
+      </JarbasSectionCard>
+    </div>
   );
 }
 
@@ -3916,6 +4163,7 @@ function JarbasPage() {
   const renderTab = () => {
     if (tab === "visao") return <JarbasVisaoGeralTab mem={mem} recados={recados} onNavigate={setTab} />;
     if (tab === "itens") return <JarbasMemoriaItensTab mem={mem} setMem={setMem} />;
+    if (tab === "perfil") return <JarbasPerfilTab mem={mem} setMem={setMem} />;
     if (tab === "conhecimento" && kForm) {
       return (
         <JarbasSectionCard title="Conhecimento" subtitle='Mesmo conteúdo da tela "Conhecimento" do companion de voz — sincroniza direto com o Jarbas.' onSave={saveKnowledge} dirty={knowledgeDirty} saved={knowledgeSaved}>
