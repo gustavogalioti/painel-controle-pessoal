@@ -6154,10 +6154,11 @@ const TILE_ICON_CHOICES = ["monitor","link","trend","book","checkSq","card","cal
 const TILE_COLOR_PALETTE = ["#1a3a5c","#3a1a5c","#1a5c3a","#5c3a1a","#5c1a3a","#1a4a5c","#4a1a5c","#2a5c1a","#5c4a1a","#1a1a5c"];
 function nextTileColor(count){ return TILE_COLOR_PALETTE[count % TILE_COLOR_PALETTE.length]; }
 
-function CustomTileModal({ onSave, onClose }) {
+function CustomTileModal({ onSave, onClose, icons }) {
+  const iconChoices = icons || TILE_ICON_CHOICES;
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
-  const [icon, setIcon] = useState(TILE_ICON_CHOICES[0]);
+  const [icon, setIcon] = useState((icons || TILE_ICON_CHOICES)[0]);
 
   const save = () => {
     if (!title.trim() || !url.trim()) return;
@@ -6180,7 +6181,7 @@ function CustomTileModal({ onSave, onClose }) {
         <div>
           <label style={{fontSize:12,color:"var(--text-3)",display:"block",marginBottom:8}}>Emblema</label>
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8}}>
-            {TILE_ICON_CHOICES.map(ic=>(
+            {iconChoices.map(ic=>(
               <button key={ic} onClick={()=>setIcon(ic)}
                 style={{aspectRatio:"1/1",borderRadius:10,background: icon===ic?"var(--accent)":"var(--bg-input)",
                   border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -7580,26 +7581,71 @@ function ProjectsPage() {
 }
 
 
-// Desliza na vertical entre o painel de cima (Menu/Projetos) e o de baixo, igual ao deslize lateral
-function VerticalSlide({ showBottom, bottom, children }) {
+// Desliza na vertical entre 3 painéis: Jogos (acima), Menu/Projetos (meio) e DJ Mix/Raporizador (abaixo)
+function VerticalSlide({ mode, above, bottom, children }) {
+  const aboveRef = useRef(null);
   const topRef = useRef(null);
   const botRef = useRef(null);
-  const [h, setH] = useState({ top:null, bot:null });
+  const [h, setH] = useState({ above:null, top:null, bot:null });
   useEffect(() => {
-    const measure = () => setH({ top: topRef.current?.offsetHeight ?? null, bot: botRef.current?.offsetHeight ?? null });
+    const measure = () => setH({ above: aboveRef.current?.offsetHeight ?? null, top: topRef.current?.offsetHeight ?? null, bot: botRef.current?.offsetHeight ?? null });
     measure();
     const ro = new ResizeObserver(measure);
-    if (topRef.current) ro.observe(topRef.current);
-    if (botRef.current) ro.observe(botRef.current);
+    [aboveRef, topRef, botRef].forEach(r => { if (r.current) ro.observe(r.current); });
     return () => ro.disconnect();
   }, []);
-  const ready = h.top != null && h.bot != null;
+  const ready = h.above != null && h.top != null && h.bot != null;
+  const view = mode==="games" ? h.above : mode==="below" ? h.bot : h.top;
+  const offset = mode==="games" ? 0 : mode==="below" ? h.above + h.top : h.above;
   return (
-    <div style={{overflow:"hidden", height: ready ? (showBottom ? h.bot : h.top) : undefined, transition:"height .35s ease"}}>
-      <div style={{transform: ready && showBottom ? `translateY(-${h.top}px)` : "none", transition:"transform .35s ease"}}>
+    <div style={{overflow:"hidden", height: ready ? view : undefined, transition:"height .35s ease"}}>
+      <div style={{transform: ready ? `translateY(-${offset}px)` : "none", transition:"transform .35s ease"}}>
+        <div ref={aboveRef} style={{minHeight: h.top || undefined}}>{above}</div>
         <div ref={topRef}>{children}</div>
         <div ref={botRef} style={{minHeight: h.top || undefined}}>{bottom}</div>
       </div>
+    </div>
+  );
+}
+
+// Tela "de cima" do Menu: jogos (acessada pela setinha para cima) — tiles criáveis/apagáveis
+const DEFAULT_GAME_TILES = [
+  { id:"game_geofs",  title:"GEO FS",     url:"https://www.geo-fs.com/",      icon:"play", color:"#1a3a5c" },
+  { id:"game_eagler", title:"EAGLERCRAFT",url:"https://eaglercraft.com/",     icon:"play", color:"#1a5c3a" },
+  { id:"game_retro",  title:"RETRÔ GAMES",url:"https://classicgamezone.com/", icon:"play", color:"#5c1a3a" },
+];
+const GAME_ICON_CHOICES = ["play","link","monitor","disc","headphones","trend","heart","bulb","terminal","image","calendar","book","folder","bell"];
+function GamesPage({ onBackToMenu }) {
+  const [tiles, setTiles] = useKV("custom_tiles_games_v1", DEFAULT_GAME_TILES);
+  const [showAdd, setShowAdd] = useState(false);
+  const list = Array.isArray(tiles) ? tiles : DEFAULT_GAME_TILES;
+  const addTile = (t) => {
+    setTiles(prev => { const cur = Array.isArray(prev) ? prev : DEFAULT_GAME_TILES; return [...cur, { id:"game_"+Date.now(), ...t, color: nextTileColor(cur.length) }]; });
+    setShowAdd(false);
+  };
+  const deleteTile = (id) => setTiles(prev => (Array.isArray(prev) ? prev : DEFAULT_GAME_TILES).filter(t=>t.id!==id));
+  return (
+    <div style={{padding:"20px"}}>
+      <div style={{fontSize:13,fontWeight:800,color:"var(--text-2)",letterSpacing:1,marginBottom:14}}>🎮 JOGOS</div>
+      <div className="project-grid">
+        {list.map(t=>(
+          <ProjectCard key={t.id} color={t.color} icon={t.icon} label={t.title} sub=""
+            onDelete={()=>deleteTile(t.id)}
+            onClick={()=>window.open(t.url,"_blank","noopener,noreferrer")}/>
+        ))}
+        <div onClick={()=>setShowAdd(true)}
+          style={{minHeight:150,borderRadius:20,background:"transparent",border:"2px dashed var(--border-2)",
+            display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+          <Icon path={I.plus} size={28} color="var(--text-3)"/>
+        </div>
+      </div>
+      <button onClick={onBackToMenu} title="Voltar ao Menu"
+        style={{display:"flex",margin:"22px auto 0",transform:"rotate(-90deg)",
+          width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.08)",border:"1px solid var(--border)",
+          alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)"}}>
+        <Icon path={I.next} size={18}/>
+      </button>
+      {showAdd && <CustomTileModal icons={GAME_ICON_CHOICES} onSave={addTile} onClose={()=>setShowAdd(false)}/>}
     </div>
   );
 }
@@ -9319,9 +9365,9 @@ function AppContent() {
       )}
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"||page==="tasks"||page==="jarbas"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below")?"hidden":"visible",position:"relative"}}>
-        {(page==="home"||page==="projects"||page==="below") ? (
-          <VerticalSlide showBottom={page==="below"} bottom={
+      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below"||page==="games")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"||page==="games"||page==="tasks"||page==="jarbas"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below"||page==="games")?"hidden":"visible",position:"relative"}}>
+        {(page==="home"||page==="projects"||page==="below"||page==="games") ? (
+          <VerticalSlide mode={page} above={<GamesPage onBackToMenu={()=>setPage("home")}/>} bottom={
             <div style={{position:"relative"}}>
               <BelowPage onNavigate={setPage}/>
               <button onClick={()=>setPage("home")} title="Voltar ao Menu"
@@ -9337,6 +9383,12 @@ function AppContent() {
               <HomePage onNavigate={setPage}/>
               <button onClick={()=>setPage("projects")} title="Ir para Projetos"
                 style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
+                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
+                <Icon path={I.next} size={18}/>
+              </button>
+              <button onClick={()=>setPage("games")} title="Ir para Jogos"
+                style={{position:"absolute",left:"50%",top:6,transform:"translateX(-50%) rotate(-90deg)",zIndex:20,
                   width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
                   display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
                 <Icon path={I.next} size={18}/>
