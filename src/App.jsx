@@ -7308,11 +7308,6 @@ function HomePage({ onNavigate }) {
   };
   const deleteCustomTile = (id) => setCustomTiles(prev => prev.filter(t=>t.id!==id));
 
-  const extraTiles = [
-    { id:"whiteboard", color:"var(--tile-white)", icon:"edit",    label:"Whiteboard" },
-    { id:"letreiro",   color:"#1a0a2a",           icon:"marquee", label:"Letreiro" },
-  ];
-
   const order = (layout.order && layout.order.length) ? layout.order.filter(id=>DASH_DEFAULT_ORDER.includes(id)) : DASH_DEFAULT_ORDER;
   const fullOrder = [...order, ...DASH_DEFAULT_ORDER.filter(id=>!order.includes(id))];
   const sizes = layout.sizes || {};
@@ -7447,13 +7442,6 @@ function HomePage({ onNavigate }) {
       )}
 
       <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:20,alignItems:"center"}}>
-        {extraTiles.map(t=>(
-          <button key={t.id} onClick={()=>onNavigate(t.id)}
-            style={{background:t.color,border:"none",borderRadius:14,padding:"10px 18px",color:"#fff",
-              fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
-            <Icon path={I[t.icon]} size={14}/> {t.label}
-          </button>
-        ))}
         {customTiles.map(t=>(
           <div key={t.id} style={{position:"relative"}}>
             <button onClick={()=>window.open(t.url,"_blank","noopener,noreferrer")}
@@ -7656,6 +7644,10 @@ function BelowPage({ onNavigate }) {
     <div style={{padding:"20px"}}>
       <div className="project-grid">
         <div style={{display:"grid"}}><DJMixCard onClick={()=>onNavigate("dj")}/></div>
+        <ProjectCard color="var(--tile-white)" icon="edit" label="Whiteboard" sub="Lousa digital"
+          onClick={()=>onNavigate("whiteboard")}/>
+        <ProjectCard color="#1a0a2a" icon="marquee" label="Letreiro" sub="Mensagem em tela cheia"
+          onClick={()=>onNavigate("letreiro")}/>
         <ProjectCard color="#3a1a1a" icon="terminal" label="Raporizador" sub=""
           onClick={()=>window.open("https://gustavogalioti.github.io/raporizador/","_blank","noopener,noreferrer")}/>
       </div>
@@ -9393,7 +9385,7 @@ function AppContent() {
                   display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
                 <Icon path={I.next} size={18}/>
               </button>
-              <button onClick={()=>setPage("below")} title="Ir para DJ Mix e Raporizador"
+              <button onClick={()=>setPage("below")} title="Ir para Ferramentas (DJ Mix, Raporizador, Whiteboard, Letreiro)"
                 style={{position:"absolute",left:"50%",bottom:6,transform:"translateX(-50%) rotate(90deg)",zIndex:20,
                   width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
                   display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
