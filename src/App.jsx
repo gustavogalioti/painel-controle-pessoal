@@ -53,6 +53,17 @@ const I = {
   weather: "M17 18a4 4 0 0 0 0-8 5 5 0 0 0-9.6-1.5A4.5 4.5 0 0 0 7 18h10z M12 2v2 M4.2 4.2l1.4 1.4 M2 11h2",
   skipBack:"M19 20 9 12l10-8v16z M5 19V5",
   skipFwd: "M5 4l10 8-10 8V4z M19 5v14",
+  bolt:    "M13 2 3 14h9l-1 8 10-12h-9l1-8z",
+  clock:   "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 6v6l4 2",
+  hash:    "M4 9h16 M4 15h16 M10 3 8 21 M16 3l-2 18",
+  home:    "M3 11l9-8 9 8 M5 10v10h14V10 M10 20v-6h4v6",
+  code:    "M16 18l6-6-6-6 M8 6l-6 6 6 6",
+  doc:     "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M8 13h8 M8 17h8",
+  funnel:  "M22 3H2l8 9.46V19l4 2v-8.54L22 3z",
+  sort:    "M7 4v16 M3 8l4-4 4 4 M17 20V4 M13 16l4 4 4-4",
+  eye:     "M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  grid:    "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
+  rows:    "M3 5h18 M3 12h18 M3 19h18",
   pin:     "M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7z M12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
 };
 
@@ -4574,276 +4585,667 @@ function DadosTab() {
 }
 
 // ─── RASCUNHO & IMAGENS PAGE ───────────────────────────────────────────────────
-function RascunhoCard({ item, onOpen }) {
-  const [img, setImg] = useState(null);
-  const [loading, setLoading] = useState(item.hasImage);
+// Dados: useKV("rascunhos_v1") = [{id,date,title,notes,tags[],hasImage,imgName,imgType,imgSize, ...}]
+// Binário (imagem ou arquivo) em KV "rascunho_img_<id>" (data URL). Campos novos e opcionais:
+// kind ("image"|"file"|"link"|"note"|"code"), url, lang, hasFile, fileName, fileType, fileSize.
+// Registros antigos (sem kind) continuam válidos: o tipo é derivado de rscType().
+const RSC_MAX_BYTES = 3*1024*1024; // o corpo da API tem limite ~4MB e o data URL é ~33% maior
+const RSC_FILE_EXT = ["pdf","txt","md","csv","json","doc","docx","xls","xlsx","ppt","pptx"];
+const RSC_CODE_LANGS = ["JavaScript","TypeScript","Python","HTML","CSS","SQL","Bash","JSON","Java","C#","PHP","Outra"];
+const RSC_CANON_TAGS = [
+  { key:"casa",       label:"Casa",        icon:"home" },
+  { key:"referencia", label:"Referências", icon:"book" },
+  { key:"token",      label:"Token",       icon:"hash" },
+  { key:"manual",     label:"Manuais",     icon:"doc" },
+  { key:"outro",      label:"Outros",      icon:"folder" },
+];
+const RSC_TYPE_LABEL = { image:"Imagens", link:"Links", text:"Textos", code:"Códigos", file:"Arquivos" };
+const RSC_IMG_CACHE = new Map();
+let _rscLastId = 0;
+const rscNewId = () => (_rscLastId = Math.max(Date.now(), _rscLastId+1));
 
-  useEffect(() => {
-    let cancelled = false;
-    if (item.hasImage) {
-      KV.get("rascunho_img_"+item.id).then(d => { if(!cancelled){ setImg(d); setLoading(false); } });
-    } else {
-      setLoading(false);
+const rscPlain = s => String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+const rscNorm = s => {
+  let t = rscPlain(s).replace(/^#/,"");
+  if (t.endsWith("ais")) t = t.slice(0,-3)+"al";
+  else if (t.length>3 && t.endsWith("s")) t = t.slice(0,-1);
+  return t;
+};
+const rscTime = (it) => {
+  if (typeof it.id==="number" && it.id>1e12) return it.id;
+  const m = String(it.date||"").match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:,?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) return new Date(+m[3],+m[2]-1,+m[1],+(m[4]||0),+(m[5]||0),+(m[6]||0)).getTime();
+  const d = Date.parse(it.date); return isNaN(d) ? 0 : d;
+};
+const RSC_URL_RE = /https?:\/\/[^\s]+/i;
+const rscNormUrl = (raw) => {
+  let u = String(raw||"").trim(); if (!u || /\s/.test(u)) return null;
+  if (!/^https?:\/\//i.test(u)) u = "https://"+u;
+  try { const p = new URL(u); return (/^https?:$/.test(p.protocol) && p.hostname.includes(".")) ? p.href : null; } catch { return null; }
+};
+const rscDomain = (u) => { try { return new URL(u).hostname.replace(/^www\./,""); } catch { return ""; } };
+const rscLinkParts = (it) => {
+  const notes = (it.notes||"").trim();
+  const url = it.url || (notes.match(RSC_URL_RE)||[])[0] || "";
+  const rest = notes.replace(url,"").replace(/\s+\n/g,"\n").trim();
+  if (it.kind==="link") return { url, title: it.title || rscDomain(url) || url, desc: rest };
+  return { url, title: rscDomain(url) || url, desc: rest || it.title || "" };
+};
+const RSC_CODE_TAGS = ["codigo","snippet","code"];
+const rscType = (it) => {
+  if (it.kind) return it.kind==="note" ? "text" : it.kind;
+  if (it.hasImage) return "image";
+  if (it.hasFile) return "file";
+  const norm = (it.tags||[]).map(rscNorm);
+  if (norm.some(t=>RSC_CODE_TAGS.includes(t))) return "code";
+  if (RSC_URL_RE.test(it.notes||"") || norm.includes("link")) return "link";
+  return "text";
+};
+const RSC_SECRET_TAGS = ["token","senha","password","segredo","secret"];
+const RSC_SECRET_RE = /\b(senha|password|passwd|pwd|token|secret|segredo|api[_ -]?key)\b|\b(ghp_|gho_|ghs_|sk-|AKIA|xox[bp]-)[A-Za-z0-9_-]{8,}/i;
+const rscSensitive = (it) => {
+  if ((it.tags||[]).some(t=>RSC_SECRET_TAGS.includes(rscNorm(t)))) return true;
+  return RSC_SECRET_RE.test([it.title,it.notes].join(" "));
+};
+const rscDeriveTitle = (t) => {
+  const first = String(t||"").split("\n")[0].trim();
+  return first.length>60 ? first.slice(0,60)+"…" : (first || "Sem título");
+};
+const rscSize = (n) => n>=1048576 ? (n/1048576).toFixed(1)+" MB" : Math.max(1,Math.round(n/1024))+" KB";
+const rscCopy = async (text) => {
+  try { await navigator.clipboard.writeText(text); return true; } catch {
+    try { const ta=document.createElement("textarea"); ta.value=text; ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta); ta.select(); const ok=document.execCommand("copy"); ta.remove(); return ok; } catch { return false; }
+  }
+};
+const rscReadFile = (file, onPct) => new Promise((res,rej)=>{
+  const r = new FileReader();
+  r.onprogress = e => { if (e.lengthComputable && onPct) onPct(e.loaded/e.total); };
+  r.onload = () => res(r.result); r.onerror = () => rej(new Error("não foi possível ler o arquivo"));
+  r.readAsDataURL(file);
+});
+const rscShrinkImage = (dataUrl) => new Promise((res,rej)=>{
+  const img = new Image();
+  img.onload = () => {
+    for (const [max,q] of [[2000,0.85],[1400,0.75],[1000,0.7]]) {
+      const k = Math.min(1, max/Math.max(img.width,img.height));
+      const c = document.createElement("canvas"); c.width=Math.round(img.width*k); c.height=Math.round(img.height*k);
+      const g = c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,c.width,c.height); g.drawImage(img,0,0,c.width,c.height);
+      const out = c.toDataURL("image/jpeg",q);
+      if (out.length*0.75 <= RSC_MAX_BYTES) return res({data:out,type:"image/jpeg",size:Math.round(out.length*0.75)});
     }
-    return () => { cancelled = true; };
-  }, [item.id, item.hasImage]);
+    rej(new Error("imagem grande demais mesmo após reduzir"));
+  };
+  img.onerror = () => rej(new Error("imagem inválida"));
+  img.src = dataUrl;
+});
+// Valida formato/limite, lê e (se for imagem grande) reduz. Lança Error com mensagem amigável.
+const rscPrepare = async (file, onPct) => {
+  const ext = (file.name.split(".").pop()||"").toLowerCase();
+  const isImg = file.type.startsWith("image/");
+  if (!isImg && !RSC_FILE_EXT.includes(ext)) throw new Error("formato não permitido");
+  let data = await rscReadFile(file, onPct), type = file.type || "application/octet-stream", size = file.size;
+  if (size > RSC_MAX_BYTES) {
+    if (isImg && /^image\/(png|jpe?g|webp)$/.test(file.type)) ({data,type,size} = await rscShrinkImage(data));
+    else throw new Error(`maior que ${RSC_MAX_BYTES/1048576} MB`);
+  }
+  return { data, type, size, name:file.name, isImg };
+};
 
+function RscMenu({ actions }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h); document.addEventListener("touchstart", h);
+    return () => { document.removeEventListener("mousedown", h); document.removeEventListener("touchstart", h); };
+  }, [open]);
   return (
-    <div onClick={onOpen}
-      style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden",cursor:"pointer"}}>
-      {item.hasImage && (
-        <div style={{aspectRatio:"4/3",background:"var(--bg-input)",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
-          {loading
-            ? <span style={{fontSize:11,color:"var(--text-3)"}}>Carregando...</span>
-            : img
-              ? <img src={img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-              : <Icon path={I.image} size={28} color="var(--text-3)"/>}
+    <div className="rsc-menu" ref={ref} onClick={e=>e.stopPropagation()}>
+      <button className="rsc-dots" aria-label="Mais opções" aria-expanded={open} onClick={()=>setOpen(o=>!o)}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+      </button>
+      {open && (
+        <div className="rsc-pop">
+          {actions.filter(a=>a).map(a=>(
+            <button key={a.label} className={a.danger?"danger":""} onClick={()=>{setOpen(false);a.run();}}>{a.label}</button>
+          ))}
         </div>
       )}
-      <div style={{padding:14}}>
-        {item.notes && (
-          <div style={{fontSize:12.5,color:"var(--text-1)",marginBottom:6,lineHeight:1.5,
-            display:"-webkit-box",WebkitLineClamp:4,WebkitBoxOrient:"vertical",overflow:"hidden",whiteSpace:"pre-wrap"}}>{item.notes}</div>
+    </div>
+  );
+}
+
+function RscThumb({ item, fit="cover" }) {
+  const ref = useRef(null);
+  const [vis, setVis] = useState(false);
+  const [img, setImg] = useState(() => RSC_IMG_CACHE.get(item.id) || null);
+  const [state, setState] = useState(img ? "ok" : "idle");
+  useEffect(() => {
+    if (vis || !ref.current) return;
+    if (typeof IntersectionObserver === "undefined") { setVis(true); return; }
+    const io = new IntersectionObserver(es => { if (es.some(e=>e.isIntersecting)) { setVis(true); io.disconnect(); } }, { rootMargin:"300px" });
+    io.observe(ref.current);
+    return () => io.disconnect();
+  }, [vis]);
+  useEffect(() => {
+    if (!vis || img) return;
+    let cancelled = false; setState("loading");
+    KV.get("rascunho_img_"+item.id).then(d => {
+      if (cancelled) return;
+      if (d) {
+        if (RSC_IMG_CACHE.size > 40) RSC_IMG_CACHE.delete(RSC_IMG_CACHE.keys().next().value);
+        RSC_IMG_CACHE.set(item.id, d); setImg(d); setState("ok");
+      } else setState("error");
+    });
+    return () => { cancelled = true; };
+  }, [vis, item.id]);
+  return (
+    <div ref={ref} className="rsc-thumb">
+      {state==="ok" && img
+        ? <img src={img} alt={item.title||""} loading="lazy" style={{objectFit:fit}}/>
+        : <span className="rsc-thumb-ph">{state==="error" ? <Icon path={I.image} size={26} color="#9db6d3"/> : "Carregando..."}</span>}
+      <span className="rsc-badge"><Icon path={I.image} size={14} color="#fff"/></span>
+    </div>
+  );
+}
+
+function RscTags({ tags }) {
+  if (!tags?.length) return null;
+  return <div className="rsc-tags">{tags.map(t=><span key={t}>#{t}</span>)}</div>;
+}
+
+const RSC_FILE_ICON = { pdf:"#d64545", doc:"#2b6cd4", docx:"#2b6cd4", xls:"#1f9d63", xlsx:"#1f9d63", csv:"#1f9d63", ppt:"#d9822b", pptx:"#d9822b" };
+
+function RscCard({ e, view, onOpen, actions }) {
+  const { it, type, sens } = e;
+  const lp = type==="link" ? rscLinkParts(it) : null;
+  const ext = type==="file" ? (it.fileName||"").split(".").pop().toUpperCase().slice(0,4) : "";
+  const body = type==="link" ? (lp.desc || lp.url) : type==="file" ? (it.notes || "") : (it.notes || it.title || "");
+  const heading = type==="link" ? lp.title : (type==="code" || type==="file" ? (it.title || it.fileName || "") : "");
+  const iconPath = type==="link" ? I.link : type==="code" ? I.code : type==="file" ? I.doc : I.doc;
+  const showThumb = type==="image";
+  const key = (ev) => { if (ev.key==="Enter" || ev.key===" ") { ev.preventDefault(); onOpen(); } };
+  return (
+    <div className={`rsc-card ${view==="list"?"list":""}`} role="button" tabIndex={0} onClick={onOpen} onKeyDown={key}>
+      <RscMenu actions={actions}/>
+      {showThumb && <RscThumb item={it}/>}
+      <div className="rsc-card-body">
+        {!showThumb && (
+          sens ? <div className="rsc-ico"><Icon path={I.lock} size={22} color="#16315c"/></div>
+          : type==="code" ? <pre className="rsc-code">{(it.notes||"").split("\n").slice(0,6).join("\n")}</pre>
+          : type==="file" ? <div className="rsc-ico" style={{color:RSC_FILE_ICON[(it.fileName||"").split(".").pop().toLowerCase()]||"#16315c"}}><span className="rsc-ext">{ext||"ARQ"}</span></div>
+          : <div className="rsc-ico"><Icon path={iconPath} size={22} color="#16315c"/></div>
         )}
-        {item.tags?.length>0 && (
-          <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
-            {item.tags.map(t=><span key={t} style={{fontSize:9,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 7px",fontWeight:600}}>#{t}</span>)}
-          </div>
+        {sens ? (
+          <div className="rsc-txt rsc-masked">{"•".repeat(14)} <small>conteúdo sensível oculto</small></div>
+        ) : (
+          <>
+            {type==="link" && <div className="rsc-domain"><Icon path={I.link} size={12} color="#2563eb"/> {rscDomain(lp.url)}</div>}
+            {heading && type!=="link" && <div className="rsc-h">{heading}</div>}
+            {type==="link" && lp.title!==rscDomain(lp.url) && <div className="rsc-h">{lp.title}</div>}
+            {type!=="code" && body && <div className="rsc-txt">{body}</div>}
+          </>
         )}
-        <div style={{fontSize:10,color:"var(--text-3)",marginTop:8}}>{item.date}</div>
+        <RscTags tags={it.tags}/>
+        <div className="rsc-date">{it.date}</div>
       </div>
     </div>
   );
 }
 
-function RascunhoDetailModal({ item, onClose, onEdit, onDelete }) {
-  const [img, setImg] = useState(null);
-  const [loading, setLoading] = useState(item.hasImage);
-  const [downloading, setDownloading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (item.hasImage) {
-      KV.get("rascunho_img_"+item.id).then(d => { if(!cancelled){ setImg(d); setLoading(false); } });
-    } else {
-      setLoading(false);
-    }
-    return () => { cancelled = true; };
-  }, [item.id, item.hasImage]);
-
-  const download = async () => {
-    setDownloading(true);
-    try {
-      const data = img || await KV.get("rascunho_img_"+item.id);
-      if (!data) { alert("Imagem não encontrada na nuvem."); setDownloading(false); return; }
-      const a = document.createElement("a");
-      a.href = data; a.download = item.imgName || item.title;
-      a.click();
-    } catch { alert("Erro ao baixar imagem."); }
-    setDownloading(false);
-  };
-
+function RscTagPicker({ value, onChange, all }) {
+  const [v, setV] = useState("");
+  const toggle = (t) => onChange(value.some(x=>rscNorm(x)===rscNorm(t)) ? value.filter(x=>rscNorm(x)!==rscNorm(t)) : [...value, t]);
+  const add = () => { const t = v.trim().replace(/^#/,""); if (!t) return; if (!value.some(x=>rscNorm(x)===rscNorm(t))) onChange([...value, t]); setV(""); };
+  const shown = Array.from(new Set([...all, ...value]));
   return (
-    <Modal title={item.title} onClose={onClose}>
-      <div style={{display:"flex",flexDirection:"column",gap:14,marginBottom:20}}>
-        {item.hasImage && (
-          loading
-            ? <div style={{fontSize:12,color:"var(--text-3)"}}>Carregando imagem...</div>
-            : img && <img src={img} alt="" style={{maxWidth:"100%",borderRadius:10}}/>
-        )}
-        {item.notes && <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{item.notes}</div>}
-        {item.tags?.length>0 && (
-          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-            {item.tags.map(t=><span key={t} style={{fontSize:10,background:"var(--accent-dim)",color:"var(--accent)",borderRadius:8,padding:"2px 8px",fontWeight:600}}>#{t}</span>)}
-          </div>
-        )}
-        <div style={{fontSize:10,color:"var(--text-3)"}}>{item.date}</div>
+    <div>
+      <label className="rsc-lbl">Tags</label>
+      {shown.length>0 && (
+        <div className="rsc-pick">
+          {shown.map(t=>{ const on = value.some(x=>rscNorm(x)===rscNorm(t)); return (
+            <button type="button" key={t} className={on?"on":""} onClick={()=>toggle(t)}>#{t}</button>
+          ); })}
+        </div>
+      )}
+      <div style={{display:"flex",gap:8}}>
+        <input style={{...inp,fontSize:13,flex:1}} value={v} onChange={e=>setV(e.target.value)} placeholder="Nova tag..."
+          onKeyDown={e=>{ if (e.key==="Enter") { e.preventDefault(); add(); } }}/>
+        <button type="button" onClick={add} style={{...btn("var(--bg-input)"),color:"var(--text-2)",padding:"0 16px"}}>+</button>
       </div>
-      <div style={{display:"flex",gap:10}}>
-        {item.hasImage && (
-          <button onClick={download} disabled={downloading}
-            style={{...btn("var(--bg-input)"),color:"var(--text-2)",flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,cursor:downloading?"wait":"pointer"}}>
-            {downloading?"Baixando...":"⬇ Baixar imagem"}
+    </div>
+  );
+}
+
+// mode: "link" | "note" | "code" | "image" | "file"
+function RscEditor({ mode, item, prefill, allTags, onSave, onClose }) {
+  const lp = item && mode==="link" ? rscLinkParts(item) : null;
+  const [title, setTitle] = useState(item ? (item.kind ? (item.title||"") : "") : "");
+  const [url, setUrl] = useState(lp ? lp.url : (prefill?.url||""));
+  const [text, setText] = useState(item ? (mode==="link" ? lp.desc : (item.notes || (item.kind?"":item.title) || "")) : (prefill?.text||""));
+  const [lang, setLang] = useState(item?.lang || "JavaScript");
+  const [tags, setTags] = useState(item?.tags || []);
+  const [img, setImg] = useState(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef(null);
+  const titles = { link:"Link da web", note:"Nota de texto", code:"Código / Snippet", image:"Imagem", file:"Arquivo" };
+
+  const pick = async (ev) => {
+    const f = ev.target.files[0]; ev.target.value=""; if (!f) return;
+    try { setErr(""); const p = await rscPrepare(f); if (!p.isImg) throw new Error("escolha uma imagem"); setImg(p); }
+    catch (e) { setErr(`Imagem inválida: ${e.message}.`); }
+  };
+  const submit = async () => {
+    setErr("");
+    let patch;
+    if (mode==="link") {
+      const u = rscNormUrl(url);
+      if (!u) return setErr("Informe um endereço válido (ex.: https://exemplo.com).");
+      patch = { kind:"link", url:u, title:title.trim() || rscDomain(u), notes:text.trim(), tags, hasImage:false };
+    } else if (mode==="code") {
+      if (!text.trim()) return setErr("Cole ou escreva o código.");
+      patch = { kind:"code", lang, title:title.trim() || rscDeriveTitle(text), notes:text.replace(/\s+$/,""), tags };
+    } else if (mode==="note") {
+      if (!text.trim()) return setErr("Escreva o conteúdo da nota.");
+      patch = { kind:"note", title:title.trim() || rscDeriveTitle(text), notes:text.trim(), tags };
+    } else {
+      if (!text.trim() && !img && !item?.hasImage && !item?.hasFile) return setErr("Escreva uma descrição ou anexe uma imagem.");
+      patch = { notes:text.trim(), title:title.trim() || (text.trim() ? rscDeriveTitle(text) : (item?.title||"Sem título")), tags };
+      if (img) Object.assign(patch, { kind:"image", hasImage:true, imgName:img.name, imgType:img.type, imgSize:img.size });
+    }
+    setBusy(true);
+    const ok = await onSave(patch, item||null, img);
+    setBusy(false);
+    if (ok) onClose();
+  };
+  return (
+    <Modal title={(item?"Editar — ":"Adicionar — ")+titles[mode]} onClose={onClose}>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {mode==="link" && (<div><label className="rsc-lbl">Endereço (URL)</label>
+          <input style={inp} autoFocus value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://..."/></div>)}
+        <div><label className="rsc-lbl">Título {mode==="link"||mode==="image"||mode==="file"?"(opcional)":"(opcional — usa a 1ª linha)"}</label>
+          <input style={inp} value={title} onChange={e=>setTitle(e.target.value)} placeholder="Título"/></div>
+        {mode==="code" && (<div><label className="rsc-lbl">Linguagem</label>
+          <select style={inp} value={lang} onChange={e=>setLang(e.target.value)}>{RSC_CODE_LANGS.map(l=><option key={l}>{l}</option>)}</select></div>)}
+        <div><label className="rsc-lbl">{mode==="link"?"Descrição (opcional)":mode==="code"?"Código":mode==="note"?"Conteúdo":"Descrição"}</label>
+          <textarea style={{...inp,resize:"vertical",fontSize:mode==="code"?13:14,fontFamily:mode==="code"?"'DM Mono',monospace":"inherit",whiteSpace:mode==="code"?"pre":"pre-wrap"}}
+            rows={mode==="code"?9:5} autoFocus={mode!=="link"} value={text} onChange={e=>setText(e.target.value)}
+            onKeyDown={e=>{ if (mode==="code" && e.key==="Tab") { e.preventDefault(); const t=e.target,s=t.selectionStart; setText(text.slice(0,s)+"  "+text.slice(t.selectionEnd)); requestAnimationFrame(()=>{t.selectionStart=t.selectionEnd=s+2;}); } }}
+            placeholder={mode==="code"?"Cole seu trecho de código aqui...":mode==="link"?"Sobre o que é este link?":"Escreva..."}/></div>
+        {mode==="image" && (<div>
+          <button type="button" onClick={()=>fileRef.current?.click()} style={{...btn("var(--bg-input)"),color:"var(--text-2)",display:"flex",alignItems:"center",gap:6}}>
+            <Icon path={I.image} size={14}/> {img ? `Trocar imagem (${img.name})` : (item?.hasImage ? "Substituir imagem" : "Anexar imagem")}
           </button>
-        )}
-        <button onClick={onEdit} style={{...btn(),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-          <Icon path={I.edit} size={13}/> Editar
-        </button>
-        <button onClick={onDelete} style={{...btn("var(--red)"),flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
-          <Icon path={I.trash} size={13}/> Excluir
-        </button>
+          <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={pick}/>
+          {img && <img src={img.data} alt="" style={{marginTop:10,maxWidth:"100%",maxHeight:180,borderRadius:10,display:"block"}}/>}
+        </div>)}
+        <RscTagPicker value={tags} onChange={setTags} all={allTags}/>
+        {err && <div role="alert" style={{fontSize:12.5,color:"var(--red)",fontWeight:600}}>{err}</div>}
+        <button onClick={submit} disabled={busy} style={{...btn(),opacity:busy?0.6:1}}>{busy?"Salvando...":"Salvar"}</button>
       </div>
     </Modal>
   );
 }
 
+function RscDetail({ e, onClose, onEdit, onDelete, onCopy }) {
+  const { it, type, sens } = e;
+  const [img, setImg] = useState(RSC_IMG_CACHE.get(it.id) || null);
+  const [loading, setLoading] = useState((type==="image") && !img);
+  const [reveal, setReveal] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (type!=="image" || img) return;
+    let c = false;
+    KV.get("rascunho_img_"+it.id).then(d => { if (!c) { setImg(d); setLoading(false); } });
+    return () => { c = true; };
+  }, [it.id]);
+  const lp = type==="link" ? rscLinkParts(it) : null;
+  const download = async () => {
+    setBusy(true);
+    try {
+      const data = img || await KV.get("rascunho_img_"+it.id);
+      if (!data) { alert("Arquivo não encontrado na nuvem."); }
+      else { const a=document.createElement("a"); a.href=data; a.download = it.fileName||it.imgName||it.title||"arquivo"; a.click(); }
+    } catch { alert("Erro ao baixar o arquivo."); }
+    setBusy(false);
+  };
+  const hidden = sens && !reveal;
+  return (
+    <Modal title={hidden ? "Conteúdo sensível" : (type==="link" ? lp.title : (it.title||"Sem título"))} onClose={onClose} wide={type==="code"}>
+      <div style={{display:"flex",flexDirection:"column",gap:14,marginBottom:20}}>
+        {type==="image" && (loading ? <div style={{fontSize:12,color:"var(--text-3)"}}>Carregando imagem...</div> : img && <img src={img} alt="" style={{maxWidth:"100%",borderRadius:10}}/>)}
+        {type==="file" && <div style={{fontSize:13,color:"var(--text-1)"}}>📎 {it.fileName} <span style={{color:"var(--text-3)"}}>· {rscSize(it.fileSize||0)}</span></div>}
+        {hidden ? (
+          <div style={{display:"flex",alignItems:"center",gap:12,background:"var(--bg-input)",borderRadius:10,padding:14}}>
+            <Icon path={I.lock} size={20} color="var(--text-2)"/>
+            <div style={{flex:1,fontSize:13,color:"var(--text-2)"}}>Este item parece conter uma senha, token ou segredo e está oculto.</div>
+            <button onClick={()=>setReveal(true)} style={{...btn(),padding:"8px 14px",fontSize:12.5,display:"flex",alignItems:"center",gap:6}}><Icon path={I.eye} size={14}/> Mostrar</button>
+          </div>
+        ) : (<>
+          {type==="link" && <a href={lp.url} target="_blank" rel="noopener noreferrer" style={{color:"var(--accent)",fontSize:13.5,wordBreak:"break-all"}}>{lp.url}</a>}
+          {type==="code" && (<div>{it.lang && <div style={{fontSize:11,color:"var(--text-3)",marginBottom:6,fontWeight:700}}>{it.lang}</div>}
+            <pre style={{background:"#0f1b2d",color:"#dbe7f7",borderRadius:10,padding:14,fontSize:12.5,fontFamily:"'DM Mono',monospace",overflow:"auto",maxHeight:380,margin:0,whiteSpace:"pre"}}>{it.notes}</pre></div>)}
+          {type==="link" ? (lp.desc && <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{lp.desc}</div>)
+            : type!=="code" && it.notes && <div style={{fontSize:13,color:"var(--text-1)",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{it.notes}</div>}
+        </>)}
+        <RscTags tags={it.tags}/>
+        <div style={{fontSize:10,color:"var(--text-3)"}}>{it.date}</div>
+      </div>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+        {type==="link" && !hidden && <a href={lp.url} target="_blank" rel="noopener noreferrer" style={{...btn(),flex:"1 1 120px",textDecoration:"none",textAlign:"center"}}>Abrir link</a>}
+        {(type==="image"||type==="file") && (
+          <button onClick={download} disabled={busy} style={{...btn("var(--bg-input)"),color:"var(--text-2)",flex:"1 1 120px",cursor:busy?"wait":"pointer"}}>{busy?"Baixando...":"⬇ Baixar"}</button>)}
+        {!hidden && type!=="image" && type!=="file" && <button onClick={onCopy} style={{...btn("var(--bg-input)"),color:"var(--text-2)",flex:"1 1 100px"}}>Copiar</button>}
+        <button onClick={onEdit} style={{...btn(),flex:"1 1 100px",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon path={I.edit} size={13}/> Editar</button>
+        <button onClick={onDelete} style={{...btn("var(--red)"),flex:"1 1 100px",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Icon path={I.trash} size={13}/> Excluir</button>
+      </div>
+    </Modal>
+  );
+}
+
+function RscSelect({ icon, label, value, onChange, options }) {
+  const cur = options.find(o=>o.v===value) || options[0];
+  return (
+    <label className="rsc-select">
+      {icon && <Icon path={I[icon]} size={20} color="#16315c"/>}
+      <span className="rsc-sel-txt"><small>{label}</small><b>{cur.l}</b></span>
+      <Icon path={I.down} size={16} color="#16315c"/>
+      <select value={value} onChange={e=>onChange(e.target.value)} aria-label={label}>
+        {options.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+      </select>
+    </label>
+  );
+}
+
 function RascunhosPage() {
   const [items, setItems, synced] = useKV("rascunhos_v1", []);
-  const [modal, setModal] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [detailId, setDetailId] = useState(null);
-  const [text, setText] = useState("");
-  const [selectedTags, setSelectedTags] = useState([]);
-  const [newTag, setNewTag] = useState("");
-  const [imgData, setImgData] = useState(null);
-  const [imgName, setImgName] = useState("");
-  const [tagFilter, setTagFilter] = useState("Todos");
   const [search, setSearch] = useState("");
+  const [typeSel, setTypeSel] = useState("all");
+  const [dateSel, setDateSel] = useState("any");
+  const [sortSel, setSortSel] = useState("recent");
+  const [cat, setCat] = useState("all");            // "all" | "type:<t>" | "tag:<norm>"
+  const [extraTags, setExtraTags] = useState([]);   // filtro avançado (funil), combinável (E)
+  const [showTags, setShowTags] = useState(false);
+  const [view, setView] = useState(() => S.get("rsc_view","grid"));
+  const [editor, setEditor] = useState(null);       // {mode,item?,prefill?}
+  const [detailId, setDetailId] = useState(null);
+  const [tagEditId, setTagEditId] = useState(null);
+  const [tagDraft, setTagDraft] = useState([]);
+  const [uploads, setUploads] = useState([]);
+  const [toast, setToast] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef(null);
 
-  const allTags = Array.from(new Set(items.flatMap(i=>i.tags||[]))).sort();
+  const notify = (msg, kind="ok") => { setToast({msg,kind,k:Date.now()}); };
+  useEffect(() => { if (!toast) return; const t = setTimeout(()=>setToast(null), 3000); return () => clearTimeout(t); }, [toast]);
+  useEffect(() => { S.set("rsc_view", view); }, [view]);
 
-  const handleImg = e => {
-    const file = e.target.files[0]; if(!file) return;
-    setImgName(file.name);
-    const reader = new FileReader();
-    reader.onload = ev => setImgData({name:file.name,size:file.size,type:file.type,data:ev.target.result});
-    reader.readAsDataURL(file);
+  const enriched = useMemo(() => items.map(it => ({ it, type:rscType(it), t:rscTime(it), sens:rscSensitive(it), ntags:(it.tags||[]).map(rscNorm) })), [items]);
+  const allTags = useMemo(() => {
+    const seen = new Map();
+    items.forEach(i => (i.tags||[]).forEach(t => { const k = rscNorm(t); if (!seen.has(k)) seen.set(k, t); }));
+    return [...seen.values()].sort((a,b)=>a.localeCompare(b,"pt-BR"));
+  }, [items]);
+  const canonKeys = RSC_CANON_TAGS.map(c=>c.key);
+  const extraCats = useMemo(() => allTags.filter(t=>!canonKeys.includes(rscNorm(t))).map(t=>({key:rscNorm(t),label:t.charAt(0).toUpperCase()+t.slice(1),icon:"hash"})), [allTags]);
+
+  const startToday = new Date(); startToday.setHours(0,0,0,0);
+  const DAY = 86400000;
+  const inDate = (t, d) => d==="any" ? true : d==="today" ? t>=startToday.getTime() : d==="7d" ? t>=Date.now()-7*DAY : d==="30d" ? t>=Date.now()-30*DAY : d==="year" ? t>=new Date(new Date().getFullYear(),0,1).getTime() : true;
+  const count = {
+    type: (ty) => enriched.filter(e=>e.type===ty).length,
+    tag: (k) => enriched.filter(e=>e.ntags.includes(k)).length,
+    date: (d) => enriched.filter(e=>inDate(e.t,d)).length,
   };
 
-  const openNew = () => { setEditingId(null); setText(""); setSelectedTags([]); setNewTag(""); setImgData(null); setImgName(""); setModal(true); };
-  const openEdit = (item) => {
-    setEditingId(item.id);
-    setText(item.notes || item.title || "");
-    setSelectedTags(item.tags || []);
-    setNewTag("");
-    setImgData(null); setImgName(item.imgName||"");
-    setDetailId(null);
-    setModal(true);
-  };
+  const nq = rscPlain(search);
+  const filtered = useMemo(() => {
+    let list = enriched.filter(e => {
+      if (typeSel!=="all" && e.type!==typeSel) return false;
+      if (cat.startsWith("type:") && e.type!==cat.slice(5)) return false;
+      if (cat.startsWith("tag:") && !e.ntags.includes(cat.slice(4))) return false;
+      if (extraTags.length && !extraTags.every(k=>e.ntags.includes(k))) return false;
+      if (!inDate(e.t, dateSel)) return false;
+      if (nq) {
+        const i = e.it;
+        const hay = rscPlain([i.title,i.notes,i.url,i.fileName,i.imgName,i.lang,(i.tags||[]).join(" ")].join(" "));
+        if (!hay.includes(nq)) return false;
+      }
+      return true;
+    });
+    const label = e => rscPlain(e.it.title || e.it.notes || "");
+    list = [...list].sort((a,b) => sortSel==="old" ? a.t-b.t : sortSel==="az" ? label(a).localeCompare(label(b),"pt-BR") : sortSel==="za" ? label(b).localeCompare(label(a),"pt-BR") : b.t-a.t);
+    return list;
+  }, [enriched, typeSel, cat, extraTags, dateSel, sortSel, nq]);
 
-  const toggleTag = (t) => setSelectedTags(prev => prev.includes(t) ? prev.filter(x=>x!==t) : [...prev, t]);
-  const addNewTag = () => {
-    const t = newTag.trim();
-    if (!t) return;
-    if (!selectedTags.includes(t)) setSelectedTags(prev => [...prev, t]);
-    setNewTag("");
-  };
+  const active = !!(search || typeSel!=="all" || dateSel!=="any" || cat!=="all" || extraTags.length || sortSel!=="recent");
+  const clearAll = () => { setSearch(""); setTypeSel("all"); setDateSel("any"); setCat("all"); setExtraTags([]); setSortSel("recent"); };
+  const quick = (patch) => { clearAll(); if (patch.cat) setCat(patch.cat); if (patch.date) setDateSel(patch.date); };
 
-  const deriveTitle = (t) => {
-    const firstLine = t.split("\n")[0].trim();
-    return firstLine.length > 60 ? firstLine.slice(0,60)+"…" : (firstLine || "Sem título");
-  };
-
-  const save = async () => {
-    if (!text.trim() && !imgData) return;
-    const title = deriveTitle(text);
-    if (editingId) {
-      if (imgData?.data) await KV.set("rascunho_img_"+editingId, imgData.data);
-      setItems(prev => prev.map(i=>i.id===editingId?{...i, title, notes:text.trim(), tags:selectedTags,
-        hasImage:!!(imgData||i.hasImage), imgName:imgData?.name||i.imgName, imgType:imgData?.type||i.imgType, imgSize:imgData?.size||i.imgSize}:i));
-    } else {
-      const id = Date.now();
-      if (imgData?.data) await KV.set("rascunho_img_"+id, imgData.data);
-      setItems(prev => [{id, date:now(), title, notes:text.trim(), tags:selectedTags,
-        hasImage:!!imgData?.data, imgName:imgData?.name||"", imgType:imgData?.type||"", imgSize:imgData?.size||0}, ...prev]);
+  // ── persistência ──
+  const saveItem = async (patch, editing, img) => {
+    const id = editing ? editing.id : rscNewId();
+    if (img?.data) {
+      const ok = await KV.set("rascunho_img_"+id, img.data);
+      if (!ok) { notify("Não foi possível salvar a imagem. Tente novamente.","err"); return false; }
+      RSC_IMG_CACHE.delete(id);
     }
-    setModal(false); setEditingId(null); setImgData(null); setImgName(""); setText(""); setSelectedTags([]);
+    if (editing) setItems(prev => prev.map(i => i.id===id ? {...i,...patch} : i));
+    else setItems(prev => [{ id, date:now(), ...patch }, ...prev]);
+    notify(editing ? "Alterações salvas" : "Item adicionado");
+    return true;
   };
+  const delItem = (it) => {
+    if (!confirm("Excluir este item? Essa ação não pode ser desfeita.")) return;
+    setItems(prev => prev.filter(i=>i.id!==it.id));
+    KV.del("rascunho_img_"+it.id); RSC_IMG_CACHE.delete(it.id);
+    setDetailId(null); notify("Item excluído");
+  };
+  const copyItem = async (e) => {
+    const it = e.it, lp = e.type==="link" ? rscLinkParts(it) : null;
+    const text = e.type==="link" ? lp.url : (it.notes || it.title || "");
+    notify((await rscCopy(text)) ? "Copiado" : "Não foi possível copiar", "ok");
+  };
+  const editorFor = (e) => setEditor({ mode: e.type==="text" ? "note" : e.type, item:e.it });
 
-  const del = (id) => { setItems(prev=>prev.filter(i=>i.id!==id)); KV.del("rascunho_img_"+id); setDetailId(null); };
+  const processFiles = async (fileList) => {
+    for (const f of [...fileList]) {
+      const uid = rscNewId()+Math.random();
+      const patch = (p) => setUploads(u=>u.map(x=>x.uid===uid?{...x,...p}:x));
+      const drop = (ms) => setTimeout(()=>setUploads(u=>u.filter(x=>x.uid!==uid)), ms);
+      setUploads(u=>[...u,{uid,name:f.name,pct:0,status:"reading"}]);
+      try {
+        const p = await rscPrepare(f, pc=>patch({pct:Math.round(pc*60)}));
+        patch({status:"sending",pct:75});
+        const id = rscNewId();
+        if (!(await KV.set("rascunho_img_"+id, p.data))) throw new Error("falha ao enviar");
+        const base = { id, date:now(), title:f.name.replace(/\.[^.]+$/,""), notes:"", tags:[] };
+        setItems(prev => [p.isImg ? {...base,kind:"image",hasImage:true,imgName:f.name,imgType:p.type,imgSize:p.size}
+                                  : {...base,kind:"file",hasFile:true,fileName:f.name,fileType:p.type,fileSize:p.size}, ...prev]);
+        patch({status:"done",pct:100}); drop(2500);
+      } catch (err) { patch({status:"error",msg:err.message}); drop(6000); }
+    }
+  };
+  const fromText = (raw) => {
+    const u = RSC_URL_RE.test(raw) && !/\s/.test(raw) ? rscNormUrl(raw) : null;
+    setEditor(u ? {mode:"link",prefill:{url:u}} : {mode:"note",prefill:{text:raw}});
+  };
+  const onDrop = (ev) => {
+    ev.preventDefault(); setDragOver(false);
+    if (ev.dataTransfer.files?.length) return processFiles(ev.dataTransfer.files);
+    const raw = (ev.dataTransfer.getData("text/uri-list") || ev.dataTransfer.getData("text/plain") || "").trim();
+    if (raw) fromText(raw);
+  };
+  useEffect(() => {
+    const onPaste = (ev) => {
+      const t = ev.target;
+      if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+      if (editor || detailId || tagEditId) return;
+      if (ev.clipboardData?.files?.length) { ev.preventDefault(); processFiles(ev.clipboardData.files); return; }
+      const txt = (ev.clipboardData?.getData("text/plain")||"").trim();
+      if (txt) { ev.preventDefault(); fromText(txt); }
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  });
 
-  let filtered = tagFilter==="Todos" ? items : items.filter(i=>(i.tags||[]).includes(tagFilter));
-  if (search.trim()) {
-    const q = search.trim().toLowerCase();
-    filtered = filtered.filter(i=>
-      (i.title||"").toLowerCase().includes(q) ||
-      (i.notes||"").toLowerCase().includes(q) ||
-      (i.tags||[]).some(t=>t.toLowerCase().includes(q))
-    );
-  }
-  const detailItem = items.find(i=>i.id===detailId);
+  const chips = [
+    { id:"all", label:"Todos", n:items.length },
+    ...["image","link","text","code"].map(ty=>({ id:"type:"+ty, label:RSC_TYPE_LABEL[ty], icon:{image:"image",link:"link",text:"doc",code:"code"}[ty], n:count.type(ty) })),
+    ...RSC_CANON_TAGS.map(c=>({ id:"tag:"+c.key, label:c.label, icon:c.icon, n:count.tag(c.key) })),
+    ...extraCats.map(c=>({ id:"tag:"+c.key, label:c.label, icon:c.icon, n:count.tag(c.key) })),
+  ];
+  const quickItems = [
+    { k:"today", label:"Hoje",          icon:"clock",    n:count.date("today"), tone:"#e8f0ff", fg:"#2563eb", on:dateSel==="today" && cat==="all", run:()=>quick({date:"today"}) },
+    { k:"7d",    label:"Últimos 7 dias",icon:"calendar", n:count.date("7d"),    tone:"#efe9ff", fg:"#4f46e5", on:dateSel==="7d" && cat==="all",    run:()=>quick({date:"7d"}) },
+    { k:"img",   label:"Imagens",       icon:"image",    n:count.type("image"), tone:"#e3f6ec", fg:"#1f9d63", on:cat==="type:image",               run:()=>quick({cat:"type:image"}) },
+    { k:"link",  label:"Links",         icon:"link",     n:count.type("link"),  tone:"#e8f0ff", fg:"#2563eb", on:cat==="type:link",                run:()=>quick({cat:"type:link"}) },
+    { k:"token", label:"Token",         icon:"hash",     n:count.tag("token"),  tone:"#f0e8ff", fg:"#7c3aed", on:cat==="tag:token",                run:()=>quick({cat:"tag:token"}) },
+    { k:"casa",  label:"Casa",          icon:"home",     n:count.tag("casa"),   tone:"#e8f0ff", fg:"#2563eb", on:cat==="tag:casa",                 run:()=>quick({cat:"tag:casa"}) },
+  ];
+  const openUpload = () => fileRef.current?.click();
+  const addOpts = [
+    { icon:"image", title:"Upload de arquivo", desc:"Imagens, PDFs, docs...", run:openUpload },
+    { icon:"link",  title:"Link da web",       desc:"Salvar um link externo", run:()=>setEditor({mode:"link"}) },
+    { icon:"doc",   title:"Nota de texto",     desc:"Ideias, notas rápidas...", run:()=>setEditor({mode:"note"}) },
+    { icon:"code",  title:"Código / Snippet",  desc:"Salvar um trecho de código", run:()=>setEditor({mode:"code"}) },
+  ];
+  const detail = items.find(i=>i.id===detailId);
+  const detailE = detail ? enriched.find(e=>e.it.id===detail.id) : null;
+  const tagEditItem = items.find(i=>i.id===tagEditId);
 
   return (
-    <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
-        <div style={{position:"relative",flex:"1 1 280px",maxWidth:360}}>
-          <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)"}}>
-            <Icon path={I.search} size={14} color="var(--text-3)"/>
-          </span>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por palavra-chave..."
-            style={{...inp,paddingLeft:36}}/>
+    <div className="rsc-page">
+      <header className="rsc-head">
+        <div className="rsc-head-ico"><Icon path={I.image} size={34} color="#fff"/></div>
+        <div className="rsc-head-txt">
+          <h1>Rascunho &amp; Imagens</h1>
+          <p>Sua central de ideias, rascunhos e referências. Organize, encontre e use seus materiais com mais agilidade.</p>
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <span style={{fontSize:10,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"syncing..."}</span>
-          <button onClick={openNew} style={{...btn(),display:"flex",alignItems:"center",gap:6}}><Icon path={I.plus} size={14}/> Adicionar</button>
+        <div className="rsc-head-right">
+          <span style={{fontSize:11,color:synced?"var(--green)":"var(--text-3)"}}>{synced?"☁ sync":"sincronizando..."}</span>
+          <div className="rsc-seg" role="group" aria-label="Modo de exibição">
+            <button className={view==="grid"?"on":""} onClick={()=>setView("grid")} aria-label="Grade" title="Grade"><Icon path={I.grid} size={16}/></button>
+            <button className={view==="list"?"on":""} onClick={()=>setView("list")} aria-label="Lista" title="Lista"><Icon path={I.rows} size={16}/></button>
+          </div>
         </div>
+      </header>
+
+      <div className="rsc-filters">
+        <label className="rsc-search">
+          <Icon path={I.search} size={18} color="#6b86a8"/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por palavra-chave, link, nota ou tag..." aria-label="Buscar"/>
+        </label>
+        <button className={`rsc-funnel ${showTags||extraTags.length?"on":""}`} onClick={()=>setShowTags(s=>!s)} aria-label="Filtrar por tags" title="Filtrar por tags">
+          <Icon path={I.funnel} size={20}/>{extraTags.length>0 && <span className="rsc-funnel-n">{extraTags.length}</span>}
+        </button>
+        <RscSelect label="Tipo" value={typeSel} onChange={setTypeSel} options={[{v:"all",l:"Todos"},{v:"image",l:"Imagens"},{v:"link",l:"Links"},{v:"text",l:"Textos"},{v:"code",l:"Códigos"},{v:"file",l:"Arquivos"}]}/>
+        <RscSelect icon="calendar" label="Data" value={dateSel} onChange={setDateSel} options={[{v:"any",l:"Qualquer data"},{v:"today",l:"Hoje"},{v:"7d",l:"Últimos 7 dias"},{v:"30d",l:"Últimos 30 dias"},{v:"year",l:"Este ano"}]}/>
+        <RscSelect icon="sort" label="Ordenar por" value={sortSel} onChange={setSortSel} options={[{v:"recent",l:"Mais recentes"},{v:"old",l:"Mais antigos"},{v:"az",l:"A → Z"},{v:"za",l:"Z → A"}]}/>
+        <button className="rsc-clear" onClick={clearAll} disabled={!active}>Limpar</button>
+      </div>
+      {showTags && (
+        <div className="rsc-tagbar">
+          {allTags.length===0 && <span style={{fontSize:12.5,color:"var(--text-3)"}}>Nenhuma tag criada ainda.</span>}
+          {allTags.map(t=>{ const k=rscNorm(t), on=extraTags.includes(k); return (
+            <button key={k} className={on?"on":""} onClick={()=>setExtraTags(p=>on?p.filter(x=>x!==k):[...p,k])}>#{t}</button>
+          ); })}
+        </div>
+      )}
+
+      <div className="rsc-panels">
+        <section className={`rsc-add ${dragOver?"over":""}`}
+          onDragOver={e=>{e.preventDefault(); setDragOver(true);}} onDragLeave={e=>{ if(!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); }} onDrop={onDrop}>
+          <div className="rsc-add-head">
+            <div className="rsc-plus"><Icon path={I.plus} size={30} color="#fff"/></div>
+            <div><h2>Adicionar novo item</h2><p>Solte arquivos aqui, cole um link ou escreva uma nota</p></div>
+          </div>
+          <div className="rsc-add-opts">
+            {addOpts.map(o=>(
+              <button key={o.title} onClick={o.run}>
+                <Icon path={I[o.icon]} size={26} color="#16315c"/>
+                <b>{o.title}</b><span>{o.desc}</span>
+              </button>
+            ))}
+          </div>
+          <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx" style={{display:"none"}}
+            onChange={e=>{ if (e.target.files?.length) processFiles(e.target.files); e.target.value=""; }}/>
+        </section>
+
+        <section className="rsc-quick">
+          <div className="rsc-quick-head">
+            <div className="rsc-bolt"><Icon path={I.bolt} size={22} color="#f5a623"/></div>
+            <div><h2>Acesso rápido</h2><p>Filtros salvos para o seu dia a dia</p></div>
+          </div>
+          <div className="rsc-quick-grid">
+            {quickItems.map(q=>(
+              <button key={q.k} className={q.on?"on":""} onClick={()=>q.on?clearAll():q.run()}>
+                <span className="rsc-q-ico" style={{background:q.tone}}><Icon path={I[q.icon]} size={20} color={q.fg}/></span>
+                <span className="rsc-q-txt"><b>{q.label}</b><small>{q.n} {q.n===1?"item":"itens"}</small></span>
+              </button>
+            ))}
+          </div>
+        </section>
       </div>
 
-      {allTags.length>0 && (
-        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
-          {["Todos",...allTags].map(t=>(
-            <button key={t} onClick={()=>setTagFilter(t)}
-              style={{background:tagFilter===t?"var(--accent)":"var(--bg-card)",border:"none",borderRadius:20,padding:"6px 14px",
-                color:tagFilter===t?"#fff":"var(--text-2)",fontSize:12,cursor:"pointer",fontWeight:600}}>
-              {t==="Todos"?t:`#${t}`}
-            </button>
+      <nav className="rsc-chips" aria-label="Categorias">
+        {chips.map(c=>(
+          <button key={c.id} className={cat===c.id?"on":""} onClick={()=>setCat(c.id)}>
+            {c.icon && <Icon path={I[c.icon]} size={16}/>}
+            {c.label} <span>({c.n})</span>
+          </button>
+        ))}
+      </nav>
+
+      {!synced && items.length===0 ? (
+        <div className={`rsc-grid ${view}`}>{[0,1,2,3,4].map(i=><div key={i} className="rsc-skel"/>)}</div>
+      ) : filtered.length===0 ? (
+        <div className="rsc-empty">
+          {items.length===0 ? "Nada por aqui ainda — adicione um arquivo, link, nota ou trecho de código acima."
+            : <>Nenhum item encontrado com esses filtros. <button onClick={clearAll}>Limpar filtros</button></>}
+        </div>
+      ) : (
+        <div className={`rsc-grid ${view}`}>
+          {filtered.map(e=>(
+            <RscCard key={e.it.id} e={e} view={view} onOpen={()=>setDetailId(e.it.id)}
+              actions={[
+                { label:"Abrir", run:()=>setDetailId(e.it.id) },
+                e.type==="link" ? { label:"Abrir link", run:()=>window.open(rscLinkParts(e.it).url,"_blank","noopener,noreferrer") } : null,
+                { label:"Editar", run:()=>editorFor(e) },
+                { label:"Copiar", run:()=>copyItem(e) },
+                { label:"Alterar tags", run:()=>{ setTagDraft(e.it.tags||[]); setTagEditId(e.it.id); } },
+                { label:"Excluir", danger:true, run:()=>delItem(e.it) },
+              ]}/>
           ))}
         </div>
       )}
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14}}>
-        {filtered.map(item=><RascunhoCard key={item.id} item={item} onOpen={()=>setDetailId(item.id)}/>)}
-      </div>
-      {filtered.length===0 && <Empty text={search||tagFilter!=="Todos" ? "Nada encontrado." : "Nada por aqui ainda — adicione o que quiser."}/>}
-
-      {modal && (
-        <Modal title={editingId?"Editar":"Adicionar"} onClose={()=>{setModal(false);setEditingId(null);setImgData(null);setImgName("");}}>
+      {editor && <RscEditor mode={editor.mode} item={editor.item} prefill={editor.prefill} allTags={allTags} onSave={saveItem} onClose={()=>setEditor(null)}/>}
+      {detailE && <RscDetail e={detailE} onClose={()=>setDetailId(null)} onCopy={()=>copyItem(detailE)}
+        onEdit={()=>{ setDetailId(null); editorFor(detailE); }} onDelete={()=>delItem(detailE.it)}/>}
+      {tagEditItem && (
+        <Modal title="Alterar tags" onClose={()=>setTagEditId(null)}>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            <textarea style={{...inp,resize:"vertical",fontSize:14}} rows={5} autoFocus
-              placeholder="Escreva o que quiser — uma ideia, um link, uma anotação..."
-              value={text} onChange={e=>setText(e.target.value)}/>
-
-            <div onClick={()=>fileRef.current?.click()}
-              style={{border:"2px dashed var(--border)",borderRadius:12,padding:16,textAlign:"center",cursor:"pointer",
-                backgroundImage:imgData?`url(${imgData.data})`:"none",backgroundSize:"cover",backgroundPosition:"center",
-                minHeight:90,display:"flex",alignItems:"center",justifyContent:"center"}}>
-              {!imgData && <div style={{fontSize:12.5,color:"var(--text-3)",display:"flex",alignItems:"center",gap:6}}>
-                <Icon path={I.image} size={14}/> {imgName || "Anexar imagem (opcional)"}
-              </div>}
-            </div>
-            <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleImg}/>
-
-            <div>
-              <label style={{fontSize:11,color:"var(--text-3)",display:"block",marginBottom:6}}>Tags</label>
-              {allTags.length>0 && (
-                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
-                  {allTags.map(t=>(
-                    <button key={t} onClick={()=>toggleTag(t)}
-                      style={{background:selectedTags.includes(t)?"var(--accent)":"var(--bg-input)",border:"none",borderRadius:14,
-                        padding:"4px 12px",color:selectedTags.includes(t)?"#fff":"var(--text-2)",fontSize:11.5,cursor:"pointer",fontWeight:600}}>
-                      #{t}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div style={{display:"flex",gap:8}}>
-                <input value={newTag} onChange={e=>setNewTag(e.target.value)}
-                  onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addNewTag();}}}
-                  placeholder="Nova tag..." style={{...inp,fontSize:12,flex:1}}/>
-                <button onClick={addNewTag} style={{...btn("var(--bg-input)"),color:"var(--text-2)",padding:"0 16px"}}>+</button>
-              </div>
-              {selectedTags.filter(t=>!allTags.includes(t)).length>0 && (
-                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:8}}>
-                  {selectedTags.filter(t=>!allTags.includes(t)).map(t=>(
-                    <span key={t} onClick={()=>toggleTag(t)}
-                      style={{background:"var(--accent)",color:"#fff",borderRadius:14,padding:"4px 12px",fontSize:11.5,cursor:"pointer",fontWeight:600}}>
-                      #{t} ×
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <button onClick={save} style={btn()}>Salvar</button>
+            <RscTagPicker value={tagDraft} onChange={setTagDraft} all={allTags}/>
+            <button style={btn()} onClick={()=>{ setItems(prev=>prev.map(i=>i.id===tagEditId?{...i,tags:tagDraft}:i)); setTagEditId(null); notify("Tags atualizadas"); }}>Salvar</button>
           </div>
         </Modal>
       )}
 
-      {detailItem && (
-        <RascunhoDetailModal item={detailItem} onClose={()=>setDetailId(null)}
-          onEdit={()=>openEdit(detailItem)} onDelete={()=>del(detailItem.id)}/>
+      {uploads.length>0 && (
+        <div className="rsc-uploads" role="status">
+          {uploads.map(u=>(
+            <div key={u.uid} className={u.status}>
+              <div className="rsc-up-name">{u.name}</div>
+              <div className="rsc-up-bar"><i style={{width:u.pct+"%"}}/></div>
+              <small>{u.status==="reading"?"Lendo...":u.status==="sending"?"Enviando...":u.status==="done"?"Concluído":`Erro: ${u.msg}`}</small>
+            </div>
+          ))}
+        </div>
       )}
+      {toast && <div className={`rsc-toast ${toast.kind}`} role="status">{toast.msg}</div>}
     </div>
   );
 }
@@ -9357,7 +9759,7 @@ function AppContent() {
       )}
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below"||page==="games")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"||page==="games"||page==="tasks"||page==="jarbas"?"100%":1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below"||page==="games")?"hidden":"visible",position:"relative"}}>
+      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below"||page==="games")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"||page==="games"||page==="tasks"||page==="jarbas"?"100%":page==="rascunhos"?1600:1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below"||page==="games")?"hidden":"visible",position:"relative"}}>
         {(page==="home"||page==="projects"||page==="below"||page==="games") ? (
           <VerticalSlide mode={page} above={<GamesPage onBackToMenu={()=>setPage("home")}/>} bottom={
             <div style={{position:"relative"}}>
