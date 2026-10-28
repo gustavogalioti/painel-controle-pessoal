@@ -10,6 +10,42 @@ const Icon = ({ path, size = 18, color = "currentColor" }) => (
     <path d={path} />
   </svg>
 );
+// ─── LOGO (anéis verdes animados) ────────────────────────────────────────────
+// [raio, espessura, cor, arcos[[início°, varredura°]], duração(s, sinal = sentido)] — viewBox 100
+const BRAND_RINGS = [
+  [37, 4.2, "#26962b", [[-10, 150], [170, 110]], 46],
+  [31, 4.2, "#35b238", [[40, 200]], -34],
+  [25, 4.2, "#157a17", [[205, 140], [10, 100]], 52],
+  [19.5, 4.0, "#52d855", [[100, 230]], -26],
+  [14.5, 3.6, "#35b238", [[-30, 170], [170, 90]], 38],
+  [10, 3.2, "#6cf56c", [[60, 240]], -22],
+  [6, 2.6, "#52d855", [[220, 200]], 30],
+  [3, 2.4, "#6cf56c", [[0, 280]], -18],
+];
+const brandArc = (r, s, sw) => {
+  const a0 = s * Math.PI / 180, a1 = (s + sw) * Math.PI / 180, f = n => n.toFixed(2);
+  return `M${f(r * Math.sin(a0))} ${f(-r * Math.cos(a0))}A${r} ${r} 0 ${sw > 180 ? 1 : 0} 1 ${f(r * Math.sin(a1))} ${f(-r * Math.cos(a1))}`;
+};
+const BrandMark = ({ size = 32 }) => {
+  const ref = useRef(null);
+  useEffect(() => {
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce && ref.current) { try { ref.current.pauseAnimations(); } catch (e) {} }
+  }, []);
+  return (
+    <svg ref={ref} width={size} height={size} viewBox="0 0 100 100" role="img" aria-label="Painel de Controle" style={{borderRadius:size*0.22,background:"#000",display:"block"}}>
+      <g transform="translate(50 50)" fill="none" strokeLinecap="butt">
+        {BRAND_RINGS.map(([r, w, c, arcs, dur], i) => (
+          <g key={i}>
+            {arcs.map(([s, sw], j) => <path key={j} d={brandArc(r, s, sw)} stroke={c} strokeWidth={w} />)}
+            <animateTransform attributeName="transform" type="rotate" from="0 0 0" to={`${dur > 0 ? 360 : -360} 0 0`} dur={`${Math.abs(dur)}s`} repeatCount="indefinite" />
+          </g>
+        ))}
+      </g>
+    </svg>
+  );
+};
+
 const I = {
   x:       "M18 6 6 18 M6 6l12 12",
   trash:   "M3 6h18 M19 6l-1 14H6L5 6 M8 6V4h8v2",
@@ -9714,7 +9750,7 @@ function AppContent() {
       <header style={{background:"var(--bg-bar)",borderBottom:"1px solid var(--border)",padding:"0 20px",height:64,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,minWidth:0}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
           <div style={{width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <img src="/radioactive-icon.png" alt="logo" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+            <BrandMark size={32}/>
           </div>
           <div className="app-brand-title" style={{fontWeight:800,fontSize:14,letterSpacing:0.5,lineHeight:1}}>PAINEL DE CONTROLE</div>
         </div>

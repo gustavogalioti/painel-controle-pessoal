@@ -1,10 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="8" fill="url(#g)"/>
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#3b82f6"/>
-      <stop offset="100%" stop-color="#8b5cf6"/>
-    </linearGradient>
-  </defs>
-  <text x="16" y="22" text-anchor="middle" font-size="18" font-weight="900" fill="white" font-family="sans-serif">P</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" fill="#000"/><g fill="none" stroke-linecap="butt"><path d="M43.58 13.56A37 37 0 0 1 73.78 78.34" stroke="#26962b" stroke-width="4.2"/><path d="M56.42 86.44A37 37 0 0 1 13.56 43.58" stroke="#26962b" stroke-width="4.2"/><path d="M69.93 26.25A31 31 0 1 1 23.15 65.50" stroke="#35b238" stroke-width="4.2"/><path d="M39.43 72.66A25 25 0 0 1 43.53 25.85" stroke="#157a17" stroke-width="4.2"/><path d="M54.34 25.38A25 25 0 0 1 73.49 58.55" stroke="#157a17" stroke-width="4.2"/><path d="M69.20 53.39A19.5 19.5 0 1 1 40.25 33.11" stroke="#52d855" stroke-width="4"/><path d="M42.75 37.44A14.5 14.5 0 0 1 59.32 61.11" stroke="#35b238" stroke-width="3.6"/><path d="M52.52 64.28A14.5 14.5 0 0 1 35.72 52.52" stroke="#35b238" stroke-width="3.6"/><path d="M58.66 45.00A10 10 0 1 1 41.34 45.00" stroke="#6cf56c" stroke-width="3.2"/><path d="M46.14 54.60A6 6 0 1 1 55.20 47.00" stroke="#52d855" stroke-width="2.6"/><path d="M50.00 47.00A3 3 0 1 1 47.05 49.48" stroke="#6cf56c" stroke-width="2.4"/></g></svg>
