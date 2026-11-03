@@ -3523,7 +3523,89 @@ function JarbasSectionCard({ title, subtitle, children, onSave, dirty, saved }) 
 }
 
 // ─── Visão geral: status de tudo que o Jarbas guarda, sem precisar abrir cada aba ───
-function JarbasVisaoGeralTab({ mem, recados, onNavigate }) {
+// ─── ADMIN-1 PARTE B.4: bloco "Janelas de verificação" — última execução por
+// janela, o que o Jarbas achou (leitura), botão "Verificar agora" e edição de
+// horário/liga-desliga, gravando em mem.config.janelas (mesma convenção
+// setMem(prev => ({...(prev||{}), ...})) usada no resto da página do Jarbas). ───
+const JARBAS_JANELAS_PADRAO = ["07:00", "12:00", "16:00", "20:00"];
+
+function JarbasJanelasBlock({ mem, setMem }) {
+  const janelasConfig = mem?.config?.janelas || {};
+  const painelLeitura = mem?.painelLeitura || {};
+  const horarios = [...new Set([...JARBAS_JANELAS_PADRAO, ...Object.keys(janelasConfig)])].sort();
+  const [verificando, setVerificando] = useState(null);
+  const [erro, setErro] = useState("");
+
+  const ativa = (h) => janelasConfig[h] !== false; // padrão: ativa, salvo escolha explícita
+
+  const toggleAtiva = (h) => {
+    setMem(prev => ({ ...(prev || {}), config: { ...(prev?.config || {}), janelas: { ...(prev?.config?.janelas || {}), [h]: !ativa(h) } } }));
+  };
+
+  const editarHorario = (horarioAntigo, novoHorario) => {
+    if (!novoHorario || novoHorario === horarioAntigo) return;
+    setMem(prev => {
+      const atuais = { ...(prev?.config?.janelas || {}) };
+      const estavaAtiva = atuais[horarioAntigo] !== false;
+      delete atuais[horarioAntigo];
+      atuais[novoHorario] = estavaAtiva;
+      return { ...(prev || {}), config: { ...(prev?.config || {}), janelas: atuais } };
+    });
+  };
+
+  const verificarAgora = async (h) => {
+    setVerificando(h); setErro("");
+    try {
+      const r = await fetch("/api/jarbas?action=verificar_janela", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ janelaId: h }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error || "falhou");
+      // A leitura já foi gravada em jarbas_memory_v1 pelo Worker — relê pra mostrar na hora,
+      // sem esperar o próximo poll de 60s do useKV.
+      const fresco = await KV.get("jarbas_memory_v1");
+      if (fresco) setMem(fresco);
+    } catch {
+      setErro("O Jarbas não respondeu; tente de novo.");
+    } finally {
+      setVerificando(null);
+    }
+  };
+
+  return (
+    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16, marginBottom: 24 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>🔎 Janelas de verificação</div>
+      <p style={{ fontSize: 12, color: "var(--text-3)", marginBottom: 12 }}>Nesses horários o Jarbas lê o painel inteiro e anota uma opinião sobre o que merece atenção — sem alterar nada por conta própria.</p>
+      {erro && <div style={{ fontSize: 12, color: "var(--red)", marginBottom: 10 }}>{erro}</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {horarios.map((h) => {
+          const entrada = painelLeitura[h];
+          return (
+            <div key={h} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <input type="checkbox" checked={ativa(h)} onChange={() => toggleAtiva(h)} title="Ligar/desligar esta janela" />
+                <input type="time" defaultValue={h} onBlur={(e) => editarHorario(h, e.target.value)} style={{ ...inp, width: 110, padding: "4px 8px" }} />
+                <button onClick={() => verificarAgora(h)} disabled={verificando === h}
+                  style={{ ...btn(), padding: "4px 10px", fontSize: 12, opacity: verificando === h ? 0.6 : 1 }}>
+                  {verificando === h ? "Verificando..." : "Verificar agora"}
+                </button>
+                <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+                  {entrada?.em ? `última leitura: ${new Date(entrada.em).toLocaleString("pt-BR")}` : "ainda não rodou"}
+                </span>
+              </div>
+              {entrada?.texto && <div style={{ fontSize: 13, color: "var(--text-2)", marginTop: 8 }}>{entrada.texto}</div>}
+              {!entrada?.texto && Array.isArray(entrada?.achados) && entrada.achados.length > 0 && (
+                <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 8 }}>{entrada.achados.length} ponto(s) encontrados (sem leitura ainda, orçamento de IA do dia esgotado).</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function JarbasVisaoGeralTab({ mem, setMem, recados, onNavigate }) {
   const items = mem?.items || [];
   const hojeISO = todayISODate();
   const ativos = items.filter(i => i.status === "ativo");
@@ -3576,6 +3658,8 @@ function JarbasVisaoGeralTab({ mem, recados, onNavigate }) {
           <div style={{ fontSize: 14 }}>{ultimaCriacao ? `${ultimaCriacao.title || "sem título"}${ultimaCriacao.at ? ` (${new Date(ultimaCriacao.at).toLocaleDateString("pt-BR")})` : ""}` : "nenhuma ainda"}</div>
         </div>
       </div>
+
+      <JarbasJanelasBlock mem={mem} setMem={setMem} />
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
         {[
@@ -4366,7 +4450,7 @@ function JarbasPage() {
   const navItems = JARBAS_NAV.flatMap(g => g.items);
 
   const renderTab = () => {
-    if (tab === "visao") return <JarbasVisaoGeralTab mem={mem} recados={recados} onNavigate={setTab} />;
+    if (tab === "visao") return <JarbasVisaoGeralTab mem={mem} setMem={setMem} recados={recados} onNavigate={setTab} />;
     if (tab === "itens") return <JarbasMemoriaItensTab mem={mem} setMem={setMem} />;
     if (tab === "perfil") return <JarbasPerfilTab mem={mem} setMem={setMem} />;
     if (tab === "conhecimento" && kForm) {

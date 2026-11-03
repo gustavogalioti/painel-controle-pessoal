@@ -592,6 +592,128 @@ async function getMudancas(sql) {
   return { tarefas, contas, agenda, ideias, lembretes, listas, diario, recados };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// ADMIN-1: inventário completo do painel ("o Jarbas se pauta por TUDO").
+//
+// IMPORTANTE — divergência pré-existente encontrada (não introduzida por este PR):
+// os comandos de voz mais antigos (pagar_conta/apagar_conta, chamados por
+// gerenciar_conta) e api/pedro.js leem/escrevem "finance_v1", mas a tela real de
+// Contas do painel (BillsPage, src/App.jsx) usa "bills_v1" — são chaves DIFERENTES,
+// então esses comandos antigos nunca enxergam as contas que aparecem na tela. Fora
+// de escopo corrigir aqui (usado em mais de um lugar, risco de regressão); o
+// inventário/ferramentas NOVAS deste PR usam a chave REAL (bills_v1), que é a
+// única que a tela mostra. Ver nota na descrição do PR.
+//
+// Cada domínio: a chave real do sync_kv + um normalizador compacto (id/titulo/
+// status/data/prioridade/tags), usado tanto por ?action=painel_resumo (leitura
+// para o prompt) quanto por painel_gerenciar (escrita) e painel_buscar (busca).
+// "diario" tem seu próprio fluxo dedicado (anotar/desfazer/corrigir já existentes)
+// e não entra nos domínios de escrita genérica, pra não duplicar regra nenhuma.
+// "saude_v1"/"temas_*" (hábitos) ficaram de fora: são objetos de configuração/log
+// por dia, não listas de itens com id — não cabem no mesmo formato genérico sem
+// código sob medida, desproporcional ao pedido; ver nota no PR.
+// ─────────────────────────────────────────────────────────────────────────
+function truncate(str, n) {
+  const s = String(str || "");
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+export const PAINEL_COLECOES = {
+  tarefa: {
+    key: "tasks_v1", label: "tarefa", campoTexto: "text",
+    map: (t) => ({ id: t.id, titulo: truncate(t.text, 140), status: getTaskStatus(t), data: t.date || null, prioridade: t.prio || null, tags: [] }),
+  },
+  compromisso: {
+    key: "events_v1", label: "compromisso", campoTexto: "title",
+    map: (e) => ({ id: e.id, titulo: truncate(e.title, 140), status: e.cat || null, data: [e.date, e.time].filter(Boolean).join(" ") || null, prioridade: null, tags: e.local ? [e.local] : [] }),
+  },
+  conta: {
+    key: "bills_v1", label: "conta", campoTexto: "name",
+    map: (b) => ({ id: b.id, titulo: truncate(b.name, 140), status: b.paid ? "paga" : "pendente", data: b.dueDay != null ? `dia ${b.dueDay}` : null, prioridade: null, tags: [b.cat].filter(Boolean) }),
+  },
+  ideia: {
+    key: "ideas_v1", label: "ideia", campoTexto: "text",
+    map: (i) => ({ id: i.id, titulo: truncate(i.text, 140), status: null, data: i.date || null, prioridade: null, tags: [i.tag].filter(Boolean) }),
+  },
+  lembrete: {
+    key: "reminders_v1", label: "lembrete", campoTexto: "text",
+    map: (r) => ({ id: r.id, titulo: truncate(r.text, 140), status: r.done ? "feito" : "pendente", data: r.date || null, prioridade: null, tags: [] }),
+  },
+  lista: {
+    key: "lists_v1", label: "lista", campoTexto: "title",
+    map: (l) => ({ id: l.id, titulo: truncate(l.title, 140), status: `${(l.items || []).length} itens`, data: l.created || null, prioridade: null, tags: [] }),
+  },
+  nota: {
+    key: "rascunhos_v1", label: "nota", campoTexto: "title",
+    map: (n) => ({ id: n.id, titulo: truncate(n.title || n.notes, 140), status: null, data: n.date || null, prioridade: null, tags: Array.isArray(n.tags) ? n.tags : [] }),
+  },
+  diario: {
+    key: "diary_v1", label: "anotação no diário", campoTexto: "text", somenteLeitura: true,
+    map: (d) => ({ id: d.id, titulo: truncate(d.text, 140), status: d.mood || null, data: d.date || null, prioridade: null, tags: [] }),
+  },
+};
+
+// Relevância temporal por domínio, pra painel_resumo nunca despejar tudo — só o que
+// importa AGORA primeiro. Itens concluídos/pagos/feitos sempre vão pro final.
+const PAINEL_RESUMO_LIMITE = 6;
+const PAINEL_RESUMO_TITULO_MAX = 140;
+
+function relevanciaChave(dominio, item) {
+  const done = item.status === "done" || item.status === "feito" || item.status === "paga" || item.status === "tratado";
+  if (dominio === "tarefa") {
+    const ordemStatus = { now: 0, today: 1, doing: 2, todo: 3, standby: 4, done: 9 };
+    return [done ? 1 : 0, ordemStatus[item.status] ?? 5, item.data || ""];
+  }
+  if (dominio === "compromisso" || dominio === "conta") {
+    // mais próximos primeiro (data/dueDay em ordem crescente), pagos/passados depois.
+    return [done ? 1 : 0, item.data || "9999"];
+  }
+  // ideia/lembrete/lista/nota/diario: mais recente primeiro (já vêm prependados na
+  // criação — manter a ordem de chegada da lista é suficiente, sem reordenar).
+  return [done ? 1 : 0];
+}
+
+function compararRelevancia(dominio, a, b) {
+  const ka = relevanciaChave(dominio, a), kb = relevanciaChave(dominio, b);
+  for (let i = 0; i < Math.max(ka.length, kb.length); i++) {
+    const va = ka[i], vb = kb[i];
+    if (va === vb) continue;
+    if (typeof va === "number" || typeof vb === "number") return (Number(va) || 0) - (Number(vb) || 0);
+    return String(va || "").localeCompare(String(vb || ""));
+  }
+  return 0;
+}
+
+// Devolve, por domínio: total de itens, os N mais relevantes (compactados/truncados)
+// e um hash do conjunto devolvido — o Worker guarda o hash e só recalcula/reage se
+// ele mudar, sem precisar baixar a coleção inteira de novo pra saber se algo mudou.
+export async function getPainelResumo(sql) {
+  const entradas = await Promise.all(Object.entries(PAINEL_COLECOES).map(async ([dominio, cfg]) => {
+    const lista = await getKvList(sql, cfg.key);
+    const itens = lista.map(cfg.map).sort((a, b) => compararRelevancia(dominio, a, b)).slice(0, PAINEL_RESUMO_LIMITE)
+      .map((it) => ({ ...it, titulo: truncate(it.titulo, PAINEL_RESUMO_TITULO_MAX) }));
+    const hash = await sha256Short(JSON.stringify(itens));
+    return [dominio, { total: lista.length, itens, hash }];
+  }));
+  return Object.fromEntries(entradas);
+}
+
+// ---------- ADMIN-1 PARTE D: painel_buscar (só leitura, busca por palavra normalizada) ----------
+const PAINEL_BUSCA_LIMITE_POR_DOMINIO = 5;
+
+export async function getPainelBusca(sql, q) {
+  const nq = normalize(q);
+  if (!nq) return { query: q || "", resultados: [] };
+  const porDominio = await Promise.all(Object.entries(PAINEL_COLECOES).map(async ([dominio, cfg]) => {
+    const lista = await getKvList(sql, cfg.key);
+    return lista
+      .filter((item) => normalize(item[cfg.campoTexto]).includes(nq) || (Array.isArray(item.tags) && item.tags.some((t) => normalize(t).includes(nq))))
+      .slice(0, PAINEL_BUSCA_LIMITE_POR_DOMINIO)
+      .map((item) => ({ dominio, label: cfg.label, ...cfg.map(item) }));
+  }));
+  return { query: q, resultados: porDominio.flat() };
+}
+
 // ---------- Ações (o que o Jarbas pode "fazer") ----------
 async function cmdAddTask(sql, texto) {
   if (!texto) return { reply: "Faltou dizer o texto da tarefa." };
@@ -954,8 +1076,9 @@ export async function cmdChat(sql, body, ip) {
     if (!alvo || collectionsJaGuardadas.has(alvo.key)) continue;
     collectionsJaGuardadas.add(alvo.key);
     const id = newLogId();
+    const createdAt = Date.now();
     await setKvJson(sql, UNDO_KEY_PREFIX + id, {
-      collection: alvo.key, before: before[alvo.key], createdAt: Date.now(), used: false,
+      collection: alvo.key, before: before[alvo.key], createdAt, expiresAt: createdAt + UNDO_TTL_MS, used: false,
     });
     undo.push({ id, label: alvo.label });
   }
@@ -973,22 +1096,332 @@ export async function cmdChat(sql, body, ip) {
   };
 }
 
+// Limite de expiração: registros antigos (criados antes do ADMIN-1) não têm
+// `expiresAt` — caem no TTL de 10min antigo (UNDO_TTL_MS), igual sempre se comportaram.
+function undoExpirado(record) {
+  const limite = record.expiresAt ?? (record.createdAt + UNDO_TTL_MS);
+  return Date.now() > limite;
+}
+
+async function restaurarUndo(sql, id, record, origemLog) {
+  await setKvList(sql, record.collection, record.before || []);
+  await setKvJson(sql, UNDO_KEY_PREFIX + id, { ...record, used: true });
+  await cmdLogAppend(sql, [{
+    tipo: "acao_pedida", origem: origemLog,
+    resumo: `Desfez a última ação do Jarbas em "${record.collection}"${origemLog === "painel" ? " pela barra de comando do painel." : "."}`,
+    detalhes: { canal: origemLog, collection: record.collection },
+  }]);
+  return { status: 200, data: { ok: true, collection: record.collection } };
+}
+
 export async function cmdDesfazer(sql, undoId) {
   if (!undoId) return { status: 400, data: { error: "id_required" } };
-  const key = UNDO_KEY_PREFIX + undoId;
-  const record = await getKvJson(sql, key);
+  const record = await getKvJson(sql, UNDO_KEY_PREFIX + undoId);
   if (!record) return { status: 404, data: { error: "undo_not_found" } };
   if (record.used) return { status: 410, data: { error: "undo_already_used" } };
-  if (Date.now() - record.createdAt > UNDO_TTL_MS) return { status: 410, data: { error: "undo_expired" } };
+  if (undoExpirado(record)) return { status: 410, data: { error: "undo_expired" } };
+  return restaurarUndo(sql, undoId, record, "painel");
+}
 
-  await setKvList(sql, record.collection, record.before || []);
-  await setKvJson(sql, key, { ...record, used: true });
+// Pedida por voz ("desfaz") — sem id explícito, acha o registro de desfazer mais
+// recente que ainda não foi usado nem expirou. Usado SÓ pelo Worker (comando
+// "desfazer_ultima_acao", autenticado com a JARBAS_API_KEY, nunca pela sessão do
+// painel, que já tem o id exato devolvido pela própria conversa).
+export async function cmdDesfazerUltima(sql) {
+  const rows = await sql`SELECT key, value FROM sync_kv WHERE key LIKE ${UNDO_KEY_PREFIX + "%"} ORDER BY updated_at DESC LIMIT 20`;
+  for (const row of rows) {
+    let record;
+    try { record = JSON.parse(row.value); } catch { continue; }
+    if (!record || record.used || undoExpirado(record)) continue;
+    const id = row.key.slice(UNDO_KEY_PREFIX.length);
+    const result = await restaurarUndo(sql, id, record, "jarbas");
+    return { ...result, data: { ...result.data, label: TOOL_TO_COLLECTION_LABEL[record.collection] || record.collection } };
+  }
+  return { status: 404, data: { error: "undo_not_found" } };
+}
+const TOOL_TO_COLLECTION_LABEL = Object.fromEntries([
+  ...Object.values(TOOL_TO_COLLECTION).map((c) => [c.key, c.label]),
+  ...Object.entries(PAINEL_COLECOES).map(([, c]) => [c.key, c.label]),
+]);
+
+// ─────────────────────────────────────────────────────────────────────────
+// ADMIN-1 PARTE C: painel_gerenciar — o Jarbas como ADMINISTRADOR do painel.
+// Única porta de ESCRITA genérica sobre o inventário (PAINEL_COLECOES), chamada
+// pelo Worker (ferramenta "painel_gerenciar", autenticada com a JARBAS_API_KEY,
+// igual aos outros comandos) a partir de uma conversa ao vivo (voz ou barra do
+// painel) — NUNCA pelas janelas automáticas de verificação, que só leem e sugerem
+// (ver worker/index.js); esta rota simplesmente não é chamada por elas.
+//
+// "diario" fica de fora (tem fluxo próprio: anotar_no_diario/desfazer_anotacao_diario/
+// corrigir_anotacao_diario, já existentes) — reaproveitado, não duplicado.
+// ─────────────────────────────────────────────────────────────────────────
+const ADMIN_WRITE_RL_MIN_KEY = "jarbas_admin_rl_min";
+const ADMIN_WRITE_RL_MIN_MAX = 20; // escritas por minuto (anti-laço)
+const ADMIN_WRITE_RL_MIN_MS = 60 * 1000;
+function adminWriteRlDiaKey() { return `jarbas_admin_rl_dia:${todayISO()}`; }
+const ADMIN_WRITE_RL_DIA_MAX = 300; // escritas por dia
+const UNDO_ADMIN_TTL_MS = 24 * 60 * 60 * 1000; // 24h (vs. 10min da barra de comando)
+
+async function checkAdminWriteRateLimit(sql) {
+  const now = Date.now();
+  const minState = await getKvJson(sql, ADMIN_WRITE_RL_MIN_KEY);
+  if (!minState || now - minState.firstAt > ADMIN_WRITE_RL_MIN_MS) {
+    await setKvJson(sql, ADMIN_WRITE_RL_MIN_KEY, { count: 1, firstAt: now });
+  } else if (minState.count >= ADMIN_WRITE_RL_MIN_MAX) {
+    return { blocked: true, motivo: "limite_por_minuto" };
+  } else {
+    await setKvJson(sql, ADMIN_WRITE_RL_MIN_KEY, { count: minState.count + 1, firstAt: minState.firstAt });
+  }
+
+  const diaKey = adminWriteRlDiaKey();
+  const diaCount = Number(await getKvJson(sql, diaKey)) || 0;
+  if (diaCount >= ADMIN_WRITE_RL_DIA_MAX) return { blocked: true, motivo: "limite_por_dia" };
+  await setKvJson(sql, diaKey, diaCount + 1);
+  return { blocked: false };
+}
+
+// Ações destrutivas/em massa — NUNCA executam sem `confirmado:true` vindo da
+// conversa (o Worker só manda isso depois que a própria pessoa confirmou
+// explicitamente). Sem confirmação, devolve o que SERIA feito, sem fazer nada.
+const ADMIN_ACOES_DESTRUTIVAS = new Set(["apagar", "arquivar_varios", "mover_todos", "item_remover"]);
+
+// O que cada domínio aceita — fora daqui, 400 (nunca um domínio/ação inesperados
+// batendo em código que não foi escrito pra eles).
+const ADMIN_ACOES_POR_DOMINIO = {
+  tarefa: ["criar", "atualizar", "mover", "concluir", "apagar", "arquivar_varios", "mover_todos"],
+  compromisso: ["criar", "atualizar", "mover", "apagar"],
+  conta: ["criar", "atualizar", "concluir", "apagar"],
+  ideia: ["criar", "atualizar", "apagar"],
+  lembrete: ["criar", "atualizar", "concluir", "apagar"],
+  lista: ["criar", "apagar", "item_adicionar", "item_remover"],
+  nota: ["criar", "atualizar", "apagar"],
+};
+
+function encontrarPorId(lista, id) {
+  return lista.find((it) => String(it.id) === String(id));
+}
+
+// Dedup (PARTE C.4): antes de criar, checa se já existe algo equivalente (texto
+// normalizado, igual ou contendo um ao outro) e ainda "ativo" (não concluído/pago/
+// apagado) — nesse caso recusa a criação e devolve o item existente, pra quem
+// chamou perguntar/atualizar em vez de duplicar.
+function encontrarDuplicado(lista, campoTexto, textoNovo, estaAtivo) {
+  const nq = normalize(textoNovo);
+  if (!nq) return null;
+  return lista.find((it) => estaAtivo(it) && (normalize(it[campoTexto]).includes(nq) || nq.includes(normalize(it[campoTexto]))));
+}
+
+async function gravarUndoAdmin(sql, collection, before) {
+  const id = newLogId();
+  const createdAt = Date.now();
+  await setKvJson(sql, UNDO_KEY_PREFIX + id, { collection, before, createdAt, expiresAt: createdAt + UNDO_ADMIN_TTL_MS, used: false });
+  return id;
+}
+
+async function logAcaoAdmin(sql, dominio, acao, resumo, extra) {
   await cmdLogAppend(sql, [{
-    tipo: "acao_pedida", origem: "painel",
-    resumo: `Desfez a última ação do Jarbas em "${record.collection}" pela barra de comando do painel.`,
-    detalhes: { canal: "painel", collection: record.collection },
+    tipo: "acao_pedida", origem: "jarbas",
+    resumo, detalhes: { ferramenta: "painel_gerenciar", dominio, acao, ...extra },
   }]);
-  return { status: 200, data: { ok: true } };
+}
+
+export async function cmdPainelGerenciar(sql, payload = {}) {
+  const { dominio, acao, params = {}, confirmado = false } = payload || {};
+  const cfg = PAINEL_COLECOES[dominio];
+  const acoesValidas = ADMIN_ACOES_POR_DOMINIO[dominio];
+  if (!cfg || cfg.somenteLeitura || !acoesValidas) return { ok: false, erro: "dominio_invalido" };
+  if (!acoesValidas.includes(acao)) return { ok: false, erro: "acao_invalida" };
+
+  const mem = await getKvJson(sql, JARBAS_MEMORY_KEY);
+  const adminConfig = mem?.config?.admin || {};
+  if (adminConfig.ativo === false) return { ok: false, erro: "admin_desativado", reply: "O modo administrador do painel está desligado nas configurações — não fiz nada." };
+
+  const destrutiva = ADMIN_ACOES_DESTRUTIVAS.has(acao);
+  if (destrutiva && !confirmado) {
+    return { ok: false, erro: "confirmacao_necessaria", reply: `Essa ação (${acao.replace("_", " ")} em ${cfg.label}) apaga ou move muita coisa de uma vez — confirme com a pessoa antes de eu fazer de verdade.` };
+  }
+
+  const modoSugerir = adminConfig.modo === "sugerir";
+  if (modoSugerir) {
+    return { ok: false, erro: "modo_sugerir", reply: `(modo sugestão) Eu faria: ${acao.replace("_", " ")} em ${cfg.label}${params?.texto || params?.titulo || params?.nome ? ` — "${params.texto || params.titulo || params.nome}"` : ""}. Confirme pra eu executar de verdade.` };
+  }
+
+  const rl = await checkAdminWriteRateLimit(sql);
+  if (rl.blocked) return { ok: false, erro: "rate_limited", motivo: rl.motivo, reply: "Fiz escrita demais no painel em pouco tempo — vou esperar um pouco antes da próxima." };
+
+  const antes = await getKvList(sql, cfg.key);
+  let depois = antes;
+  let itemResultado = null;
+  let resumoLog = "";
+
+  const textoNovo = params.texto ?? params.titulo ?? params.nome ?? "";
+  const estaAtivo = (it) => !(it.status === "done" || it.done === true || it.paid === true);
+
+  if (acao === "criar") {
+    if (!textoNovo || !String(textoNovo).trim()) return { ok: false, erro: "texto_obrigatorio" };
+    const duplicado = encontrarDuplicado(antes, cfg.campoTexto, textoNovo, estaAtivo);
+    if (duplicado) return { ok: false, erro: "duplicado", existente: cfg.map(duplicado), reply: `Já existe ${cfg.label === "conta" ? "uma conta" : "algo"} parecido: "${duplicado[cfg.campoTexto]}". Quer que eu atualize essa em vez de criar outra?` };
+    itemResultado = construirNovoItem(dominio, params);
+    depois = [itemResultado, ...antes];
+    resumoLog = `Criou ${cfg.label}: "${textoNovo}".`;
+  } else if (acao === "atualizar") {
+    const alvo = encontrarPorId(antes, params.id);
+    if (!alvo) return { ok: false, erro: "nao_encontrado" };
+    itemResultado = aplicarAtualizacao(dominio, alvo, params.campos || {});
+    depois = antes.map((it) => (String(it.id) === String(params.id) ? itemResultado : it));
+    resumoLog = `Atualizou ${cfg.label} #${params.id}.`;
+  } else if (acao === "mover") {
+    const alvo = encontrarPorId(antes, params.id);
+    if (!alvo) return { ok: false, erro: "nao_encontrado" };
+    itemResultado = aplicarMovimentacao(dominio, alvo, params);
+    if (!itemResultado) return { ok: false, erro: "parametros_invalidos" };
+    depois = antes.map((it) => (String(it.id) === String(params.id) ? itemResultado : it));
+    resumoLog = `Moveu ${cfg.label} #${params.id}.`;
+  } else if (acao === "concluir") {
+    const alvo = encontrarPorId(antes, params.id);
+    if (!alvo) return { ok: false, erro: "nao_encontrado" };
+    itemResultado = aplicarConclusao(dominio, alvo);
+    depois = antes.map((it) => (String(it.id) === String(params.id) ? itemResultado : it));
+    resumoLog = `Concluiu ${cfg.label} #${params.id}.`;
+  } else if (acao === "apagar") {
+    const alvo = encontrarPorId(antes, params.id);
+    if (!alvo) return { ok: false, erro: "nao_encontrado" };
+    await moverParaLixeira(sql, cfg.key, [alvo]);
+    depois = antes.filter((it) => String(it.id) !== String(params.id));
+    resumoLog = `Apagou ${cfg.label} #${params.id}: "${alvo[cfg.campoTexto] || ""}".`;
+  } else if (acao === "arquivar_varios") {
+    const filtroStatus = params.status;
+    const alvos = filtroStatus ? antes.filter((it) => getItemStatus(dominio, it) === filtroStatus) : antes.filter(estaAtivo);
+    if (!alvos.length) return { ok: false, erro: "nada_para_arquivar" };
+    await moverParaLixeira(sql, cfg.key, alvos);
+    const idsAlvo = new Set(alvos.map((a) => String(a.id)));
+    depois = antes.filter((it) => !idsAlvo.has(String(it.id)));
+    resumoLog = `Arquivou ${alvos.length} ${cfg.label}(s) em massa.`;
+  } else if (acao === "mover_todos") {
+    if (dominio !== "tarefa" || !params.deStatus || !params.paraStatus) return { ok: false, erro: "parametros_invalidos" };
+    let movidos = 0;
+    depois = antes.map((it) => {
+      if (getTaskStatus(it) !== params.deStatus) return it;
+      movidos++;
+      return { ...it, status: params.paraStatus, done: params.paraStatus === "done" };
+    });
+    if (!movidos) return { ok: false, erro: "nada_para_mover" };
+    resumoLog = `Moveu ${movidos} tarefa(s) de "${params.deStatus}" para "${params.paraStatus}".`;
+  } else if (acao === "item_adicionar") {
+    const alvo = encontrarPorId(antes, params.id);
+    if (!alvo) return { ok: false, erro: "nao_encontrado" };
+    const novoItem = { id: Date.now(), text: String(params.item || "").trim(), done: false, date: new Date().toLocaleString("pt-BR") };
+    if (!novoItem.text) return { ok: false, erro: "texto_obrigatorio" };
+    itemResultado = { ...alvo, items: [...(alvo.items || []), novoItem] };
+    depois = antes.map((it) => (String(it.id) === String(params.id) ? itemResultado : it));
+    resumoLog = `Adicionou item em ${cfg.label} #${params.id}: "${novoItem.text}".`;
+  } else if (acao === "item_remover") {
+    const alvo = encontrarPorId(antes, params.id);
+    if (!alvo) return { ok: false, erro: "nao_encontrado" };
+    const existia = (alvo.items || []).some((i) => String(i.id) === String(params.itemId));
+    if (!existia) return { ok: false, erro: "item_nao_encontrado" };
+    itemResultado = { ...alvo, items: (alvo.items || []).filter((i) => String(i.id) !== String(params.itemId)) };
+    depois = antes.map((it) => (String(it.id) === String(params.id) ? itemResultado : it));
+    resumoLog = `Removeu item de ${cfg.label} #${params.id}.`;
+  } else {
+    return { ok: false, erro: "acao_nao_implementada" };
+  }
+
+  const undoId = await gravarUndoAdmin(sql, cfg.key, antes);
+  await setKvList(sql, cfg.key, depois);
+
+  // Ordem de verdade: relê a própria coleção pra confirmar que a escrita pegou
+  // antes de responder "feito" — nunca confia só no `depois` calculado em memória.
+  const releitura = await getKvList(sql, cfg.key);
+  const confirmado2 = params.id ? !!encontrarPorId(releitura, params.id) || acao === "apagar" : releitura.length === depois.length;
+  await logAcaoAdmin(sql, dominio, acao, resumoLog, { antes: antes.length, depois: releitura.length });
+
+  return { ok: true, reply: resumoLog, item: itemResultado ? cfg.map(itemResultado) : null, undoId, confirmado: confirmado2, label: cfg.label };
+}
+
+function getItemStatus(dominio, it) {
+  if (dominio === "tarefa") return getTaskStatus(it);
+  if (dominio === "conta") return it.paid ? "paga" : "pendente";
+  if (dominio === "lembrete") return it.done ? "feito" : "pendente";
+  return null;
+}
+
+async function moverParaLixeira(sql, key, itens) {
+  const trash = await getKvList(sql, `${key}_trash_v1`);
+  const comData = itens.map((it) => ({ ...it, deletedAt: new Date().toISOString() }));
+  await setKvList(sql, `${key}_trash_v1`, [...comData, ...trash]);
+}
+
+function construirNovoItem(dominio, params) {
+  const id = Date.now();
+  if (dominio === "tarefa") return { id, text: params.texto, prio: params.prioridade || "normal", status: "todo", done: false, date: new Date().toISOString(), notes: [], updates: [] };
+  if (dominio === "compromisso") return { id, title: params.titulo, date: params.data || todayISO(), time: params.hora || "", local: params.local || "", cat: params.categoria || "Pessoal", notes: params.notas || "" };
+  if (dominio === "conta") return { id, name: params.nome, value: Number(params.valor) || 0, dueDay: Number(params.diaVencimento) || 1, cat: params.categoria || "Fixo", recurrent: params.recorrente !== false, paid: false };
+  if (dominio === "ideia") return { id, text: params.texto, tag: params.tag || "", mood: "💡", date: new Date().toISOString() };
+  if (dominio === "lembrete") return { id, text: params.texto, mood: "🔔", done: false, date: new Date().toISOString() };
+  if (dominio === "lista") return { id, title: params.titulo, text: "", items: [], created: new Date().toLocaleString("pt-BR") };
+  if (dominio === "nota") return { id, title: params.titulo || "", notes: params.notas || "", tags: Array.isArray(params.tags) ? params.tags : [], date: new Date().toLocaleString("pt-BR") };
+  return { id };
+}
+
+const CAMPOS_PERMITIDOS_ATUALIZAR = {
+  tarefa: ["text", "prio"],
+  compromisso: ["title", "date", "time", "local", "cat", "notes"],
+  conta: ["name", "value", "dueDay", "cat"],
+  ideia: ["text", "tag"],
+  lembrete: ["text"],
+  nota: ["title", "notes", "tags"],
+};
+
+function aplicarAtualizacao(dominio, item, campos) {
+  const permitidos = CAMPOS_PERMITIDOS_ATUALIZAR[dominio] || [];
+  const filtrados = Object.fromEntries(Object.entries(campos || {}).filter(([k]) => permitidos.includes(k)));
+  return { ...item, ...filtrados };
+}
+
+function aplicarMovimentacao(dominio, item, params) {
+  if (dominio === "tarefa") {
+    const validos = ["now", "today", "todo", "doing", "done", "standby"];
+    if (!validos.includes(params.status)) return null;
+    return { ...item, status: params.status, done: params.status === "done" };
+  }
+  if (dominio === "compromisso") {
+    if (!params.data && !params.hora) return null;
+    return { ...item, date: params.data || item.date, time: params.hora ?? item.time };
+  }
+  return null;
+}
+
+function aplicarConclusao(dominio, item) {
+  if (dominio === "tarefa") return { ...item, status: "done", done: true };
+  if (dominio === "lembrete") return { ...item, done: true };
+  if (dominio === "conta") {
+    const month = finCurMonth();
+    return item.recurrent ? { ...item, paid: true, paidMonths: [...(item.paidMonths || []), month] } : { ...item, paid: true };
+  }
+  return item;
+}
+
+// ---------- ADMIN-1 PARTE B.4: "Verificar agora" no painel -> Worker ----------
+// Mesmo par de segredo de servidor que cmdChat já usa (WORKER_URL +
+// JARBAS_WORKER_SYNC_KEY) — protegida pela sessão do painel, nunca pela
+// JARBAS_API_KEY (igual chat/desfazer).
+export async function cmdVerificarJanela(sql, body) {
+  const workerUrl = process.env.WORKER_URL;
+  const workerKey = process.env.JARBAS_WORKER_SYNC_KEY;
+  if (!workerUrl || !workerKey) return { status: 500, data: { error: "worker_not_configured" } };
+  try {
+    const r = await fetchWithTimeout(workerUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "painel_verificar_janela", key: workerKey, janelaId: body?.janelaId || null }),
+    }, 20000);
+    if (!r.ok) return { status: 502, data: { error: "worker_error", detail: `http_${r.status}` } };
+    const data = await r.json();
+    return { status: 200, data };
+  } catch (e) {
+    return { status: 502, data: { error: "worker_unreachable", detail: e.message } };
+  }
 }
 
 export default async function handler(req) {
@@ -1011,7 +1444,7 @@ export default async function handler(req) {
   // JARBAS_API_KEY. A ponte pro Worker (cmdChat) usa seu PRÓPRIO segredo de servidor
   // (JARBAS_WORKER_SYNC_KEY), nunca repassando nem expondo a JARBAS_API_KEY.
   const isLogRead = req.method === "GET" && action === "log_read";
-  const isPainelBridgeAction = req.method === "POST" && (action === "chat" || action === "desfazer");
+  const isPainelBridgeAction = req.method === "POST" && (action === "chat" || action === "desfazer" || action === "desfazer_ultima" || action === "verificar_janela");
 
   if (!hasJarbasKey) {
     if ((!isLogRead && !isPainelBridgeAction) || !(await requireSession(req))) {
@@ -1089,6 +1522,12 @@ export default async function handler(req) {
     if (req.method === "GET" && action === "mudancas") {
       return new Response(JSON.stringify(await getMudancas(sql)), { headers: CORS });
     }
+    if (req.method === "GET" && action === "painel_resumo") {
+      return new Response(JSON.stringify(await getPainelResumo(sql)), { headers: CORS });
+    }
+    if (req.method === "GET" && action === "painel_buscar") {
+      return new Response(JSON.stringify(await getPainelBusca(sql, searchParams.get("q") || "")), { headers: CORS });
+    }
 
     if (req.method === "POST" && action === "log_append") {
       const body = await req.json();
@@ -1104,6 +1543,15 @@ export default async function handler(req) {
     if (req.method === "POST" && action === "desfazer") {
       const body = await req.json();
       const { status, data } = await cmdDesfazer(sql, body?.id);
+      return new Response(JSON.stringify(data), { status, headers: CORS });
+    }
+    if (req.method === "POST" && action === "desfazer_ultima") {
+      const { status, data } = await cmdDesfazerUltima(sql);
+      return new Response(JSON.stringify(data), { status, headers: CORS });
+    }
+    if (req.method === "POST" && action === "verificar_janela") {
+      const body = await req.json();
+      const { status, data } = await cmdVerificarJanela(sql, body);
       return new Response(JSON.stringify(data), { status, headers: CORS });
     }
 
@@ -1129,6 +1577,8 @@ export default async function handler(req) {
       else if (comando === "apagar_lista") result = await cmdDeleteList(sql, arg?.titulo);
       else if (comando === "concluir_recado") result = await cmdConcluirRecado(sql, arg?.texto);
       else if (comando === "jarbas_memory_save") result = await cmdSaveJarbasMemory(sql, arg?.data);
+      else if (comando === "painel_gerenciar") result = await cmdPainelGerenciar(sql, arg || {});
+      else if (comando === "desfazer_ultima_acao") { const r = await cmdDesfazerUltima(sql); result = { ok: r.status === 200, ...r.data }; }
       else result = { reply: "Comando desconhecido." };
       return new Response(JSON.stringify(result), { headers: CORS });
     }
