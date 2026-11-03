@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import DailyCenter from "./DailyCenter.jsx";
 import { PEDRO_ATIVO } from "./pedro-standby.js";
+import { temMencaoJarbas, montarRecadoDeMencao } from "./jarbas-mention-lib.js";
 
 // ─── ICONS ───────────────────────────────────────────────────────────────────
 const Icon = ({ path, size = 18, color = "currentColor" }) => (
@@ -174,6 +175,34 @@ const pedroNotify = (type, payload) => {
   if (!PEDRO_ATIVO) return;
   try { window.dispatchEvent(new CustomEvent("pedro:event", { detail: { type, payload } })); } catch {}
 };
+
+// ── PAINEL-3 PARTE B.3: "@jarbas" em campos de texto existentes vira recado pro
+// Jarbas — reaproveita o MESMO armazenamento (jarbas_recados_v1) que a aba "Rotina e
+// avisos" já lê/escreve com useKV, só que gravado direto via KV (sem precisar que o
+// componente que chama tenha o hook de recados por perto). `origem` é opcional e só
+// serve pra contexto (de onde veio), nunca muda o formato do recado existente. A
+// detecção/montagem em si (temMencaoJarbas/montarRecadoDeMencao) vive em
+// jarbas-mention-lib.js — só o I/O com o KV fica aqui. ──────
+async function pushJarbasRecadoFromMention(texto, origem) {
+  const recado = montarRecadoDeMencao(texto, origem, { id: Date.now(), at: nowISO() });
+  if (!recado) return;
+  try {
+    const atual = (await KV.get("jarbas_recados_v1")) || [];
+    const lista = Array.isArray(atual) ? atual : [];
+    await KV.set("jarbas_recados_v1", [recado, ...lista]);
+  } catch {}
+}
+// Realce visual simples (chip ciano) pra quando o campo contém "@jarbas" — aparece
+// logo abaixo do campo, confirmando que aquele texto vai virar um recado ao salvar.
+function JarbasMentionHint({ texto }) {
+  if (!temMencaoJarbas(texto)) return null;
+  return (
+    <div style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11,fontWeight:700,color:"#00E0FF",
+      background:"rgba(0,224,255,0.12)",border:"1px solid rgba(0,224,255,0.4)",borderRadius:20,padding:"3px 10px",marginTop:2}}>
+      @jarbas · vira um recado pra ele quando você salvar
+    </div>
+  );
+}
 
 // ── Sessão expirada/ausente: intercepta qualquer fetch('/api/...') que volte
 // 401 e avisa o AuthGate pra voltar pra tela de login, sem precisar tocar em
@@ -1324,6 +1353,7 @@ function IdeasCards({ storageKey="ideas_v1" }) {
     if(!text.trim()) return;
     const e={id:Date.now(),text,tag,mood:"💡",date:nowISO()};
     const n=[e,...entries]; setEntries(n); setText(""); setTag("");
+    pushJarbasRecadoFromMention(text, { pagina:"ideas", itemId:e.id });
   };
   const del = id=>{ setEntries(p=>p.filter(e=>e.id!==id)); };
   const openEdit = e=>{ setEditing(e); setEditText(e.text); setEditTag(e.tag||""); };
@@ -1337,7 +1367,8 @@ function IdeasCards({ storageKey="ideas_v1" }) {
       <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:18,marginBottom:20}}>
         <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Anote uma ideia..." rows={3}
           style={{...inp,resize:"none",marginBottom:10}} onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
-        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+        <JarbasMentionHint texto={text}/>
+        <div style={{display:"flex",gap:10,alignItems:"center",marginTop:10}}>
           <input style={{...inp,flex:1}} placeholder="Tag (opcional)" value={tag} onChange={e=>setTag(e.target.value)}/>
           <button onClick={add} style={{...btn("var(--purple)"),padding:"10px 20px",whiteSpace:"nowrap"}}>+ Salvar</button>
         </div>
@@ -2329,6 +2360,7 @@ function DiaryPage() {
     const e = { id:Date.now(), text:text.trim(), mood, date:nowISO(),
       ...(tag.trim()?{tag:tag.trim()}:{}), ...(type?{type}:{}) };
     setEntries(prev => [e, ...prev]);
+    pushJarbasRecadoFromMention(text, { pagina:"diary", itemId:e.id });
     setText(""); setTag(""); setType(""); setShowTagInput(false); setShowTypePicker(false);
   };
   const editEntry = (id, newText) => setEntries(prev => prev.map(e=>e.id===id?{...e,text:newText}:e));
@@ -2487,6 +2519,7 @@ function DiaryPage() {
         <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="O que está em sua mente hoje?" rows={2}
           style={{...inp,resize:"vertical",marginBottom:8,fontSize:13}}
           onKeyDown={e=>{if(e.ctrlKey&&e.key==="Enter")add();}}/>
+        <JarbasMentionHint texto={text}/>
         {showTagInput && (
           <input value={tag} onChange={e=>setTag(e.target.value)} placeholder="tag (opcional)"
             style={{...inp,fontSize:12,marginBottom:8,maxWidth:200}}/>
@@ -2723,6 +2756,7 @@ function TasksBoard({ tasks, setTasks }) {
     const updated = n.find(t=>t.id===id);
     DB.update("tasks", { id, updates:updated.updates });
     setEditModal(updated);
+    pushJarbasRecadoFromMention(addNote, { pagina:"tasks", itemId:id });
     setAddNote("");
   };
 
@@ -3139,6 +3173,7 @@ function TasksBoard({ tasks, setTasks }) {
                 <textarea style={{...inp,flex:1,resize:"none"}} rows={2} placeholder="Adicionar atualização..." value={addNote} onChange={e=>setAddNote(e.target.value)}/>
                 <button onClick={()=>addTaskNote(editModal.id)} style={{...btn("var(--green)"),alignSelf:"flex-end",padding:"10px 16px"}}>+</button>
               </div>
+              <JarbasMentionHint texto={addNote}/>
             </div>
             <button onClick={()=>{del(editModal.id);setEditModal(null);}} style={{marginTop:16,background:"rgba(240,112,112,0.1)",border:"1px solid rgba(240,112,112,0.3)",borderRadius:10,padding:"8px 16px",color:"var(--red)",fontSize:13,cursor:"pointer"}}>Excluir tarefa</button>
           </div>
@@ -5931,6 +5966,7 @@ function AgendaPage() {
       setEvents(prev => [...prev,{id:Date.now(),...form,googleId}].sort(sortFn));
       pedroNotify("event_created", { title: form.title });
     }
+    pushJarbasRecadoFromMention(form.notes, { pagina:"events", itemId: editId || null });
     setModal(false); setEditId(null);
   };
   const del = async (id) => {
@@ -6130,6 +6166,7 @@ function AgendaPage() {
             <input style={inp} placeholder="Local (opcional)" value={form.local} onChange={e=>setForm({...form,local:e.target.value})}/>
             <select style={inp} value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})}>{cats.map(c=><option key={c}>{c}</option>)}</select>
             <textarea style={{...inp,resize:"vertical"}} rows={3} placeholder="Descrição" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
+            <JarbasMentionHint texto={form.notes}/>
             <button onClick={save} style={btn()}>Salvar</button>
           </div>
         </Modal>
@@ -7733,7 +7770,13 @@ function JarbasCard({ onClick }) {
   return (
     <div onClick={onClick} style={{...homeCardStyle("#0a2a1a"), height:"100%"}}>
       <CardHeader icon="headphones" label="Jarbas"/>
-      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.headphones} size={40} color="rgba(255,255,255,0.85)"/></div>
+      {/* PAINEL-3 PARTE A: desenho do rosto (mesmas cores/formas do app de voz — olhos
+          arredondados em ciano com furo, boca tracejada) no lugar do ícone de fone. O
+          SVG já carrega seu próprio fundo escuro, então funciona igual em tema claro/escuro. */}
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}>
+        <img src="/jarbas-tile.svg" alt="Jarbas" width={52} height={52}
+          style={{borderRadius:14,objectFit:"cover",boxShadow:"0 2px 10px rgba(0,0,0,0.35)"}}/>
+      </div>
       <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{pending}</div>
       <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>recado{pending===1?"":"s"} pendente{pending===1?"":"s"}</div>
     </div>
@@ -9783,6 +9826,181 @@ function PedroWidget({ page }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// PAINEL-3: barra de comando global do Jarbas — "@jarbas" em qualquer lugar.
+// Ícone flutuante discreto (canto esquerdo, pra nunca colidir com o do Pedro)
+// + atalho Ctrl/⌘+J, abrindo um painel de conversa compacto (mesmo padrão do
+// PedroWidget acima, mas conversando com o companion de verdade via
+// /api/jarbas?action=chat — mesmas ferramentas do chat de voz, execução ao
+// vivo). Histórico fica só neste painel (jarbas_painel_chat_v1), separado da
+// conversa do app de voz (mem.history) — são dois lugares diferentes.
+// ─────────────────────────────────────────────────────────────────────────
+function JarbasCardMini({ card }) {
+  if (!card || typeof card !== "object") return null;
+  return (
+    <div style={{background:"var(--bg-input)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 12px",fontSize:12.5,marginTop:4}}>
+      {card.titulo && <div style={{fontWeight:700,marginBottom:card.valor||card.linhas?4:0,color:"var(--text-2)"}}>{card.titulo}</div>}
+      {card.valor && <div style={{fontSize:18,fontWeight:800,color:"var(--accent)"}}>{card.valor}{card.sub ? <span style={{fontSize:11,fontWeight:400,color:"var(--text-3)",marginLeft:6}}>{card.sub}</span> : null}</div>}
+      {Array.isArray(card.linhas) && card.linhas.length > 0 && (
+        <ul style={{margin:"4px 0 0",paddingLeft:16,color:"var(--text-2)"}}>
+          {card.linhas.map((l, i) => <li key={i}>{l}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function JarbasCommandBar() {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useKV("jarbas_painel_chat_v1", []);
+  const [input, setInput] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const [unread, setUnread] = useState(false);
+  const scrollRef = useRef(null);
+  const inputRef = useRef(null);
+
+  // Atalho global Ctrl/⌘+J, em qualquer página — abre/fecha o painel.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        setOpen(o => !o);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      setUnread(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, [open, messages]);
+
+  const pushJarbas = (patch) => {
+    setMessages(prev => [...prev, { from: "jarbas", at: Date.now(), ...patch }].slice(-60));
+    if (!open) setUnread(true);
+  };
+
+  const falar = (texto) => {
+    try {
+      if (!("speechSynthesis" in window) || !texto) return;
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(texto);
+      u.lang = "pt-BR";
+      speechSynthesis.speak(u);
+    } catch {}
+  };
+
+  const desfazer = async (undoId, msgIdx) => {
+    try {
+      const r = await fetch("/api/jarbas?action=desfazer", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: undoId }),
+      });
+      const d = await r.json();
+      setMessages(prev => prev.map((m, i) => i === msgIdx ? { ...m, undoUsado: !!d?.ok, undoErro: d?.ok ? null : (d?.error || "falhou") } : m));
+    } catch {
+      setMessages(prev => prev.map((m, i) => i === msgIdx ? { ...m, undoErro: "sem conexão" } : m));
+    }
+  };
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || thinking) return;
+    const userMsg = { from: "user", text, at: Date.now() };
+    const history = [...messages, userMsg];
+    setMessages(prev => [...prev, userMsg].slice(-60));
+    setInput("");
+    setThinking(true);
+    try {
+      const r = await fetch("/api/jarbas?action=chat", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history.slice(-12).map(m => ({ role: m.from === "jarbas" ? "assistant" : "user", content: m.text || "", at: m.at ? new Date(m.at).toISOString() : null })) }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        const msg = d?.error === "rate_limited" ? "Calma, muitas mensagens em pouco tempo — espera um minuto e tenta de novo."
+          : d?.error === "message_too_long" ? "Essa mensagem ficou grande demais (máximo 2.000 caracteres)."
+          : "O Jarbas não respondeu; tente de novo.";
+        pushJarbas({ text: msg, erro: true });
+        return;
+      }
+      const d = await r.json();
+      pushJarbas({ text: d.reply, emotion: d.emotion, cards: d.cards, undo: Array.isArray(d.undo) && d.undo.length ? d.undo : null });
+    } catch {
+      pushJarbas({ text: "O Jarbas não respondeu; tente de novo.", erro: true });
+    } finally {
+      setThinking(false);
+    }
+  };
+
+  return createPortal(
+    <>
+      <button onClick={() => setOpen(o => !o)} title="Falar com o Jarbas (Ctrl/⌘+J)"
+        style={{position:"fixed",left:20,bottom:20,width:56,height:56,borderRadius:"50%",background:"#050709",
+          border:"1px solid rgba(0,224,255,0.4)",boxShadow:"0 4px 16px rgba(0,0,0,0.35)",cursor:"pointer",zIndex:1200,
+          display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:0}}>
+        <img src="/jarbas-tile.svg" alt="Jarbas" style={{width:"78%",height:"78%",objectFit:"contain"}}/>
+        {unread && !open && <span style={{position:"absolute",top:2,right:2,width:12,height:12,borderRadius:"50%",background:"#00E0FF",border:"2px solid var(--bg-card)"}}/>}
+      </button>
+      {open && (
+        <div style={{position:"fixed",left:20,bottom:86,width:340,maxWidth:"calc(100vw - 40px)",height:440,
+          maxHeight:"calc(100vh - 140px)",background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,
+          boxShadow:"0 8px 32px rgba(0,0,0,0.4)",zIndex:1200,display:"flex",flexDirection:"column",overflow:"hidden",animation:"fadeIn .2s ease"}}>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+            <span style={{fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:8}}>
+              <img src="/jarbas-tile.svg" alt="Jarbas" style={{width:22,height:22,borderRadius:6,objectFit:"cover"}}/>
+              Jarbas
+            </span>
+            <button onClick={() => setOpen(false)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.x} size={18}/></button>
+          </div>
+          <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
+            {messages.length === 0 && (
+              <div style={{color:"var(--text-3)",fontSize:12,textAlign:"center",marginTop:20,lineHeight:1.6}}>
+                Oi! Eu sou o Jarbas 🔵<br/>Pode escrever direto (tudo aqui já vai pra mim) ou começar com "@jarbas" — "marca reunião amanhã às 10", "cria tarefa X em De Hoje"...
+              </div>
+            )}
+            {messages.map((m, i) => (
+              <div key={i} style={{alignSelf: m.from === "jarbas" ? "flex-start" : "flex-end", maxWidth:"88%"}}>
+                <div style={{background: m.erro ? "rgba(240,112,112,0.15)" : (m.from === "jarbas" ? "var(--bg-sub)" : "var(--accent)"),
+                  color: m.from === "jarbas" ? "var(--text-1)" : "#fff",
+                  border: m.erro ? "1px solid rgba(240,112,112,0.4)" : "none",
+                  borderRadius:12,padding:"8px 12px",fontSize:13,whiteSpace:"pre-wrap"}}>
+                  {m.text}
+                </div>
+                {m.from === "jarbas" && !m.erro && (
+                  <div style={{display:"flex",gap:8,marginTop:4,alignItems:"center",flexWrap:"wrap"}}>
+                    <button onClick={() => falar(m.text)} title="Ouvir (voz do navegador)"
+                      style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",fontSize:11,padding:0}}>🔊 Ouvir</button>
+                    {m.undo && !m.undoUsado && (
+                      <button onClick={() => desfazer(m.undo[0].id, i)}
+                        style={{background:"none",border:"1px solid var(--border)",borderRadius:8,padding:"2px 8px",color:"var(--text-2)",cursor:"pointer",fontSize:11}}>
+                        ↩ Desfazer {m.undo[0].label}
+                      </button>
+                    )}
+                    {m.undoUsado && <span style={{fontSize:11,color:"var(--green)"}}>✓ desfeito</span>}
+                    {m.undoErro && <span style={{fontSize:11,color:"var(--red)"}}>desfazer falhou: {m.undoErro}</span>}
+                  </div>
+                )}
+                {Array.isArray(m.cards) && m.cards.map((c, ci) => <JarbasCardMini key={ci} card={c}/>)}
+              </div>
+            ))}
+            {thinking && <div style={{alignSelf:"flex-start",color:"var(--text-3)",fontSize:12}}>Jarbas está pensando...</div>}
+          </div>
+          <div style={{padding:10,borderTop:"1px solid var(--border)",display:"flex",gap:8,flexShrink:0}}>
+            <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") send(); }}
+              placeholder="@jarbas ou qualquer coisa..." maxLength={2000} style={{...inp, fontSize:13, padding:"8px 12px"}}/>
+            <button onClick={send} disabled={thinking} style={{...btn(), opacity: thinking ? 0.6 : 1}}><Icon path={I.next} size={16}/></button>
+          </div>
+        </div>
+      )}
+    </>,
+    document.body
+  );
+}
+
 function AppContent() {
   const [page, setPageRaw] = useState(()=>{
     try { const p = localStorage.getItem("current_page"); return (p && PAGE_META[p]) ? p : "home"; } catch { return "home"; }
@@ -9982,6 +10200,7 @@ function AppContent() {
       </footer>
 
       {PEDRO_ATIVO && <PedroWidget page={page}/>}
+      <JarbasCommandBar/>
     </div>
   );
 }
