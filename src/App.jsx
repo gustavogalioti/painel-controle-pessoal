@@ -1442,7 +1442,7 @@ function RemindersCards() {
 
 // ─── DIARY PAGE ───────────────────────────────────────────────────────────────
 // ─── TEMAS PAGE ───────────────────────────────────────────────────────────────
-// ─── CONTAGEM REGRESSIVA (dentro de Infos) ────────────────────────────────────
+// ─── CONTAGEM REGRESSIVA (página à esquerda do Menu) ────────────────────────────────────
 function CountdownPanel() {
   const [items, setItems] = useKV("countdowns_v1", []);
   const list = Array.isArray(items) ? items : [];
@@ -1546,6 +1546,15 @@ function CountdownPanel() {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function CountdownPage({ onBackToMenu }) {
+  return (
+    <div style={{padding:"20px"}}>
+      <div style={{fontSize:13,fontWeight:800,color:"var(--text-2)",letterSpacing:1,marginBottom:14}}>⏳ CONTAGEM REGRESSIVA</div>
+      <CountdownPanel/>
     </div>
   );
 }
@@ -1670,7 +1679,6 @@ function TemasPage() {
           {[
             {k:"fixed", icon:"📌", label:"Fixos"},
             {k:"daily", icon:"🗓", label:"Por dia"},
-            {k:"countdown", icon:"⏳", label:"Contagem regressiva"},
           ].map(o=>(
             <button key={o.k} onClick={()=>{setMode(o.k);setHistoryDay(null);}}
               style={{background:mode===o.k?"var(--accent)":"transparent",
@@ -1683,7 +1691,7 @@ function TemasPage() {
           ))}
         </div>
 
-        {!isReadOnly && mode!=="countdown" && (
+        {!isReadOnly && (
           <button onClick={()=>{setAddOpen(true);setForm({title:"",text:""}); }}
             style={{...btn(),display:"flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:30}}>
             <Icon path={I.plus} size={14}/> Novo quadro
@@ -1731,10 +1739,8 @@ function TemasPage() {
         </div>
       )}
 
-      {mode==="countdown" && <CountdownPanel/>}
-
       {/* Boards grid */}
-      {mode==="countdown" ? null : displayBoards.length===0 ? (
+      {displayBoards.length===0 ? (
         <div style={{textAlign:"center",padding:"60px 0",color:"var(--text-3)"}}>
           <div style={{fontSize:48,opacity:.15,marginBottom:12}}>📋</div>
           <div style={{fontSize:14}}>
@@ -9906,8 +9912,8 @@ function AppContent() {
       )}
 
       {/* CONTENT */}
-      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below"||page==="games")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"||page==="games"||page==="tasks"||page==="jarbas"?"100%":page==="rascunhos"?1600:1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below"||page==="games")?"hidden":"visible",position:"relative"}}>
-        {(page==="home"||page==="projects"||page==="below"||page==="games") ? (
+      <main style={{flex:1,padding: (page==="home"||page==="projects"||page==="below"||page==="games"||page==="countdown")?"0":"24px 20px",maxWidth: page==="home"||page==="projects"||page==="below"||page==="games"||page==="countdown"||page==="tasks"||page==="jarbas"?"100%":page==="rascunhos"?1600:1280,width:"100%",margin:"0 auto",animation:"fadeIn .2s ease",overflow:(page==="home"||page==="projects"||page==="below"||page==="games"||page==="countdown")?"hidden":"visible",position:"relative"}}>
+        {(page==="home"||page==="projects"||page==="below"||page==="games"||page==="countdown") ? (
           <VerticalSlide mode={page} above={<GamesPage onBackToMenu={()=>setPage("home")}/>} bottom={
             <div style={{position:"relative"}}>
               <BelowPage onNavigate={setPage}/>
@@ -9919,9 +9925,24 @@ function AppContent() {
               </button>
             </div>
           }>
-          <div style={{display:"flex",width:"200%",transform:`translateX(${page==="projects"?"-50%":"0%"})`,transition:"transform .35s ease"}}>
-            <div style={{width:"50%",flexShrink:0,position:"relative"}}>
+          <div style={{display:"flex",width:"300%",transform:`translateX(${page==="projects"?"-66.6667%":page==="countdown"?"0%":"-33.3333%"})`,transition:"transform .35s ease"}}>
+            <div style={{width:"33.3333%",flexShrink:0,position:"relative"}}>
+              <CountdownPage/>
+              <button onClick={()=>setPage("home")} title="Voltar ao Menu"
+                style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
+                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.08)",border:"1px solid var(--border)",
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"var(--text-2)"}}>
+                <Icon path={I.next} size={18}/>
+              </button>
+            </div>
+            <div style={{width:"33.3333%",flexShrink:0,position:"relative"}}>
               <HomePage onNavigate={setPage}/>
+              <button onClick={()=>setPage("countdown")} title="Ir para Contagem Regressiva"
+                style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
+                  width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
+                  display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}}>
+                <Icon path={I.back} size={18}/>
+              </button>
               <button onClick={()=>setPage("projects")} title="Ir para Projetos"
                 style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
                   width:40,height:40,borderRadius:"50%",background:"rgba(0,0,0,0.18)",border:"none",
@@ -9941,7 +9962,7 @@ function AppContent() {
                 <Icon path={I.next} size={18}/>
               </button>
             </div>
-            <div style={{width:"50%",flexShrink:0,position:"relative"}}>
+            <div style={{width:"33.3333%",flexShrink:0,position:"relative"}}>
               <ProjectsPage/>
               <button onClick={()=>setPage("home")} title="Voltar ao Menu"
                 style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",zIndex:20,
