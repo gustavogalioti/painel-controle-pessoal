@@ -79,6 +79,7 @@ async function getGoogleEventosDia(sql, dateStr) {
     if (!r.ok) return [];
     const d = await r.json();
     return (d.items || []).map(ev => ({
+      id: ev.id,
       title: ev.summary || "(sem título)",
       time: ev.start?.dateTime ? ev.start.dateTime.slice(11, 16) : "",
     }));
@@ -98,6 +99,8 @@ async function getOutlookEventosDia(sql, dateStr) {
     if (!r.ok) return [];
     const d = await r.json();
     return (d.value || []).map(ev => ({
+      id: ev.id,
+      account,
       title: ev.subject || "(sem título)",
       time: ev.start?.dateTime ? ev.start.dateTime.slice(11, 16) : "",
     }));
@@ -140,6 +143,55 @@ const FIN_RECURRENT_TYPES = ["fixed", "subscription", "income"];
 function finCurMonth() { return todayISO().slice(0, 7); }
 function finIsPaid(e) { return e.recurrent ? (e.paidMonths || []).includes(finCurMonth()) : !!e.paid; }
 
+// ---------- FIX-3 PARTE A: dedupe de eventos (local x Google x Outlook) ----------
+// O painel (src/App.jsx, AgendaPage) já evita mostrar duplicata na tela: um evento local
+// que foi sincronizado guarda o id externo (googleId / outlookId+outlookAccount), e o
+// evento "vivo" vindo do Google/Outlook com esse mesmo id é descartado da lista — só essa
+// lógica nunca existiu aqui no lado do Jarbas, que simplesmente concatenava as três fontes
+// sem filtrar nada (causa real da duplicata relatada: "10:00 — Reunião Jr. MH + Zezé"
+// aparecendo duas vezes no card/agenda falada). Reproduzimos o MESMO critério aqui.
+//
+// Chave de conteúdo: mesmo horário + título normalizado (minúsculas, sem acento/pontuação)
+// é tratado como o MESMO compromisso, mesmo sem id vinculado (ex: evento criado à mão nos
+// dois lados, sem nunca ter sido de fato sincronizado) — cobre o caso relatado onde o
+// evento existia solto no painel E também no Google, sem link entre os dois.
+function eventContentKey(time, title) {
+  return `${time || ""}|${normalize(title)}`;
+}
+
+// Recebe os eventos locais (shape bruto de events_v1, com date/title/time/googleId/
+// outlookId/outlookAccount), já filtrados pro dia alvo, mais os eventos do Google e do
+// Outlook pro MESMO dia (shape {id, title, time} / {id, account, title, time}). Devolve
+// uma lista mesclada e sem duplicata, mantendo o formato {title, time} (+ o que mais o
+// item local já tinha) — NUNCA perde o título original, só decide qual cópia mostrar.
+// Ordem de preferência quando duas entradas batem na mesma chave: local, depois Google,
+// depois Outlook — local vence porque é a cópia que o próprio Gustavo edita no painel.
+export function mesclarEventosDoDia(localEventos, googleEventos, outlookEventos) {
+  const locais = Array.isArray(localEventos) ? localEventos : [];
+  const google = Array.isArray(googleEventos) ? googleEventos : [];
+  const outlook = Array.isArray(outlookEventos) ? outlookEventos : [];
+
+  // Passo 1: descarta o evento externo que já está "linkado" a uma cópia local (mesmo
+  // caminho que o painel usa pra nunca listar duas vezes um evento sincronizado).
+  const linkedGoogleIds = new Set(locais.filter(e => e.googleId).map(e => e.googleId));
+  const linkedOutlookKeys = new Set(locais.filter(e => e.outlookId).map(e => `${e.outlookAccount || ""}:${e.outlookId}`));
+  const googleRestantes = google.filter(g => !linkedGoogleIds.has(g.id));
+  const outlookRestantes = outlook.filter(o => !linkedOutlookKeys.has(`${o.account || ""}:${o.id}`));
+
+  // Passo 2: defesa extra por conteúdo (horário + título normalizado), pro caso de
+  // duplicata SEM nenhum id em comum — mantém a primeira ocorrência na ordem
+  // local > Google > Outlook; eventos com títulos diferentes no mesmo horário nunca batem.
+  const vistos = new Set();
+  const resultado = [];
+  for (const e of [...locais, ...googleRestantes, ...outlookRestantes]) {
+    const key = eventContentKey(e.time, e.title);
+    if (vistos.has(key)) continue;
+    vistos.add(key);
+    resultado.push(e);
+  }
+  return resultado;
+}
+
 // ---------- Leitura (o que o Jarbas "sabe") ----------
 // Item: "qual minha agenda" e "consultar_painel" precisavam ser separados — pedir só
 // a agenda não devia vir empacotado com tarefas e contas (relatado como confuso/errado).
@@ -151,8 +203,10 @@ async function getAgendaDiaData(sql, dia) {
     getKvList(sql, "events_v1"),
     getGoogleEventosDia(sql, targetStr), getOutlookEventosDia(sql, targetStr),
   ]);
-  const localDia = events.filter(e => e.date === targetStr).map(e => ({ title: e.title, time: e.time || "" }));
-  const diaEventos = [...localDia, ...googleEventos, ...outlookEventos].sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  const localDia = events.filter(e => e.date === targetStr);
+  const diaEventos = mesclarEventosDoDia(localDia, googleEventos, outlookEventos)
+    .map(e => ({ title: e.title, time: e.time || "" }))
+    .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
   return { diaLabel, diaEventos };
 }
 
@@ -198,8 +252,8 @@ async function getEventosDoDia(sql, dataISO) {
     getKvList(sql, "events_v1"),
     getGoogleEventosDia(sql, dataISO), getOutlookEventosDia(sql, dataISO),
   ]);
-  const localDia = events.filter((e) => e.date === dataISO).map((e) => ({ title: e.title, time: e.time || "" }));
-  return [...localDia, ...googleEventos, ...outlookEventos]
+  const localDia = events.filter((e) => e.date === dataISO);
+  return mesclarEventosDoDia(localDia, googleEventos, outlookEventos)
     .sort((a, b) => (a.time || "").localeCompare(b.time || ""))
     .map((e) => ({ date: dataISO, time: e.time || "", title: e.title }));
 }
