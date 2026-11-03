@@ -1,29 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Jarbas">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-label="Jarbas">
   <defs>
-    <linearGradient id="jarbasEyeGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#B6FBFF"/>
-      <stop offset="45%" stop-color="#00E0FF"/>
-      <stop offset="100%" stop-color="#0080FF"/>
-    </linearGradient>
-    <radialGradient id="jarbasGlow" cx="50%" cy="38%" r="65%">
-      <stop offset="0%" stop-color="#0C9BC4" stop-opacity="0.35"/>
-      <stop offset="100%" stop-color="#0C9BC4" stop-opacity="0"/>
+    <radialGradient id="bg" cx="50%" cy="45%" r="75%">
+      <stop offset="0" stop-color="#0a2a4a"/>
+      <stop offset="0.55" stop-color="#05121f"/>
+      <stop offset="1" stop-color="#030a14"/>
     </radialGradient>
-    <mask id="jarbasEyeHoleL">
-      <rect x="128" y="176" width="112" height="112" rx="26" fill="#fff"/>
-      <rect x="156" y="198" width="46" height="46" rx="12" fill="#000"/>
-    </mask>
-    <mask id="jarbasEyeHoleR">
-      <rect x="272" y="176" width="112" height="112" rx="26" fill="#fff"/>
-      <rect x="310" y="198" width="46" height="46" rx="12" fill="#000"/>
-    </mask>
+    <linearGradient id="eye" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c2f6ff"/>
+      <stop offset="0.45" stop-color="#00e5ff"/>
+      <stop offset="1" stop-color="#0a84ff"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <mask id="holeL"><rect width="400" height="300" fill="#fff"/><rect x="83" y="108" width="56" height="56" rx="17" fill="#000"/></mask>
+    <mask id="holeR"><rect width="400" height="300" fill="#fff"/><rect x="261" y="108" width="56" height="56" rx="17" fill="#000"/></mask>
   </defs>
-
-  <rect width="512" height="512" rx="56" fill="#050709"/>
-  <circle cx="256" cy="230" r="190" fill="url(#jarbasGlow)"/>
-
-  <rect x="128" y="176" width="112" height="112" rx="26" fill="url(#jarbasEyeGrad)" mask="url(#jarbasEyeHoleL)"/>
-  <rect x="272" y="176" width="112" height="112" rx="26" fill="url(#jarbasEyeGrad)" mask="url(#jarbasEyeHoleR)"/>
-
-  <line x1="196" y1="366" x2="316" y2="366" stroke="#00E0FF" stroke-width="16" stroke-linecap="round" stroke-dasharray="2 34"/>
+  <rect width="400" height="300" fill="url(#bg)"/>
+  <g filter="url(#glow)" opacity="0.92">
+    <g mask="url(#holeL)"><rect x="46" y="70" width="130" height="130" rx="42" fill="url(#eye)"/></g>
+    <g mask="url(#holeR)"><rect x="224" y="70" width="130" height="130" rx="42" fill="url(#eye)"/></g>
+  </g>
+  <g fill="#00e5ff" filter="url(#glow)">
+    <rect x="131" y="236" width="22" height="9" rx="4.5"/>
+    <rect x="160" y="236" width="22" height="9" rx="4.5"/>
+    <rect x="189" y="236" width="22" height="9" rx="4.5"/>
+    <rect x="218" y="236" width="22" height="9" rx="4.5"/>
+    <rect x="247" y="236" width="22" height="9" rx="4.5"/>
+  </g>
 </svg>
