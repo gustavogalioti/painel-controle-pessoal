@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Jarbas">
+  <defs>
+    <linearGradient id="jarbasEyeGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#B6FBFF"/>
+      <stop offset="45%" stop-color="#00E0FF"/>
+      <stop offset="100%" stop-color="#0080FF"/>
+    </linearGradient>
+    <radialGradient id="jarbasGlow" cx="50%" cy="38%" r="65%">
+      <stop offset="0%" stop-color="#0C9BC4" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#0C9BC4" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="jarbasEyeHoleL">
+      <rect x="128" y="176" width="112" height="112" rx="26" fill="#fff"/>
+      <rect x="156" y="198" width="46" height="46" rx="12" fill="#000"/>
+    </mask>
+    <mask id="jarbasEyeHoleR">
+      <rect x="272" y="176" width="112" height="112" rx="26" fill="#fff"/>
+      <rect x="310" y="198" width="46" height="46" rx="12" fill="#000"/>
+    </mask>
+  </defs>
+
+  <rect width="512" height="512" rx="56" fill="#050709"/>
+  <circle cx="256" cy="230" r="190" fill="url(#jarbasGlow)"/>
+
+  <rect x="128" y="176" width="112" height="112" rx="26" fill="url(#jarbasEyeGrad)" mask="url(#jarbasEyeHoleL)"/>
+  <rect x="272" y="176" width="112" height="112" rx="26" fill="url(#jarbasEyeGrad)" mask="url(#jarbasEyeHoleR)"/>
+
+  <line x1="196" y1="366" x2="316" y2="366" stroke="#00E0FF" stroke-width="16" stroke-linecap="round" stroke-dasharray="2 34"/>
+</svg>

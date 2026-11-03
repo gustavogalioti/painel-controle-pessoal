@@ -2,7 +2,7 @@ export const config = { runtime: "edge" };
 import { neon } from "@neondatabase/serverless";
 import { getValidToken } from "./google-calendar.js";
 import { getValidToken as getOutlookToken } from "./outlook-calendar.js";
-import { requireSession } from "./_auth-lib.js";
+import { requireSession, getClientIp } from "./_auth-lib.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // JARBAS — ponte entre o companheiro de voz (Jarbas, repo separado) e os
@@ -817,6 +817,180 @@ async function cmdSaveJarbasMemory(sql, data) {
   return { reply: "" };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// PAINEL-3: ponte painel → Jarbas (companion) — "@jarbas" na barra de comando
+// global. Protegida pela SESSÃO do painel (nunca pela JARBAS_API_KEY, que é
+// segredo só do Worker) e repassa pro Worker com um segredo de servidor
+// próprio (WORKER_URL + JARBAS_WORKER_SYNC_KEY) — a chave do Worker nunca
+// chega ao navegador em nenhum dos dois sentidos.
+// ─────────────────────────────────────────────────────────────────────────
+
+const CHAT_MAX_CHARS = 2000;
+const CHAT_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutos
+const CHAT_RATE_LIMIT_MAX = 30; // 30 mensagens / 10 min
+const CHAT_RATE_LIMIT_KEY_PREFIX = "jarbas_chat_rl:";
+const UNDO_TTL_MS = 10 * 60 * 1000; // 10 minutos
+const UNDO_KEY_PREFIX = "jarbas_undo:";
+
+// Mesmo padrão de rate limit do login (_auth-lib.js), por IP — o painel é de uso
+// único (só o Gustavo), então IP já equivale, na prática, a "por sessão".
+async function checkChatRateLimit(sql, ip) {
+  const key = CHAT_RATE_LIMIT_KEY_PREFIX + ip;
+  const state = await getKvJson(sql, key);
+  const now = Date.now();
+  if (!state || now - state.firstAt > CHAT_RATE_LIMIT_WINDOW_MS) {
+    await setKvJson(sql, key, { count: 1, firstAt: now });
+    return { blocked: false };
+  }
+  if (state.count >= CHAT_RATE_LIMIT_MAX) {
+    const retryAfterSeconds = Math.ceil((state.firstAt + CHAT_RATE_LIMIT_WINDOW_MS - now) / 1000);
+    return { blocked: true, retryAfterSeconds: Math.max(1, retryAfterSeconds) };
+  }
+  await setKvJson(sql, key, { count: state.count + 1, firstAt: state.firstAt });
+  return { blocked: false };
+}
+
+// Mesmo shape que o app de voz manda em companionState (companion/index.html,
+// buildCompanionState) — montado aqui, server-side, a partir do MESMO mem que o
+// Worker já lê/grava (jarbas_memory_v1), pra não precisar mandar a memória
+// inteira do navegador pra cá e dali pro Worker (e porque o navegador nunca tem
+// a JARBAS_API_KEY pra chamar jarbas_memory direto).
+export function buildCompanionStateFromMem(mem) {
+  const m = mem || {};
+  const agora = new Date();
+  return {
+    origem: "painel",
+    memory: m.memory || "",
+    knowledge: m.knowledge || null,
+    location: m.location || null,
+    timeline: Array.isArray(m.timeline) ? m.timeline : [],
+    items: Array.isArray(m.items) ? m.items : [],
+    learned: Array.isArray(m.learned) ? m.learned : [],
+    shortcuts: Array.isArray(m.shortcuts) ? m.shortcuts : [],
+    now: agora.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }),
+    hojeISO: todayISO(),
+    aparencia: null, // sem rosto no painel — nada aqui pra configurar
+    podeMaterializarEspontaneo: false, // sem onde mostrar uma materialização no painel
+    perfil: m.perfil || null,
+    ideias: Array.isArray(m.ideias) ? m.ideias : [],
+  };
+}
+
+// Ferramenta de ESCRITA (Worker) -> coleção afetada no painel (sync_kv). Usado pro
+// Desfazer: restaura a coleção inteira pro estado de ANTES da chamada — mais simples
+// e mais robusto que tentar reconstruir só o item específico que mudou (não depende
+// de saber qual foi, nem do formato interno de cada comando).
+const TOOL_TO_COLLECTION = {
+  gerenciar_tarefa: { key: "tasks_v1", label: "tarefa" },
+  gerenciar_conta: { key: "finance_v1", label: "conta" },
+  gerenciar_compromisso: { key: "events_v1", label: "compromisso" },
+  gerenciar_ideia: { key: "ideas_v1", label: "ideia" },
+  gerenciar_lembrete: { key: "reminders_v1", label: "lembrete" },
+  gerenciar_lista: { key: "lists_v1", label: "lista" },
+  anotar_no_diario: { key: "diary_v1", label: "anotação no diário" },
+  desfazer_anotacao_diario: { key: "diary_v1", label: "anotação no diário" },
+  corrigir_anotacao_diario: { key: "diary_v1", label: "anotação no diário" },
+  concluir_recado: { key: JARBAS_RECADOS_KEY, label: "recado" },
+};
+const UNDO_COLLECTIONS = [...new Set(Object.values(TOOL_TO_COLLECTION).map(c => c.key))];
+
+async function snapshotCollections(sql, keys) {
+  const entries = await Promise.all(keys.map(async (k) => [k, await getKvList(sql, k)]));
+  return Object.fromEntries(entries);
+}
+
+export async function cmdChat(sql, body, ip) {
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  if (!messages.length) return { status: 400, data: { error: "messages_required" } };
+  const last = messages[messages.length - 1];
+  const lastText = String(last?.content || "");
+  if (!lastText.trim()) return { status: 400, data: { error: "empty_message" } };
+  if (lastText.length > CHAT_MAX_CHARS) return { status: 400, data: { error: "message_too_long", max: CHAT_MAX_CHARS } };
+
+  const rl = await checkChatRateLimit(sql, ip);
+  if (rl.blocked) return { status: 429, data: { error: "rate_limited", retryAfterSeconds: rl.retryAfterSeconds } };
+
+  const workerUrl = process.env.WORKER_URL;
+  const workerKey = process.env.JARBAS_WORKER_SYNC_KEY;
+  if (!workerUrl || !workerKey) return { status: 500, data: { error: "worker_not_configured" } };
+
+  const mem = await getKvJson(sql, JARBAS_MEMORY_KEY);
+  const companionState = buildCompanionStateFromMem(mem);
+
+  // Snapshot ANTES de chamar o Worker — é o único jeito de saber o estado "de antes"
+  // sem precisar que cada ferramenta devolva isso (o Worker/painel.js comando não
+  // muda: só isso aqui, novo, guarda uma cópia de cada coleção que PODE mudar).
+  const before = await snapshotCollections(sql, UNDO_COLLECTIONS);
+
+  const trimmedMessages = messages.slice(-12).map(m => ({
+    role: m.role === "assistant" ? "assistant" : "user",
+    content: String(m.content || "").slice(0, CHAT_MAX_CHARS),
+    at: m.at || null,
+  }));
+
+  let workerData;
+  try {
+    const r = await fetchWithTimeout(workerUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "companion", key: workerKey, messages: trimmedMessages, companionState }),
+    }, 20000);
+    if (!r.ok) return { status: 502, data: { error: "worker_error", detail: `http_${r.status}` } };
+    workerData = await r.json();
+  } catch (e) {
+    return { status: 502, data: { error: "worker_unreachable", detail: e.message } };
+  }
+  if (!workerData || typeof workerData.reply !== "string") {
+    return { status: 502, data: { error: "worker_bad_response" } };
+  }
+
+  // Guarda só o "antes" das coleções que REALMENTE mudaram (tools_used), com TTL —
+  // nunca guarda as outras (não precisam de Desfazer, e não vale gastar espaço à toa).
+  const toolsUsed = Array.isArray(workerData.tools_used) ? workerData.tools_used : [];
+  const undo = [];
+  const collectionsJaGuardadas = new Set();
+  for (const tool of toolsUsed) {
+    const alvo = TOOL_TO_COLLECTION[tool];
+    if (!alvo || collectionsJaGuardadas.has(alvo.key)) continue;
+    collectionsJaGuardadas.add(alvo.key);
+    const id = newLogId();
+    await setKvJson(sql, UNDO_KEY_PREFIX + id, {
+      collection: alvo.key, before: before[alvo.key], createdAt: Date.now(), used: false,
+    });
+    undo.push({ id, label: alvo.label });
+  }
+
+  return {
+    status: 200,
+    data: {
+      reply: workerData.reply,
+      emotion: workerData.emotion || "neutro",
+      cards: workerData.cards || null,
+      lousa: workerData.lousa || null,
+      materialize: workerData.materialize || null,
+      undo,
+    },
+  };
+}
+
+export async function cmdDesfazer(sql, undoId) {
+  if (!undoId) return { status: 400, data: { error: "id_required" } };
+  const key = UNDO_KEY_PREFIX + undoId;
+  const record = await getKvJson(sql, key);
+  if (!record) return { status: 404, data: { error: "undo_not_found" } };
+  if (record.used) return { status: 410, data: { error: "undo_already_used" } };
+  if (Date.now() - record.createdAt > UNDO_TTL_MS) return { status: 410, data: { error: "undo_expired" } };
+
+  await setKvList(sql, record.collection, record.before || []);
+  await setKvJson(sql, key, { ...record, used: true });
+  await cmdLogAppend(sql, [{
+    tipo: "acao_pedida", origem: "painel",
+    resumo: `Desfez a última ação do Jarbas em "${record.collection}" pela barra de comando do painel.`,
+    detalhes: { canal: "painel", collection: record.collection },
+  }]);
+  return { status: 200, data: { ok: true } };
+}
+
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
@@ -831,12 +1005,22 @@ export default async function handler(req) {
   // por isso aceita TAMBÉM uma sessão válida do painel, nunca mais fica público sem
   // nenhuma das duas. Toda ação de ESCRITA (log_append e os demais comandos) continua
   // exigindo só a chave do Worker, como sempre.
+  //
+  // PAINEL-3: "chat" e "desfazer" são o INVERSO — chamadas do NAVEGADOR (a barra de
+  // comando @jarbas), nunca do Worker, então exigem sessão do painel, nunca a
+  // JARBAS_API_KEY. A ponte pro Worker (cmdChat) usa seu PRÓPRIO segredo de servidor
+  // (JARBAS_WORKER_SYNC_KEY), nunca repassando nem expondo a JARBAS_API_KEY.
   const isLogRead = req.method === "GET" && action === "log_read";
+  const isPainelBridgeAction = req.method === "POST" && (action === "chat" || action === "desfazer");
 
   if (!hasJarbasKey) {
-    if (!isLogRead || !(await requireSession(req))) {
+    if ((!isLogRead && !isPainelBridgeAction) || !(await requireSession(req))) {
       return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: CORS });
     }
+  } else if (isPainelBridgeAction) {
+    // "chat"/"desfazer" são SÓ do painel — nunca aceitas com a JARBAS_API_KEY (que
+    // identificaria o Worker, não a pessoa), mesmo que alguém mande as duas coisas.
+    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: CORS });
   }
 
   try {
@@ -910,6 +1094,17 @@ export default async function handler(req) {
       const body = await req.json();
       const result = await cmdLogAppend(sql, body?.eventos);
       return new Response(JSON.stringify(result), { status: result.ok ? 200 : 400, headers: CORS });
+    }
+
+    if (req.method === "POST" && action === "chat") {
+      const body = await req.json();
+      const { status, data } = await cmdChat(sql, body, getClientIp(req));
+      return new Response(JSON.stringify(data), { status, headers: CORS });
+    }
+    if (req.method === "POST" && action === "desfazer") {
+      const body = await req.json();
+      const { status, data } = await cmdDesfazer(sql, body?.id);
+      return new Response(JSON.stringify(data), { status, headers: CORS });
     }
 
     if (req.method === "POST") {
