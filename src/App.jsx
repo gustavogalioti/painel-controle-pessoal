@@ -1442,6 +1442,114 @@ function RemindersCards() {
 
 // ─── DIARY PAGE ───────────────────────────────────────────────────────────────
 // ─── TEMAS PAGE ───────────────────────────────────────────────────────────────
+// ─── CONTAGEM REGRESSIVA (dentro de Infos) ────────────────────────────────────
+function CountdownPanel() {
+  const [items, setItems] = useKV("countdowns_v1", []);
+  const list = Array.isArray(items) ? items : [];
+  const [now, setNow] = useState(Date.now());
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  useEffect(() => { const t = setInterval(()=>setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+
+  const targetOf = (c) => new Date(`${c.date}T${c.time || "00:00"}:00`).getTime();
+  const add = () => {
+    if (!title.trim() || !date) return;
+    setItems(prev => [...(Array.isArray(prev)?prev:[]), { id:"cd_"+Date.now(), title:title.trim(), date, time: time || "" }]);
+    setTitle(""); setDate(""); setTime(""); setAdding(false);
+  };
+  const remove = (id) => setItems(prev => (Array.isArray(prev)?prev:[]).filter(c=>c.id!==id));
+
+  const sorted = [...list].sort((a,b) => {
+    const ta = targetOf(a), tb = targetOf(b);
+    const pa = ta < now, pb = tb < now;
+    if (pa !== pb) return pa ? 1 : -1;
+    return pa ? tb - ta : ta - tb;
+  });
+  const pad2 = n => String(n).padStart(2,"0");
+  const COLORS = ["#2563eb","#7c3aed","#059669","#d97706","#dc2626","#0891b2","#be185d","#065f46"];
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+      <div>
+        <button onClick={()=>setAdding(a=>!a)}
+          style={{...btn(),display:"flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:30}}>
+          <Icon path={I.plus} size={14}/> Nova contagem
+        </button>
+      </div>
+      {adding && (
+        <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:14,padding:16,
+          display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div style={{flex:"2 1 200px"}}>
+            <label style={{fontSize:11,color:"var(--text-3)",letterSpacing:2,fontWeight:700,display:"block",marginBottom:6}}>O QUE É</label>
+            <input autoFocus style={inp} placeholder="Ex: Viagem, Aniversário, Entrega..." value={title}
+              onChange={e=>setTitle(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") add(); }}/>
+          </div>
+          <div style={{flex:"1 1 150px"}}>
+            <label style={{fontSize:11,color:"var(--text-3)",letterSpacing:2,fontWeight:700,display:"block",marginBottom:6}}>DATA</label>
+            <input type="date" style={inp} value={date} onChange={e=>setDate(e.target.value)}/>
+          </div>
+          <div style={{flex:"1 1 110px"}}>
+            <label style={{fontSize:11,color:"var(--text-3)",letterSpacing:2,fontWeight:700,display:"block",marginBottom:6}}>HORA (opcional)</label>
+            <input type="time" style={inp} value={time} onChange={e=>setTime(e.target.value)}/>
+          </div>
+          <button onClick={add} disabled={!title.trim()||!date} style={{...btn(),padding:"10px 24px",fontWeight:700}}>Adicionar</button>
+        </div>
+      )}
+
+      {sorted.length===0 ? (
+        <div style={{textAlign:"center",padding:"60px 0",color:"var(--text-3)"}}>
+          <div style={{fontSize:48,opacity:.15,marginBottom:12}}>⏳</div>
+          <div style={{fontSize:14}}>Nenhuma contagem ainda. Clique em + Nova contagem.</div>
+        </div>
+      ) : (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}}>
+          {sorted.map((c, idx) => {
+            const color = COLORS[idx % COLORS.length];
+            const target = targetOf(c);
+            const diff = target - now;
+            const passed = diff < 0;
+            const abs = Math.abs(diff);
+            const d = Math.floor(abs/86400000);
+            const h = Math.floor(abs%86400000/3600000);
+            const m = Math.floor(abs%3600000/60000);
+            const sec = Math.floor(abs%60000/1000);
+            const label = new Date(target).toLocaleString("pt-BR", c.time
+              ? {weekday:"short",day:"2-digit",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"}
+              : {weekday:"short",day:"2-digit",month:"long",year:"numeric"});
+            return (
+              <div key={c.id} style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderTop:`4px solid ${color}`,
+                borderRadius:14,padding:18,display:"flex",flexDirection:"column",gap:12,boxShadow:"0 2px 8px #0001",position:"relative",opacity:passed?0.7:1}}>
+                <button onClick={()=>remove(c.id)} title="Apagar"
+                  style={{position:"absolute",top:10,right:10,width:22,height:22,borderRadius:"50%",background:"var(--bg-input)",
+                    border:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+                  <Icon path={I.x} size={11} color="var(--text-3)"/>
+                </button>
+                <div style={{paddingRight:24}}>
+                  <h3 style={{margin:0,fontSize:16,fontWeight:800,color:"var(--text-1)",lineHeight:1.3}}>{c.title}</h3>
+                  <div style={{fontSize:12,color:"var(--text-3)",marginTop:4,textTransform:"capitalize"}}>{label}</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+                  {[[d,"dias"],[h,"horas"],[m,"min"],[sec,"seg"]].map(([v,l])=>(
+                    <div key={l} style={{background:"var(--bg-sub)",borderRadius:10,padding:"10px 4px",textAlign:"center"}}>
+                      <div style={{fontSize:24,fontWeight:800,color,lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{l==="dias"?v:pad2(v)}</div>
+                      <div style={{fontSize:10,color:"var(--text-3)",marginTop:4,letterSpacing:1,textTransform:"uppercase"}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{fontSize:11,color:passed?"var(--text-3)":color,fontWeight:700}}>
+                  {passed ? "Já passou (tempo decorrido)" : "Faltam"}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TemasPage() {
   const todayKey = () => new Date().toISOString().slice(0,10);
   const fmtDt    = (iso) => new Date(iso).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"});
@@ -1562,6 +1670,7 @@ function TemasPage() {
           {[
             {k:"fixed", icon:"📌", label:"Fixos"},
             {k:"daily", icon:"🗓", label:"Por dia"},
+            {k:"countdown", icon:"⏳", label:"Contagem regressiva"},
           ].map(o=>(
             <button key={o.k} onClick={()=>{setMode(o.k);setHistoryDay(null);}}
               style={{background:mode===o.k?"var(--accent)":"transparent",
@@ -1574,7 +1683,7 @@ function TemasPage() {
           ))}
         </div>
 
-        {!isReadOnly && (
+        {!isReadOnly && mode!=="countdown" && (
           <button onClick={()=>{setAddOpen(true);setForm({title:"",text:""}); }}
             style={{...btn(),display:"flex",alignItems:"center",gap:8,padding:"10px 20px",borderRadius:30}}>
             <Icon path={I.plus} size={14}/> Novo quadro
@@ -1622,8 +1731,10 @@ function TemasPage() {
         </div>
       )}
 
+      {mode==="countdown" && <CountdownPanel/>}
+
       {/* Boards grid */}
-      {displayBoards.length===0 ? (
+      {mode==="countdown" ? null : displayBoards.length===0 ? (
         <div style={{textAlign:"center",padding:"60px 0",color:"var(--text-3)"}}>
           <div style={{fontSize:48,opacity:.15,marginBottom:12}}>📋</div>
           <div style={{fontSize:14}}>
