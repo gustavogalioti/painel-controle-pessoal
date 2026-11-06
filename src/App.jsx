@@ -2614,10 +2614,6 @@ function DiaryPage() {
   );
 }
 
-// ─── IDEIAS PAGE ──────────────────────────────────────────────────────────────
-function IdeasPage() {
-  return <IdeasCards/>;
-}
 
 // ─── TASKS PAGE ───────────────────────────────────────────────────────────────
 // Kanban completo (visão "Todas as Tarefas"). Recebe as tarefas do TasksPage para que
@@ -6874,10 +6870,9 @@ function CustomTileModal({ onSave, onClose, icons }) {
 
 const TILE_DEFS = [
   { id:"diary",     color:"var(--tile-diary)",  icon:"book",     label:"Diário",               sub:"Registros e lembretes" },
-  { id:"ideas",     color:"var(--purple)",      icon:"bulb",     label:"Ideias",                sub:"Anotações rápidas" },
   { id:"tasks",     color:"var(--tile-tasks)",  icon:"checkSq",  label:"Tarefas",               sub:"Cards editáveis" },
   { id:"docs",      color:"var(--tile-docs)",   icon:"folder",   label:"Documentos",            sub:"Arquivos e anexos" },
-  { id:"rascunhos", color:"#0a3a3a",            icon:"image",    label:"Rascunho & Imagens",    sub:"Cards com tags e imagens" },
+  { id:"rascunhos", color:"#0a3a3a",            icon:"bulb",     label:"Rascunho, Imagens & Ideias",    sub:"Cards com tags e imagens" },
   { id:"bills",     color:"var(--tile-bills)",  icon:"card",     label:"Contas",                sub:"Vencimentos e pagamentos" },
   { id:"events",    color:"var(--tile-events)", icon:"calendar", label:"Agenda",                sub:"Calendário e compromissos" },
   { id:"lists",     color:"var(--tile-lists)",  icon:"list",     label:"Listas",                sub:"Checklists e anotações" },
@@ -7643,18 +7638,6 @@ function DiarioCard({ onClick }) {
   );
 }
 
-function IdeiasCard({ onClick }) {
-  const [entries] = useKV("ideas_v1", []);
-  return (
-    <div onClick={onClick} style={{...homeCardStyle("var(--purple)"), height:"100%"}}>
-      <CardHeader icon="bulb" label="Ideias"/>
-      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.bulb} size={40} color="rgba(255,255,255,0.85)"/></div>
-      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>{entries.length}</div>
-      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>ideias registradas</div>
-    </div>
-  );
-}
-
 function LembretesCard({ onClick }) {
   const [entries] = useKV("reminders_v1", []);
   const pending = entries.filter(e=>!e.done).length;
@@ -7721,8 +7704,8 @@ function RascunhosCard({ onClick }) {
   const withImg = items.filter(i=>i.hasImage);
   return (
     <div onClick={onClick} style={{...homeCardStyle("#0a3a3a"), height:"100%"}}>
-      <CardHeader icon="image" label="Rascunho & Imagens"/>
-      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.image} size={40} color="rgba(255,255,255,0.85)"/></div>
+      <CardHeader icon="bulb" label="Rascunho, Imagens & Ideias"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"6px 0 18px"}}><Icon path={I.bulb} size={40} color="rgba(255,255,255,0.85)"/></div>
       <div style={{display:"flex",gap:24,marginTop:"auto"}}>
         <div><div style={{fontSize:22,fontWeight:800}}>{items.length-withImg.length}</div><div style={{fontSize:11,color:"rgba(255,255,255,0.75)"}}>rascunhos</div></div>
         <div><div style={{fontSize:22,fontWeight:800}}>{withImg.length}</div><div style={{fontSize:11,color:"rgba(255,255,255,0.75)"}}>imagens</div></div>
@@ -7913,7 +7896,6 @@ function TempoCard({ onClick }) {
 
 const DASH_CARD_DEFS = [
   { id:"diario",     nav:"diary",     defC:1, defR:2 },
-  { id:"ideias",     nav:"ideas",     defC:1, defR:1 },
   { id:"tarefas",    nav:"tasks",     defC:1, defR:1 },
   { id:"rascunhos",  nav:"rascunhos", defC:2, defR:1 },
   { id:"listas",     nav:"lists",     defC:1, defR:1 },
@@ -7951,7 +7933,7 @@ function DashSlot({ tileRef, id, col, row, orderIdx, editMode, isDragging, onPoi
 }
 
 const DASH_COMPONENTS = {
-  diario: DiarioCard, ideias: IdeiasCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
+  diario: DiarioCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
   tempo: TempoCard,
   infos: InfosCard, jarbas: JarbasCard, saude: SaudeCard, panorama: PanoramaCard, tp450: TP450Card,
@@ -8666,10 +8648,9 @@ const PAGE_META = {
   below:      {label:"DJ Mix & Raporizador",emoji:"🎧"},
   diary:      {label:"Diário",              emoji:"📓"},
   infos:      {label:"Infos",               emoji:"📋"},
-  ideas:      {label:"Ideias",              emoji:"💡"},
   tasks:      {label:"Tarefas",             emoji:"✅"},
   docs:       {label:"Documentos",          emoji:"📁"},
-  rascunhos:  {label:"Rascunho & Imagens",  emoji:"🖼"},
+  rascunhos:  {label:"Rascunho, Imagens & Ideias",  emoji:"💡"},
   bills:      {label:"Contas",              emoji:"💳"},
   events:     {label:"Agenda",              emoji:"📅"},
   lists:      {label:"Listas",              emoji:"📋"},
@@ -10096,6 +10077,14 @@ function AppContent() {
   const [viewMode, setViewMode] = useState(()=>localStorage.getItem("view_mode")||"auto");
   const { data:indicData, error:indicError } = useIndicadores();
 
+  // Limpeza única: o tile Ideias foi removido (conteúdo migrado para Rascunho, Imagens & Ideias)
+  useEffect(()=>{
+    try {
+      if (localStorage.getItem("ideas_v1_purged")) return;
+      KV.del("ideas_v1").then(()=>KV.getStrict("ideas_v1")).then(v=>{ if (v==null || v==="null") { try { localStorage.removeItem("ideas_v1"); localStorage.setItem("ideas_v1_purged","1"); } catch {} } }).catch(()=>{});
+    } catch {}
+  },[]);
+
   // After returning from the Google Calendar OAuth flow, jump straight to Agenda
   useEffect(()=>{
     const params = new URLSearchParams(window.location.search);
@@ -10144,7 +10133,6 @@ function AppContent() {
     switch(page) {
       case "diary":      return <DiaryPage/>;
       case "infos":      return <TemasPage/>;
-      case "ideas":      return <IdeasPage/>;
       case "tasks":      return <TasksPage/>;
       case "docs":       return <DocsPage/>;
       case "rascunhos":  return <RascunhosPage/>;
