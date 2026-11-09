@@ -481,3 +481,7 @@ input, textarea, select { color-scheme:light; }
 @media (max-width:600px) { .rsc-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .rsc-grid.list { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:440px) { .rsc-quick-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:340px) { .rsc-grid { grid-template-columns:minmax(0,1fr); } }
+
+/* Saúde › Registrar: exercícios + água lado a lado */
+.sau-cols { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(0,1fr); gap:14px; align-items:start; }
+@media (max-width:760px) { .sau-cols { grid-template-columns:minmax(0,1fr); } }
