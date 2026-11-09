@@ -7031,6 +7031,89 @@ function saudeParse(str) {
 }
 const saudeDayHas = (day) => !!day && Object.values(day).some(e => e && e.v > 0);
 
+// ─── ÁGUA: sync_kv "saude_agua_v1" = { "AAAA-MM-DD": [ { id, ml, t?:"HH:MM" } ] } (chave separada de saude_v1 p/ não competir com o registro de treinos)
+const SAUDE_BOTTLES = [500, 1000, 1500, 2000]; // "rodada" = 1 garrafa inteira
+const aguaFmt = (ml) => (ml/1000).toLocaleString("pt-BR",{maximumFractionDigits:2}) + " L";
+const aguaBottle = (ml) => ml<1000 ? `${ml} ml` : aguaFmt(ml);
+const aguaTotal = (rounds) => (rounds||[]).reduce((a,r)=>a+(Number(r?.ml)||0),0);
+// diferença entre um dia e o anterior → {arrow,color,text}
+function aguaCompare(days, k, vsLabel) {
+  const t = aguaTotal(days[k]), pt = aguaTotal(days[saudeAdd(k,-1)]), diff = t - pt;
+  if (t===0 && pt===0) return null;
+  if (pt===0) return { arrow:"•", color:"var(--text-3)", text:`${vsLabel}: sem registro` };
+  if (diff>0) return { arrow:"▲", color:"var(--green)", text:`+${aguaFmt(diff)} que ${vsLabel} (${aguaFmt(pt)})` };
+  if (diff<0) return { arrow:"▼", color:"var(--red)", text:`−${aguaFmt(-diff)} que ${vsLabel} (${aguaFmt(pt)})` };
+  return { arrow:"=", color:"var(--text-3)", text:`igual a ${vsLabel} (${aguaFmt(pt)})` };
+}
+
+function SaudeAgua({ date, today, card }) {
+  const [days, setDays] = useKV("saude_agua_v1", {});
+  const rounds = days?.[date] || [];
+  const total = aguaTotal(rounds);
+  const vs = date===today ? "ontem" : "o dia anterior";
+  const cmp = aguaCompare(days||{}, date, vs);
+  const add = (ml) => setDays(prev => {
+    const base = prev || {};
+    const entry = { id: Date.now()+"-"+Math.random().toString(36).slice(2,6), ml,
+      ...(date===today ? { t: new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) } : {}) };
+    return { ...base, [date]: [...(base[date]||[]), entry] };
+  });
+  const remove = (id) => setDays(prev => {
+    const base = { ...(prev||{}) };
+    const nxt = (base[date]||[]).filter(r=>r.id!==id);
+    if (nxt.length) base[date] = nxt; else delete base[date];
+    return base;
+  });
+  const hist = Array.from({length:7},(_,i)=>{ const k = saudeAdd(date,-i); return { k, t:aguaTotal(days?.[k]), c:aguaCompare(days||{},k,"") }; });
+  const maxT = Math.max(1, ...hist.map(h=>h.t));
+  const anyHist = hist.some(h=>h.t>0);
+  return (
+    <div style={{...card,display:"grid",gap:12}}>
+      <div style={{fontWeight:800,fontSize:15}}>💧 Água</div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:40,fontWeight:800,lineHeight:1.1,color:"#0891b2"}}>{aguaFmt(total)}</div>
+        <div style={{fontSize:12,color:"var(--text-3)",marginTop:2}}>{rounds.length===0?"nenhuma rodada ainda":`${rounds.length} rodada${rounds.length===1?"":"s"}`}{date===today?" hoje":""}</div>
+        {cmp && <div style={{fontSize:12.5,fontWeight:700,color:cmp.color,marginTop:6}}>{cmp.arrow} {cmp.text}</div>}
+      </div>
+      <div>
+        <div style={{fontSize:11.5,color:"var(--text-3)",marginBottom:6}}>Adicionar uma garrafa inteira:</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:8}}>
+          {SAUDE_BOTTLES.map(ml=>(
+            <button key={ml} onClick={()=>add(ml)} aria-label={`Adicionar garrafa de ${aguaBottle(ml)}`}
+              style={{...btn("#0891b2"),padding:"12px 8px",fontSize:15}}>+ {aguaBottle(ml)}</button>
+          ))}
+        </div>
+      </div>
+      {rounds.length>0 && (
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {rounds.map(r=>(
+            <span key={r.id} style={{display:"inline-flex",alignItems:"center",gap:6,background:"var(--bg-input)",border:"1px solid var(--border)",borderRadius:14,padding:"3px 6px 3px 10px",fontSize:12,fontWeight:600}}>
+              💧 {aguaBottle(r.ml)}{r.t && <span style={{color:"var(--text-3)",fontWeight:500}}>{r.t}</span>}
+              <button onClick={()=>remove(r.id)} title="Remover esta rodada" aria-label="Remover esta rodada"
+                style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",fontSize:12,padding:"0 2px"}}>✕</button>
+            </span>
+          ))}
+        </div>
+      )}
+      {anyHist && (
+        <div>
+          <div style={{fontSize:11.5,color:"var(--text-3)",marginBottom:6}}>Últimos 7 dias</div>
+          <div style={{display:"grid",gap:5}}>
+            {hist.map(h=>(
+              <div key={h.k} style={{display:"grid",gridTemplateColumns:"58px minmax(0,1fr) 52px 14px",gap:6,alignItems:"center",fontSize:12}}>
+                <span style={{color:"var(--text-3)",whiteSpace:"nowrap"}}>{saudeLabel(h.k)}</span>
+                <div style={{height:7,background:"var(--bg-input)",borderRadius:4,overflow:"hidden"}}><div style={{width:`${h.t/maxT*100}%`,height:"100%",background:"#0891b2"}}/></div>
+                <b style={{textAlign:"right"}}>{h.t>0?aguaFmt(h.t):"—"}</b>
+                <span style={{color:h.c?.color,fontWeight:800,fontSize:10}} title={h.c?.text}>{h.t>0 && h.c ? h.c.arrow : ""}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function saudeStreaks(logs, today) {
   const has = (k) => saudeDayHas(logs[k]);
   let cur = 0, k = has(today) ? today : saudeAdd(today, -1);
@@ -7379,6 +7462,7 @@ function SaudePage() {
         {date!==today && <button onClick={()=>setDate(today)} style={chip(true)}>Hoje</button>}
       </div>
 
+      <div className="sau-cols">
       <div style={{...card,display:"grid",gap:12}}>
         {exercises.map((e,i)=>{
           const p = prevOf(e.id);
@@ -7406,6 +7490,8 @@ function SaudePage() {
           <button onClick={saveDay} style={{...btn("var(--green)"),flex:1,minWidth:160}}>{flash?"Salvo ✓":"Salvar dia"}</button>
           <button onClick={()=>setModal(true)} style={{...btn("var(--bg-sub)"),color:"var(--text-1)",border:"1px solid var(--border)"}}>+ Exercício</button>
         </div>
+      </div>
+      <SaudeAgua date={date} today={today} card={card}/>
       </div>
     </div>
   );
@@ -7584,11 +7670,22 @@ function SaudeCard({ onClick }) {
   const today = saudeKey(new Date());
   const st = saudeStreaks(logs, today);
   const done = saudeDayHas(logs[today]);
+  const [water] = useKV("saude_agua_v1", {});
+  const waterMl = aguaTotal(water?.[today]);
   return (
     <div onClick={onClick} style={{...homeCardStyle("#8a1c3a"), height:"100%"}}>
       <CardHeader icon="heart" label="Saúde"/>
-      <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>🔥 {st.cur}</div>
-      <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>dia{st.cur===1?"":"s"} seguido{st.cur===1?"":"s"}</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",gap:8}}>
+        <div>
+          <div style={{fontSize:36,fontWeight:800,lineHeight:1}}>🔥 {st.cur}</div>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",marginTop:4}}>dia{st.cur===1?"":"s"} seguido{st.cur===1?"":"s"}</div>
+        </div>
+        <div style={{textAlign:"right"}}>
+          <div style={{fontSize:22,lineHeight:1}}>💧</div>
+          <div style={{fontSize:15,fontWeight:800,marginTop:2}}>{aguaFmt(waterMl)}</div>
+          <div style={{fontSize:10.5,color:"rgba(255,255,255,0.75)"}}>hoje</div>
+        </div>
+      </div>
       <CardFooter><span>{done?"✔ treino de hoje feito":"Hoje: ainda sem registro"}</span></CardFooter>
     </div>
   );
