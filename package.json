@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node src/daily-lib.test.mjs && node src/jarbas-mention-lib.test.mjs && node api/_auth-lib.test.mjs && node api/_integrators.test.mjs && node api/_jarbas-diario.test.mjs && node api/_jarbas-agenda-data.test.mjs && node api/_jarbas-agenda-dedupe.test.mjs && node api/_jarbas-ponte.test.mjs && node api/_admin1-painel-gerenciar.test.mjs && node api/_pedro-llm.test.mjs && node api/_pedro-standby.test.mjs && node api/_pedro-cron-standby.test.mjs && node api/_pedro-handler-standby.test.mjs && node api/_pedro-pet.test.mjs && node api/_pedro-isolation.test.mjs && node src/pedro-pure.test.mjs && node src/pedro-state.test.mjs"
+    "test": "node src/daily-lib.test.mjs && node src/jarbas-mention-lib.test.mjs && node api/_auth-lib.test.mjs && node api/_integrators.test.mjs && node api/_jarbas-diario.test.mjs && node api/_jarbas-agenda-data.test.mjs && node api/_jarbas-agenda-dedupe.test.mjs && node api/_jarbas-ponte.test.mjs && node api/_admin1-painel-gerenciar.test.mjs && node api/_pedro-llm.test.mjs && node api/_pedro-standby.test.mjs && node api/_pedro-cron-standby.test.mjs && node api/_pedro-handler-standby.test.mjs && node api/_pedro-pet.test.mjs && node api/_pedro-isolation.test.mjs && node src/pedro-pure.test.mjs && node src/pedro-state.test.mjs && node src/pedro-sim.test.mjs && node api/_pedro-life.test.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

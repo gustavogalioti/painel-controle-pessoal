@@ -1,9 +1,11 @@
 // Tela do Pedro: cena 3D em tela cheia + cuidados (barras, bandeja de brinquedos/comida, loja) + chat integrado
 // (carregada com React.lazy pelo App). Se o WebGL falhar, cai pra foto do Pedro + chat (nunca tela branca).
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { PedroScene } from "./PedroScene.js";
 import { detectCall } from "./names.js";
-import { normalizePet, applyDecay, applyEvent, comprar, gastarPetisco, vestir, CATALOGO } from "./pet-state.js";
+import { CATALOGO } from "./pet-state.js";
+import { usePedroPet } from "./usePedroPet.js";
+import DiaryPanel from "./ui/DiaryPanel.jsx";
 import { unlockAudio, jingle, setSoundEnabled } from "./audio.js";
 
 const ACTION_RE = /(\*[^*\n]+\*)/g;
@@ -23,11 +25,12 @@ const TRAY = [
   { id: "comida", emoji: "🍗", label: "Comida" }, { id: "petisco", emoji: "🍪", label: "Petisco" },
 ];
 
-export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onEnableNotif }) {
+export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onEnableNotif, abrirMsg = null }) {
   const [messages, setMessages] = useKV("pedro_chat_v1", []);
-  const [petRaw, setPetRaw] = useKV("pedro_pet_v1", null);
-  const pet = useMemo(() => normalizePet(petRaw), [petRaw]);
-  const petRef = useRef(pet); petRef.current = pet;
+  // Fase 4: o SERVIDOR é o dono do estado (vida com o app fechado, diário, push); aqui é só um espelho com cuidados otimistas
+  const P = usePedroPet();
+  const { pet, petRef, diario } = P;
+  const [diarioAberto, setDiarioAberto] = useState(false);
 
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -44,31 +47,21 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
 
   const canvasRef = useRef(null), sceneRef = useRef(null), bubbleRef = useRef(null), dockRef = useRef(null), listRef = useRef(null), bubbleTimer = useRef(null), gainTimer = useRef(null), dragRef = useRef(null);
 
-  // setter do useKV pode não ser estável: guardamos em ref pra `save` (e os efeitos que dependem dele) não girarem em loop
-  const setPetRef = useRef(setPetRaw); setPetRef.current = setPetRaw;
-  const save = useCallback((next) => { petRef.current = next; setPetRef.current(next); }, []);
-
   const say = useCallback((text) => {
     setBubble(text); clearTimeout(bubbleTimer.current);
     bubbleTimer.current = setTimeout(() => setBubble(null), Math.min(12000, 3500 + text.length * 55));
   }, []);
 
-  // ---- passagem do tempo (catch-up ao abrir + a cada minuto)
-  useEffect(() => {
-    save(applyDecay(petRef.current));
-    const id = setInterval(() => save(applyDecay(petRef.current)), 60000);
-    return () => clearInterval(id);
-  }, [save]);
-
-  // ---- eventos de cuidado vindos da cena
-  const onPetEvent = useCallback((ev) => {
+  // ---- eventos de cuidado vindos da cena (otimista + confirmação do servidor)
+  const evRef = useRef(null);
+  evRef.current = (ev) => {
     if (ev.type === "fala") { say(ev.text); return; }
-    if (ev.type === "recusa") { if (ev.devolve) { const p = petRef.current; save({ ...p, inventario: { ...p.inventario, petiscos: p.inventario.petiscos + 1 } }); } return; }
+    if (ev.type === "recusa") { if (ev.devolve) P.refundCookie(); return; }
     if (ev.type === "cancelado") return;
-    const r = applyEvent(petRef.current, ev);
-    save(r.pet);
-    if (r.moedas > 0) { setGain({ n: r.moedas, k: Date.now() }); jingle(); clearTimeout(gainTimer.current); gainTimer.current = setTimeout(() => setGain(null), 1800); }
-  }, [save, say]);
+    const moedas = P.event(ev);
+    if (moedas > 0) { setGain({ n: moedas, k: Date.now() }); jingle(); clearTimeout(gainTimer.current); gainTimer.current = setTimeout(() => setGain(null), 1800); }
+  };
+  const onPetEvent = useCallback((ev) => evRef.current(ev), []);
 
   // ---- cena 3D
   useEffect(() => {
@@ -76,7 +69,11 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
     (async () => {
       if (!webglOk()) { setStatus({ fallback: true }); return; }
       try {
+        await Promise.race([P.firstSync.current, new Promise((r) => setTimeout(r, 4000))]); // nasce onde o servidor diz que ele está
+        if (dead) return;
+        const cur = petRef.current;
         scene = new PedroScene({
+          initial: cur.atividade ? { poi: cur.local?.poi, tipo: cur.atividade.tipo, ate: cur.atividade.ate } : null,
           canvas: canvasRef.current, debug, forceLevel: q.get("pedronivel") != null ? parseInt(q.get("pedronivel"), 10) : null,
           hourOverride: q.get("pedrohora") ? parseFloat(q.get("pedrohora")) : null,
           onFrame: (s) => {
@@ -90,6 +87,7 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
         if (dead) { scene.dispose(); return; }
         sceneRef.current = scene; if (debug) window.__pedroScene = scene; // debug: inspeção no console
         scene.setNeeds(petRef.current.necessidades); scene.setConfig(petRef.current.config); scene.setOutfit(petRef.current.inventario.vestindo);
+        scene.onPetEvent = onPetEvent;
         scene.start();
         setStatus((o) => ({ ...o, loading: false }));
       } catch (e) {
@@ -147,8 +145,7 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
     if (id === "comida") { if (!d.moved || inScene) sc.feed("comida"); return; }
     if (id === "petisco") {
       if (d.moved && !inScene) return;
-      const g = gastarPetisco(petRef.current); if (!g.ok) return;
-      save(g.pet);
+      if (!P.spendCookie()) return;
       const fp = d.moved ? sc._floorPoint(e.clientX, e.clientY) : null;
       const base = sc.actor.position;
       sc.eatCookie(fp || { x: base.x, z: base.z + 0.5 });
@@ -156,9 +153,25 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
   };
 
   // ---- loja
-  const comprarItem = (id) => { const r = comprar(petRef.current, id); if (r.ok) { save(r.pet); jingle(); } else say(r.motivo === "sem_biscoitos" ? "Faltam biscoitos! Cuida de mim que eles aparecem 🍪" : "Esse já é meu! 😸"); };
-  const toggleVestir = () => save(vestir(petRef.current, pet.inventario.vestindo ? null : "roupinha"));
-  const toggleCfg = (k) => save({ ...petRef.current, config: { ...petRef.current.config, [k]: !(petRef.current.config[k] !== false) } });
+  const comprarItem = (id) => { const r = P.buy(id); if (r.ok) jingle(); else say(r.motivo === "sem_biscoitos" ? "Faltam biscoitos! Cuida de mim que eles aparecem 🍪" : "Esse já é meu! 😸"); };
+  const toggleVestir = () => P.wear(pet.inventario.vestindo ? null : "roupinha");
+  const toggleCfg = (k) => P.config({ [k]: !(petRef.current.config[k] !== false) });
+  const togglePush = () => P.config({ push: { ligado: !petRef.current.config.push.ligado } });
+
+  // ---- diário
+  const abrirDiario = () => { unlockAudio(); setDiarioAberto(true); P.loadDiary(); };
+
+  // novidades ao abrir: push que abriu o app (abrirMsg) ou entradas novas do diário
+  const avisouRef = useRef(false);
+  useEffect(() => {
+    if (avisouRef.current || status.loading || !P.synced) return;
+    avisouRef.current = true;
+    if (abrirMsg) { say(abrirMsg); return; }
+    if (diario.nao_lidos > 0) {
+      const ultima = diario.entradas.find((e) => !e.lido && e.marcante) || diario.entradas.find((e) => !e.lido);
+      say(ultima ? `Enquanto você não tava: ${ultima.texto} 📖` : "Tenho novidades no diário! 📖");
+    }
+  }, [status.loading, P.synced, diario, abrirMsg, say]);
 
   // ---- chat
   const send = async () => {
@@ -205,6 +218,9 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
       <div style={{position:"absolute",left:0,right:0,top:0,display:"flex",justifyContent:"space-between",alignItems:"center",padding:"max(10px, env(safe-area-inset-top, 0px)) 12px 0",zIndex:3,pointerEvents:"none"}}>
         <button onClick={onBack} title="Voltar ao painel" aria-label="Voltar ao painel" style={{...roundBtn,pointerEvents:"auto"}}>←</button>
         <div style={{display:"flex",gap:8,pointerEvents:"auto"}}>
+          <button onClick={abrirDiario} title="Diário do Pedro" aria-label="Diário do Pedro" style={{...roundBtn,position:"relative"}}>📖
+            {diario.nao_lidos > 0 && <span style={{position:"absolute",right:-2,top:-2,minWidth:18,height:18,borderRadius:9,background:"#e0405a",color:"#fff",fontSize:11,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 4px"}}>{diario.nao_lidos > 9 ? "9+" : diario.nao_lidos}</span>}
+          </button>
           <button onClick={() => { unlockAudio(); toggleCfg("som"); }} title={somOn ? "Som ligado" : "Som desligado"} aria-label="Alternar som" style={roundBtn}>{somOn ? "🔊" : "🔇"}</button>
           {notifPerm === "default" && <button onClick={onEnableNotif} title="Ativar notificações do Pedro" aria-label="Ativar notificações" style={roundBtn}>🔔</button>}
           <button onClick={onOpenAdmin} title="Memória do Pedro" aria-label="Memória do Pedro" style={roundBtn}>⚙️</button>
@@ -257,14 +273,20 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
                   </div>
                 );
               })}
+              {inv.presentes.length > 0 && <div style={{fontSize:13,background:"#fff",border:"1px dashed #ecd9b9",borderRadius:12,padding:"8px 12px"}}>🎁 Presentes do Pedro: {inv.presentes.slice(-5).map((g) => g.nome).join(" · ")}</div>}
               <label style={{display:"flex",alignItems:"center",gap:10,fontSize:14,minHeight:44}}>
                 <input type="checkbox" checked={vibOn} onChange={() => toggleCfg("vibracao")} style={{width:20,height:20}}/> Vibração leve nos carinhos
+              </label>
+              <label style={{display:"flex",alignItems:"center",gap:10,fontSize:14,minHeight:44}}>
+                <input type="checkbox" checked={pet.config.push.ligado} onChange={togglePush} style={{width:20,height:20}}/> <span>Avisos do Pedro no celular <span style={{opacity:0.65}}>(até {pet.config.push.max}/dia, sem incomodar das {pet.config.push.silencioDe}h às {pet.config.push.silencioAte}h)</span></span>
               </label>
             </div>
             <button onClick={() => setShop(false)} style={{marginTop:10,width:"100%",minHeight:44,borderRadius:12,border:"none",background:"#e8d8bf",color:"#3a2a1c",fontWeight:700,cursor:"pointer"}}>Fechar</button>
           </div>
         </div>
       )}
+
+      {diarioAberto && <DiaryPanel diario={diario} onClose={() => setDiarioAberto(false)} onReact={P.react} onOpened={() => setTimeout(P.readDiary, 1500)}/>}
 
       {/* emoji que acompanha o dedo durante o arrasto da bandeja */}
       {ghost && <div style={{position:"fixed",left:ghost.x,top:ghost.y,transform:"translate(-50%,-130%)",fontSize:34,zIndex:9,pointerEvents:"none",filter:"drop-shadow(0 3px 4px rgba(0,0,0,0.4))"}}>{ghost.emoji}</div>}

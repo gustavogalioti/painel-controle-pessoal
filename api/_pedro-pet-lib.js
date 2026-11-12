@@ -14,6 +14,8 @@ export const PEDRO_KEYS = {
   learned: "pedro_learned_v1",
   pushSubs: "pedro_push_subs",
   pet: "pedro_pet_v1",
+  diary: "pedro_diary_v1",
+  chat: "pedro_chat_v1",
 };
 
 export const PEDRO_APELIDOS = ["pedro", "pedrinho", "pedruxo", "pedrão", "pedro timoti"];

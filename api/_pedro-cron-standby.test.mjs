@@ -48,19 +48,22 @@ console.log("pedro-cron: secret errado -> 401: OK");
 }
 console.log("pedro-cron: stand by responde 200 {ok:true,standby:true} sem chamar fetch/sql: OK");
 
-// ---------- PEDRO_ATIVO=1: passa do gate de stand by; Fase 1 não envia nada, não toca fetch/sql ----------
+// ---------- PEDRO_ATIVO=1: passa do gate de stand by (smoke) ----------
 {
   process.env.PEDRO_ATIVO = "1";
-  globalThis.fetch = throwingFetch("PEDRO_ATIVO=1 (cron da Fase 1 não faz nada)");
+  // Sem rede/DB de verdade, a conexão com o Neon cai no fetch simulado (que lança): o cron responde 500 com o erro —
+  // o que importa é que NÃO foi a resposta de stand by (o gate deixou passar).
+  globalThis.fetch = throwingFetch("smoke PEDRO_ATIVO=1");
   const res = makeRes();
+  const origErr = console.error; console.error = () => {};
   await handler({ query: { secret: "segredo-de-teste" } }, res);
-  assert.equal(res.statusCode, 200);
-  assert.equal(res.body.ok, true);
-  assert.notEqual(res.body.standby, true, "não pode ser a resposta de stand by");
-  assert.equal(res.body.sent, 0, "Fase 1: nenhum push é enviado (sem agenda, sem check-in)");
+  console.error = origErr;
+  assert.equal(res.statusCode, 500, "sem DB de verdade, cai no catch (500)");
+  assert.notDeepEqual(res.body, { ok: true, standby: true }, "não pode ser a resposta de stand by");
+  assert.ok(res.body.error);
   restoreFetch();
 }
-console.log("pedro-cron: PEDRO_ATIVO=1 não envia push nem toca fetch/sql (Fase 1): OK");
+console.log("pedro-cron: PEDRO_ATIVO=1 passa do gate de stand by (smoke): OK");
 
 restoreEnv();
 restoreFetch();

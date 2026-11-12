@@ -3,6 +3,9 @@ import { neon } from "@neondatabase/serverless";
 import { requireSession } from "./_auth-lib.js";
 import { pedroAtivo } from "./_pedro-standby.js";
 import {
+  getKvList, getKvObject, setKv, tickPedro, applyUpdate, listDiary, markDiaryRead, reactDiary, loadPet, savePet,
+} from "./_pedro-life.js";
+import {
   PEDRO_KEYS, PEDRO_TOOLS, buildSystemPrompt, formatMsgTimestamp,
   applyManiasSeed, addMemory, pickFallbackReply,
 } from "./_pedro-pet-lib.js";
@@ -30,26 +33,7 @@ const CORS = {
   "Content-Type": "application/json",
 };
 
-// ---------- sync_kv (só chaves pedro_*) ----------
-async function getKvList(sql, key) {
-  const rows = await sql`SELECT value FROM sync_kv WHERE key=${key}`;
-  if (!rows[0]) return [];
-  try { const v = JSON.parse(rows[0].value); return Array.isArray(v) ? v : []; } catch { return []; }
-}
-
-async function getKvObject(sql, key) {
-  const rows = await sql`SELECT value FROM sync_kv WHERE key=${key}`;
-  if (!rows[0]) return null;
-  try { const v = JSON.parse(rows[0].value); return v && typeof v === "object" && !Array.isArray(v) ? v : null; } catch { return null; }
-}
-
-async function setKv(sql, key, value) {
-  const json = JSON.stringify(value);
-  const ts = new Date().toISOString();
-  await sql`INSERT INTO sync_kv (key, value, updated_at) VALUES (${key}, ${json}, ${ts})
-            ON CONFLICT (key) DO UPDATE SET value=${json}, updated_at=${ts}`;
-}
-
+// ---------- sync_kv (só chaves pedro_*): helpers em _pedro-life.js ----------
 // Semeia as manias do Pedro real em pedro_memory_v1 (uma vez só, sem
 // sobrescrever nada — ver applyManiasSeed). Devolve a lista de memórias atual.
 async function ensureManiasSeed(sql) {
@@ -146,7 +130,7 @@ async function callLlmProvider(def, messages, tools) {
     const r = await fetch(def.url, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${def.apiKey}` },
-      body: JSON.stringify({ model: def.model, messages, tools, tool_choice: "auto", temperature: 0.7, max_tokens: 600 }),
+      body: JSON.stringify({ model: def.model, messages, ...(tools?.length ? { tools, tool_choice: "auto" } : {}), temperature: 0.7, max_tokens: 600 }),
       signal: controller.signal,
     });
     if (!r.ok) {
@@ -219,12 +203,11 @@ export async function callLlmChain(messages, tools) {
 }
 
 async function handleLlmChat(sql, userMessage, history) {
-  const [memories, learned, petState, diary] = await Promise.all([
-    ensureManiasSeed(sql),
-    getKvList(sql, PEDRO_KEYS.learned),
-    getKvObject(sql, PEDRO_KEYS.pet),
-    Promise.resolve([]), // pedro_diary_v1 entra na Fase 4 — por ora, contexto de diário vazio
-  ]);
+  // sequencial de propósito: o seed e o tick escrevem em pedro_pet_v1 (não podem correr em paralelo)
+  const memories = await ensureManiasSeed(sql);
+  const learned = await getKvList(sql, PEDRO_KEYS.learned);
+  const { pet: petState } = await tickPedro(sql, Date.now(), { interacao: true }); // estado de AGORA (onde está, o que faz, necessidades)
+  const diary = (await getKvList(sql, PEDRO_KEYS.diary)).slice(-5);
 
   const systemPrompt = buildSystemPrompt({ memories, learned, petState, diary });
 
@@ -333,6 +316,55 @@ export default async function handler(req) {
     // Protegido junto com o resto do handler pelo requireSession no topo.
     // (Os antigos admin_intents/keywords/responses/unmatched foram desligados;
     // as tabelas panel_pedro_* continuam no banco, só não são mais usadas.)
+
+    // ============ VIDA DO PEDRO (Fase 4) — o servidor é o dono do estado ============
+    if (action === "pet_state" && req.method === "GET") {
+      const { pet } = await tickPedro(sql, Date.now(), { visto: true });
+      const d = await listDiary(sql, { limit: 30 });
+      return new Response(JSON.stringify({ pet, diario: d, agora: Date.now() }), { headers: CORS });
+    }
+    if (action === "pet_update" && req.method === "POST") {
+      const body = await req.json();
+      const r = await applyUpdate(sql, Date.now(), body || {});
+      return new Response(JSON.stringify(r), { status: r.motivo === "evento_invalido" || r.motivo === "operacao_invalida" ? 400 : 200, headers: CORS });
+    }
+    if (action === "diary" && req.method === "GET") {
+      const limit = parseInt(searchParams.get("limit") || "40", 10);
+      return new Response(JSON.stringify(await listDiary(sql, { limit })), { headers: CORS });
+    }
+    if (action === "diary_read" && req.method === "POST") {
+      const { ids } = await req.json();
+      return new Response(JSON.stringify(await markDiaryRead(sql, ids === "todos" ? "todos" : ids)), { headers: CORS });
+    }
+    if (action === "diary_react" && req.method === "POST") {
+      const { id } = await req.json();
+      const r = await reactDiary(sql, id, Date.now());
+      return new Response(JSON.stringify(r), { status: r.ok ? 200 : 404, headers: CORS });
+    }
+
+    if (action === "admin_diary" && req.method === "GET") {
+      return new Response(JSON.stringify({ entradas: [...(await getKvList(sql, PEDRO_KEYS.diary))].reverse() }), { headers: CORS });
+    }
+    if (action === "admin_diary_delete" && req.method === "POST") {
+      const { id } = await req.json();
+      await setKv(sql, PEDRO_KEYS.diary, (await getKvList(sql, PEDRO_KEYS.diary)).filter((e) => e.id !== id));
+      return new Response(JSON.stringify({ ok: true }), { headers: CORS });
+    }
+    if (action === "admin_pet" && req.method === "GET") {
+      return new Response(JSON.stringify({ pet: await loadPet(sql) }), { headers: CORS });
+    }
+    if (action === "admin_pet_set" && req.method === "POST") { // testes: editar/zerar necessidades (nunca abaixo do piso)
+      const { necessidades, reset } = await req.json();
+      let pet = await loadPet(sql);
+      if (reset) pet = { ...pet, necessidades: { fome: 80, sede: 85, energia: 85, diversao: 70, afeto: 70, higiene: 90 } };
+      else if (necessidades && typeof necessidades === "object") {
+        const nec = { ...pet.necessidades };
+        for (const k of Object.keys(nec)) if (Number.isFinite(Number(necessidades[k]))) nec[k] = Math.min(100, Math.max(8, Number(necessidades[k])));
+        pet = { ...pet, necessidades: nec };
+      }
+      await savePet(sql, pet);
+      return new Response(JSON.stringify({ ok: true, pet }), { headers: CORS });
+    }
 
     if (action === "admin_memory" && req.method === "GET") {
       const memories = await ensureManiasSeed(sql);

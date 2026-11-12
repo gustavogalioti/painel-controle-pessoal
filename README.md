@@ -76,3 +76,8 @@ Variáveis de ambiente usadas por `api/` (Project → Settings → Environment V
 O Daily Command Center **não adiciona** nenhuma variável nova.
 
 Fluxo: abrir PR da branch → testar no Preview → mesclar em `main` → a Vercel publica em produção.
+
+## Pedro (gato virtual)
+O Pedro é um bichinho virtual 3D que vive mesmo com o app fechado, escreve um diário e pode mandar até 3 avisos por dia (silêncio das 22h às 8h).
+Está em **stand by** até ser reativado. Detalhes, arquitetura, custos estimados (cron a cada 10 min ≈ 144 chamadas/dia, ≤ 4 chamadas de LLM
+por dia para o diário, ≤ 3 pushes) e checklist de ativação em [`docs/PEDRO-VIRTUAL.md`](docs/PEDRO-VIRTUAL.md); como pausar/reativar em [`docs/PEDRO-STANDBY.md`](docs/PEDRO-STANDBY.md).
