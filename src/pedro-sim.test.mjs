@@ -182,6 +182,11 @@ const petEm = (ms, extra = {}) => normalizePet({ ...extra, ultimoTick: new Date(
   assert.equal(decidePush({ pet: base({ visto: new Date(noite(10) - 3 * H).toISOString(), ultimaInteracao: new Date(noite(10) - 3 * H).toISOString() }), novasEntradas: [], agoraMs: noite(10) }), null);
   // texto cortado
   assert.ok(decidePush({ pet: base(), novasEntradas: marcante(3, "a".repeat(500)), agoraMs: noite(10) }).texto.length <= 150);
+  // Pedro NOVO (nunca aberto, sem visto/interação): não manda "saudade" (bug real: Date.parse(0) = ano 2000)
+  const novo = normalizePet({ ultimoTick: new Date(T0).toISOString() });
+  assert.equal(novo.visto, null); assert.equal(novo.ultimaInteracao, null);
+  assert.equal(decidePush({ pet: novo, novasEntradas: [], agoraMs: noite(10) }), null, "pet novo não recebe saudade");
+  assert.equal(decidePush({ pet: novo, novasEntradas: [], agoraMs: noite(10) + 5 * 24 * H }), null, "nem dias depois, enquanto nunca houve visita");
   console.log("política de push: OK");
 }
 // ---------- quintal: passeios só de dia e sem chuva; descobertas; consistência de local ----------
