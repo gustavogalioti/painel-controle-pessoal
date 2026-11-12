@@ -32,7 +32,9 @@ export function decidePush({ pet: petRaw, novasEntradas = [], agoraMs, rng = Mat
   const n = pet.push.dia === hoje ? pet.push.n : 0;
   if (n >= (cfg.max ?? 3)) return null;
   if (pet.push.ultimo && agoraMs - Date.parse(pet.push.ultimo) < MIN_ENTRE_PUSH_MS) return null;
-  const visto = Math.max(Date.parse(pet.visto || 0) || 0, Date.parse(pet.ultimaInteracao || 0) || 0);
+  // atenção: Date.parse(0) vale 01/01/2000 (e não 0) — por isso só parseia quando há valor (bug: Pedro novo recebia 'saudade')
+  const ms = (v) => (v ? Date.parse(v) || 0 : 0);
+  const visto = Math.max(ms(pet.visto), ms(pet.ultimaInteracao));
   if (visto && agoraMs - visto < APP_RECENTE_MS) return null; // o Gustavo abriu o app há pouco
 
   const cands = [];

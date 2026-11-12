@@ -61,7 +61,7 @@ async function melhorarComLlm(novas, pet, agoraMs, callLlm, memoriasManias = [])
 export async function tickPedro(sql, agoraMs, { callLlm = null, visto = false, interacao = false } = {}) {
   const pet0 = await loadPet(sql);
   const { pet: adv, eventos } = advancePetSeeded(pet0, agoraMs);
-  const rng = mulberry32(seedFor(Date.parse(pet0.ultimoTick || 0) || agoraMs));
+  const rng = mulberry32(seedFor((pet0.ultimoTick ? Date.parse(pet0.ultimoTick) : 0) || agoraMs));
   const { entries, pendentes } = buildEntries({ eventos, pendentes: adv.pendentes, agoraMs, humor: adv.humor, rng });
   const diary0 = await getKvList(sql, PEDRO_KEYS.diary);
   const ja = new Set(diary0.map((d) => d.id));

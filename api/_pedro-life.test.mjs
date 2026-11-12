@@ -214,4 +214,15 @@ const comBase = (extra = {}) => ({ [PEDRO_KEYS.pet]: normalizePet({ ultimoTick: 
   console.log("quero te contar (descoberta → pendência → chat uma vez): OK");
 }
 
+// ---------- primeiro disparo de um Pedro novo (sem estado): nenhum push ----------
+{
+  const enviados = [];
+  const sql = fakeSql({ [PEDRO_KEYS.pushSubs]: [{ endpoint: "https://push/1" }] });
+  const r = await runCronTick(sql, T0, { sendPush: async (s, p) => { enviados.push(p); return 1; }, vapidOk: true });
+  assert.equal(r.push, null); assert.equal(enviados.length, 0, "1º disparo só marca o relógio, não manda push");
+  const r2 = await runCronTick(sql, T0 + 30 * 60e3, { sendPush: async (s, p) => { enviados.push(p); return 1; }, vapidOk: true });
+  assert.equal(enviados.length, 0, "nem 30 min depois (nunca houve visita: não há de quem sentir saudade)");
+  console.log("Pedro novo não manda saudade: OK");
+}
+
 console.log("_pedro-life.test.mjs: todos os testes passaram");
