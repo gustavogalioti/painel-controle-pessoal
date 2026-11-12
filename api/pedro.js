@@ -3,8 +3,9 @@ import { neon } from "@neondatabase/serverless";
 import { requireSession } from "./_auth-lib.js";
 import { pedroAtivo } from "./_pedro-standby.js";
 import {
-  getKvList, getKvObject, setKv, tickPedro, applyUpdate, listDiary, markDiaryRead, reactDiary, loadPet, savePet,
+  getKvList, getKvObject, setKv, tickPedro, applyUpdate, listDiary, markDiaryRead, reactDiary, loadPet, savePet, marcarContada,
 } from "./_pedro-life.js";
+import { weatherFor, CLIMA_NOME } from "../src/pedro/weather.js";
 import {
   PEDRO_KEYS, PEDRO_TOOLS, buildSystemPrompt, formatMsgTimestamp,
   applyManiasSeed, addMemory, pickFallbackReply,
@@ -209,7 +210,8 @@ async function handleLlmChat(sql, userMessage, history) {
   const { pet: petState } = await tickPedro(sql, Date.now(), { interacao: true }); // estado de AGORA (onde está, o que faz, necessidades)
   const diary = (await getKvList(sql, PEDRO_KEYS.diary)).slice(-5);
 
-  const systemPrompt = buildSystemPrompt({ memories, learned, petState, diary });
+  const contarPend = (petState.contar || []).filter((c) => !c.contada).slice(0, 1);
+  const systemPrompt = buildSystemPrompt({ memories, learned, petState, diary, contar: contarPend, clima: CLIMA_NOME[weatherFor(Date.now()).tipo] });
 
   const messages = [
     { role: "system", content: systemPrompt },
@@ -240,6 +242,7 @@ async function handleLlmChat(sql, userMessage, history) {
     loops++;
   }
 
+  if (contarPend.length) { try { await marcarContada(sql, contarPend[0].id); } catch {} } // contou: não repete
   return { reply: choice.message.content?.trim() || "🐾", engine };
 }
 

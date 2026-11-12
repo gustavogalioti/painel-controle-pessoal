@@ -66,7 +66,10 @@ export async function tickPedro(sql, agoraMs, { callLlm = null, visto = false, i
   const diary0 = await getKvList(sql, PEDRO_KEYS.diary);
   const ja = new Set(diary0.map((d) => d.id));
   const novas = entries.filter((e) => !ja.has(e.id));
-  let pet = { ...adv, pendentes };
+  // descobertas no quintal = "quero te contar": ficam pendentes até ele contar (no chat ou na tela)
+  const contar = [...(adv.contar || [])];
+  for (const ev of eventos) if (ev.descoberta && !contar.some((c) => c.id === ev.id)) contar.push({ id: ev.id, nome: ev.descoberta.nome, onde: ev.poi, quando: ev.t, contada: false });
+  let pet = { ...adv, pendentes, contar: contar.slice(-8) };
   if (novas.length && callLlm) {
     const manias = (await getKvList(sql, PEDRO_KEYS.memory)).filter((m) => m.categoria === "mania_do_pedro").slice(0, 3).map((m) => m.text);
     pet = await melhorarComLlm(novas, pet, agoraMs, callLlm, manias);
@@ -79,7 +82,7 @@ export async function tickPedro(sql, agoraMs, { callLlm = null, visto = false, i
 }
 
 // ---------- atualizações vindas do app (cuidados, loja, config) ----------
-const EV_OK = new Set(["carinho", "colo", "refeicao", "bebeu", "brincou", "dormiu", "limpou", "incomodo"]);
+const EV_OK = new Set(["carinho", "colo", "refeicao", "bebeu", "brincou", "dormiu", "limpou", "incomodo", "passeou"]);
 function evSeguro(ev) {
   if (!ev || !EV_OK.has(ev.type)) return null;
   return { type: ev.type, secs: Math.min(60, Math.max(0, Number(ev.secs) || 0)), kind: ev.kind === "petisco" ? "petisco" : "comida", toy: typeof ev.toy === "string" ? ev.toy.slice(0, 20) : undefined, auto: !!ev.auto };
@@ -97,6 +100,7 @@ export async function applyUpdate(sql, agoraMs, body = {}) {
   else if (body.op === "gastar_petisco") { const r = gastarPetisco(pet); pet = r.pet; ok = r.ok; }
   else if (body.op === "devolver_petisco") pet = { ...pet, inventario: { ...pet.inventario, petiscos: pet.inventario.petiscos + 1 } };
   else if (body.op === "vestir") pet = vestir(pet, body.item || null);
+  else if (body.op === "contar_ok") pet = { ...pet, contar: pet.contar.map((c) => (c.id === body.id ? { ...c, contada: true } : c)) };
   else if (body.op === "config") {
     const c = body.config || {}, push = c.push || {};
     pet = { ...pet, config: { ...pet.config,
@@ -153,4 +157,12 @@ export async function runCronTick(sql, agoraMs, { callLlm = null, sendPush = nul
     await setKv(sql, PEDRO_KEYS.chat, [...chat, { from: "pedro", text: decisao.texto, at: agoraMs, espontanea: true }].slice(-60));
   }
   return { ...result, push: decisao.tipo, sent };
+}
+
+// o Pedro contou a descoberta (no chat ou na tela): não repete
+export async function marcarContada(sql, id) {
+  const pet = await loadPet(sql);
+  if (!pet.contar.some((c) => c.id === id && !c.contada)) return false;
+  await savePet(sql, { ...pet, contar: pet.contar.map((c) => (c.id === id ? { ...c, contada: true } : c)) });
+  return true;
 }

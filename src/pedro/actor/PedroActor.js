@@ -4,7 +4,7 @@
 // conhecem: moveTo, lookAt, face, play, stopAction, comeToCamera, setMood, setOutfit.
 import * as THREE from "three";
 import { createAnimal } from "../vendor/procedural-animals/index.js";
-import { groundHeight, clampToRoom } from "../world/pois.js";
+import { groundHeight, clampToWorld, routePoints } from "../world/pois.js";
 
 // "Receita" do Pedro (ver docs/PEDRO-VIRTUAL.md): gato ginger rajado, macho, focinho/queixo brancos,
 // olhos dourados. Mudou aqui => rodar `node scripts/pedro-bake.mjs` pra regerar o .animal.
@@ -33,7 +33,7 @@ export class PedroActor {
   constructor(animal, source) {
     this.animal = animal; this.source = source;
     this.object = animal.object;
-    this._moveSeq = 0; this._moveDone = null; this._target = null;
+    this._moveSeq = 0; this._moveDone = null; this._target = null; this._chain = 0;
     this.mood = "calmo"; this.outfit = null;
     animal.on("arrive", () => { const d = this._moveDone; this._moveDone = null; d?.("arrive"); });
   }
@@ -57,9 +57,20 @@ export class PedroActor {
   // Vai até (x,z) (dentro da sala). Resolve "arrive" | "cancelled" | "timeout".
   // Chegou = evento `arrive` da lib OU a menos de ARRIVE_R do alvo (a lib às vezes orbita um alvo
   // apertado ou nem dispara o evento quando o gato já está lá). Timeout em tempo de CENA (pausa com a aba).
-  moveTo(x, z, { speed = this.gears.walk || 0.6, timeoutS = 25 } = {}) {
-    this.cancelMove();
-    const [cx, cz] = clampToRoom(x, z, 0.2);
+  // Rota: se o destino está em OUTRO ambiente (sala <-> quintal), passa pela PORTA (senão atravessaria a parede).
+  async moveTo(x, z, opts = {}) {
+    const pts = routePoints(this.position, { x, z });
+    if (pts.length === 1) return this._moveLeg(x, z, opts);
+    const chain = ++this._chain;
+    for (const p of pts) {
+      const r = await this._moveLeg(p.x, p.z, { ...opts, timeoutS: opts.timeoutS ?? 25 });
+      if (r === "cancelled" || this._chain !== chain) return "cancelled";
+    }
+    return "arrive";
+  }
+  _moveLeg(x, z, { speed = this.gears.walk || 0.6, timeoutS = 25 } = {}) {
+    this.cancelMove(true);
+    const [cx, cz] = clampToWorld(x, z, 0.2);
     if (Math.hypot(this.position.x - cx, this.position.z - cz) < ARRIVE_R) return Promise.resolve("arrive");
     const seq = ++this._moveSeq;
     return new Promise((resolve) => {
@@ -69,7 +80,7 @@ export class PedroActor {
       this.animal.moveTo(new THREE.Vector3(cx, 0, cz), { speed });
     });
   }
-  cancelMove() { const d = this._moveDone; this._moveDone = null; this._target = null; this._moveSeq++; d?.("cancelled"); }
+  cancelMove(leg = false) { if (!leg) this._chain++; const d = this._moveDone; this._moveDone = null; this._target = null; this._moveSeq++; d?.("cancelled"); }
 
   walkSpeed() { return this.gears.walk || 0.6; }
   runSpeed() { return this.gears.trot || this.gears.bound || this.gears.walk || 1.2; }

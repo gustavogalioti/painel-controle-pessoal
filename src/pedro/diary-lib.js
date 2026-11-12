@@ -9,6 +9,7 @@ const ONDE = {
   caminha: "na minha caminha", caixa: "dentro da caixa de papelão", mala: "na mala aberta", poltrona: "na poltrona preta",
   papeis: "em cima dos papéis", sol: "no solzinho do chão", tapete: "no tapete", janela: "perto da janela", centro: "no meio da sala",
   comida: "na minha tigela", agua: "na tigela de água", arranhador: "no arranhador",
+  varanda: "na varanda", gramado: "na grama do quintal", vaso: "perto dos vasos de flores", arvore: "na sombra da árvore", comedouro: "perto do comedouro de passarinhos", pedra: "em cima da pedra do quintal", cerca: "perto da cerca",
 };
 export const onde = (poi) => ONDE[poi] || "pela sala";
 
@@ -24,10 +25,19 @@ const T = {
   arranhar: [() => "Afiei as unhas no arranhador. Prontinhas!", () => "Arranhei o arranhador com vontade."],
   esconder: [(e) => `Me escondi ${onde(e.poi)}. Ninguém me achou!`, (e) => `Fiquei quietinho ${onde(e.poi)}, como se fosse invisível.`],
   sentar: [() => "Fiquei sentadinho, pensando na vida.", () => "Sentei e fiquei curtindo o momento."],
+  tomar_sol: [(e) => `Tomei sol ${onde(e.poi)}. Quentinho demais, quase derreti.`, (e) => `Me estiquei ${onde(e.poi)} e deixei o sol cuidar de mim. ☀️`],
+  passear: [() => "Dei um passeio pelo quintal, farejando tudo.", () => "Passeei pela grama de ponta a ponta. Cada cantinho tem um cheiro!"],
+  cacar: [() => "Caí na caça às borboletas no quintal. Pulei, pulei, e nenhuma se deixou pegar. 🦋", () => "Fiquei de tocaia na grama, de olho nas borboletas."],
+  cheirar: [(e) => `Fui cheirar as flores ${onde(e.poi)}. Cheiro bom demais. 🌸`, () => "Fiquei um tempão cheirando as plantinhas."],
+  observar_passaro: [(e) => `Fiquei de vigia ${onde(e.poi)}, de olho nos passarinhos.`, () => "Observei os passarinhos do quintal. Eu só olho, juro. 🐦"],
 };
 
 // texto de UM evento (marcantes usam os extras; os outros, o template padrão)
 export function eventoTexto(ev, rng = Math.random) {
+  if (ev.descoberta) return `Descobri ${ev.descoberta.nome} no quintal! Quero te contar. 🔍`;
+  if (ev.chuva) return "Choveu e eu fiquei olhando da janela, todo curioso. As gotinhas descem correndo! 🌧️";
+  if (ev.borboleta) return "Persegui uma borboleta pelo quintal inteiro. Quase peguei! 🦋";
+  if (ev.visita) return "Um passarinho pousou pertinho de mim, no quintal. Fiquei imóvel feito estátua. 🐦";
   if (ev.achado) return `Achei ${ev.achado} escondida pela sala! Vou guardar como presente pra você. 🎁`;
   if (ev.passarinho) return "Apareceu um passarinho na janela! Fiquei com o rabo tremendo e os olhos arregalados. 🐦";
   if (ev.derrubou) return "Derrubei uma coisinha da mesa de propósito. A gravidade funciona, confirmei. 😹";
@@ -52,7 +62,7 @@ export function turnoDe(ms) {
   return { chave: `${base}:noite`, nome: "noite" };
 }
 
-const RESUMO = { dormir: "tirei uma soneca", descansar_janela: "fiquei olhando a janela", comer: "comi", beber: "bebi água", limpar: "me limpei todo", amassar: "amassei pãozinho", brincar: "brinquei um pouco", explorar: "dei uma volta de inspeção", arranhar: "afiei as unhas", esconder: "me escondi", sentar: "fiquei sentadinho" };
+const RESUMO = { dormir: "tirei uma soneca", descansar_janela: "fiquei olhando a janela", comer: "comi", beber: "bebi água", limpar: "me limpei todo", amassar: "amassei pãozinho", brincar: "brinquei um pouco", explorar: "dei uma volta de inspeção", arranhar: "afiei as unhas", esconder: "me escondi", sentar: "fiquei sentadinho", tomar_sol: "tomei sol", passear: "passeei no quintal", cacar: "caçei borboletas", cheirar: "cheirei as flores", observar_passaro: "vigiei os passarinhos" };
 
 export function resumoTexto(evs, turnoNome) {
   const nomes = [...new Set(evs.map((e) => RESUMO[e.tipo]).filter(Boolean))].slice(0, 4);
@@ -98,7 +108,7 @@ export function mergeEntries(existentes, novas) {
 
 // ---- LLM (só pra marcantes, com orçamento diário): reescreve na voz do Pedro SEM inventar fatos
 export function diaryPrompt(entry, { hora, memorias = [] } = {}) {
-  const fatos = JSON.stringify({ o_que_aconteceu: entry.evento, onde: onde(entry.local), achado: entry.ev?.achado, passarinho: !!entry.ev?.passarinho, derrubou_algo: !!entry.ev?.derrubou, sonho: entry.ev?.sonho != null ? SONHOS[entry.ev.sonho % SONHOS.length] : undefined });
+  const fatos = JSON.stringify({ o_que_aconteceu: entry.evento, onde: onde(entry.local), achado: entry.ev?.achado, descoberta_no_quintal: entry.ev?.descoberta?.nome, choveu: !!entry.ev?.chuva, borboleta: !!entry.ev?.borboleta, passarinho_pousou_perto: !!entry.ev?.visita, passarinho: !!entry.ev?.passarinho, derrubou_algo: !!entry.ev?.derrubou, sonho: entry.ev?.sonho != null ? SONHOS[entry.ev.sonho % SONHOS.length] : undefined });
   const mem = memorias.length ? `\nManias suas que podem colorir o tom (não obrigatório): ${memorias.join(" | ")}` : "";
   return [
     { role: "system", content: `Você é o Pedro, um gato laranja rajado, escrevendo uma entrada CURTA do seu diário, em primeira pessoa, em português do Brasil, tom fofo e com humor gatuno.

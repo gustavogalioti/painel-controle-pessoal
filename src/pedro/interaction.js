@@ -4,12 +4,14 @@
 // e brinquedos arrastados da bandeja (bolinha, ratinho, pena). Cada coisa vira um evento `onPetEvent`
 // que a UI converte em necessidades/biscoitos (pet-state.js). Gato é gato: ele pode recusar.
 import * as THREE from "three";
-import { POIS, ROOM, clampToRoom } from "./world/pois.js";
-import { Hearts, makeToy, makeOutfit } from "./fx.js";
+import { POIS, ROOM, YARD, clampToWorld } from "./world/pois.js";
+import { Hearts, makeToy, makeOutfit, makeBandana } from "./fx.js";
 import { meow, startPurr, stopPurr, chomp, lap, pop, hiss, vibrate, setSoundEnabled, unlockAudio } from "./audio.js";
 import { reaction } from "./pet-state.js";
 
-const HOTSPOTS = { comida: "feed", agua: "drink", caixa: "invite", mala: "invite", caminha: "invite", poltrona: "invite", papeis: "invite" };
+const HOTSPOTS = { comida: "feed", agua: "drink", caixa: "invite", mala: "invite", caminha: "invite", poltrona: "invite", papeis: "invite", varanda: "visit", gramado: "visit", vaso: "visit", arvore: "visit", comedouro: "visit", pedra: "visit", cerca: "visit" };
+// o que ele faz quando você aponta um canto do quintal (só de dia e sem chuva — gato é gato)
+const VISITA = { varanda: "tomar_sol", gramado: "cacar", vaso: "cheirar", arvore: "dormir", comedouro: "observar_passaro", pedra: "tomar_sol", cerca: "passear" };
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const FLOOR = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
@@ -29,10 +31,11 @@ export const interactionMethods = {
   setOutfit(id) { this._outfitId = id || null; this._applyOutfit(); },
   _applyOutfit() {
     if (!this.actor) return;
-    if (this._outfitMesh) { this._outfitMesh.parent?.remove(this._outfitMesh); this._outfitMesh.geometry.dispose(); this._outfitMesh.material.map?.dispose(); this._outfitMesh.material.dispose(); this._outfitMesh = null; }
-    if (this._outfitId !== "roupinha") return;
-    const anchor = this.actor.animal.attachments?.back || this.actor.object;
-    const m = makeOutfit(); anchor.add(m); this._outfitMesh = m;
+    if (this._outfitMesh) { const o = this._outfitMesh; o.parent?.remove(o); o.traverse((x) => { x.geometry?.dispose?.(); x.material?.map?.dispose?.(); x.material?.dispose?.(); }); this._outfitMesh = null; }
+    if (this._outfitId !== "roupinha" && this._outfitId !== "bandana") return;
+    const at = this.actor.animal.attachments;
+    const anchor = (this._outfitId === "bandana" ? at?.head : at?.back) || this.actor.object;
+    const m = this._outfitId === "bandana" ? makeBandana() : makeOutfit(); anchor.add(m); this._outfitMesh = m;
   },
 
   _updateFx(dt) {
@@ -49,7 +52,7 @@ export const interactionMethods = {
     const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2((px / this._w) * 2 - 1, -(py / this._h) * 2 + 1), this.camera);
     const hit = new THREE.Vector3();
     if (!ray.ray.intersectPlane(FLOOR, hit)) return null;
-    const [x, z] = clampToRoom(hit.x, hit.z, 0.2);
+    const [x, z] = clampToWorld(hit.x, hit.z, 0.2);
     return { x, z, px, py };
   },
 
@@ -114,12 +117,13 @@ export const interactionMethods = {
     const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2((px / this._w) * 2 - 1, -(py / this._h) * 2 + 1), this.camera);
     const hit = new THREE.Vector3();
     if (!ray.ray.intersectPlane(FLOOR, hit)) return;
-    const [x, z] = clampToRoom(hit.x, hit.z, 0.25);
+    const [x, z] = clampToWorld(hit.x, hit.z, 0.25);
     for (const [id, what] of Object.entries(HOTSPOTS)) {
       const poi = POIS[id];
       if (Math.hypot(x - poi.x, z - poi.z) < 0.45) {
         if (what === "feed") return this.feed("comida");
         if (what === "drink") return this.drink();
+        if (what === "visit") return this.visit(id);
         return this.invite(id);
       }
     }
@@ -154,7 +158,7 @@ export const interactionMethods = {
     this._petActive = false; stopPurr(); hiss();
     this._emit({ type: "incomodo" });
     const gen = this._busy(), a = this.actor;
-    const [x, z] = clampToRoom(a.position.x + (this._rng() - 0.5) * 1.6, a.position.z - 0.5 - this._rng() * 0.5, 0.3);
+    const [x, z] = clampToWorld(a.position.x + (this._rng() - 0.5) * 1.6, a.position.z - 0.5 - this._rng() * 0.5, 0.3);
     a.lookAt(null); await a.moveTo(x, z, { speed: a.walkSpeed(), timeoutS: 6 });
     if (this._alive(gen)) this._resumeBrainLater(5);
   },
@@ -203,10 +207,17 @@ export const interactionMethods = {
     await this._doActivity({ poi: poiId, ativ: sleepy ? "dormir" : "esconder", duracao: sleepy ? 28 : 20 }, gen, true);
     if (this._alive(gen)) this._resumeBrainLater(3);
   },
+  async visit(poiId) { // apontou um canto do quintal
+    const h = this._hour(), fora = h >= 7 && h < 18.5 && this._wTipo !== "chuva";
+    if (!fora) return this._recusa("quintal", this._wTipo === "chuva" ? "Tá chovendo, prefiro ficar aqui dentro 😸" : "Tá escuro lá fora, amanhã a gente passeia 🌙");
+    const gen = this._busy();
+    await this._doActivity({ poi: poiId, ativ: VISITA[poiId] || "passear", duracao: 18 }, gen, true);
+    if (this._alive(gen)) this._resumeBrainLater(3);
+  },
   async eatCookie(at) { // petisco: aparece onde caiu, ele vem e come
     if (this.needs && reaction({ necessidades: this.needs }, "petisco") === "recusa") { this._emit({ type: "recusa", what: "petisco", devolve: true }); return this._recusa("petisco", "Tô cheio, guarda pra depois 😸"); }
     const gen = this._busy(), a = this.actor;
-    const cookie = makeToy("petisco"); const [x, z] = clampToRoom(at.x, at.z, 0.3); cookie.position.set(x, 0, z); this.scene.add(cookie);
+    const cookie = makeToy("petisco"); const [x, z] = clampToWorld(at.x, at.z, 0.3); cookie.position.set(x, 0, z); this.scene.add(cookie);
     await a.moveTo(x, z, { speed: a.walkSpeed(), timeoutS: 10 }); if (!this._alive(gen)) { this.scene.remove(cookie); return; }
     cookie.visible = false; a.play("eat", { duration: 3 }); chomp(); this.wait(1.1).then(chomp);
     await this.wait(3.4); this.scene.remove(cookie);
@@ -258,7 +269,7 @@ export const interactionMethods = {
   },
   tapToy(kind) { // toque (sem arrastar) na bandeja: joga o brinquedo perto dele
     const pos = this.actor.position, ang = this._rng() * Math.PI * 2;
-    const [x, z] = clampToRoom(pos.x + Math.sin(ang) * 0.9, pos.z + Math.cos(ang) * 0.9 + 0.3, 0.3);
+    const [x, z] = clampToWorld(pos.x + Math.sin(ang) * 0.9, pos.z + Math.cos(ang) * 0.9 + 0.3, 0.3);
     this._dragS = []; this._dropAt(kind, x, z);
   },
   _dropAt(kind, x, z) { // solta direto em coordenadas de mundo
@@ -269,14 +280,15 @@ export const interactionMethods = {
   },
 
   _updateToys(dt) {
-    const mx = ROOM.w / 2 - 0.12, mz = ROOM.d / 2 - 0.12;
     for (let i = this._toys.length - 1; i >= 0; i--) {
       const t = this._toys[i]; t.ttl -= dt;
+      const fora = t.x > ROOM.w / 2; // brinquedo no quintal usa os limites do quintal
+      const lx = fora ? YARD.x0 + 0.1 : -(ROOM.w / 2 - 0.12), hx = fora ? YARD.x1 - 0.2 : ROOM.w / 2 - 0.12, lz = fora ? YARD.z0 + 0.2 : -(ROOM.d / 2 - 0.12), hz = fora ? YARD.z1 - 0.2 : ROOM.d / 2 - 0.12;
       if (t.ttl <= 0) { this.scene.remove(t.mesh); this._toys.splice(i, 1); continue; }
       if (t.vx || t.vz) {
         t.x += t.vx * dt; t.z += t.vz * dt;
-        if (Math.abs(t.x) > mx) { t.x = Math.sign(t.x) * mx; t.vx *= -0.6; pop(); }
-        if (t.z > mz || t.z < -mz) { t.z = Math.sign(t.z) * mz; t.vz *= -0.6; pop(); }
+        if (t.x < lx || t.x > hx) { t.x = Math.min(hx, Math.max(lx, t.x)); t.vx *= -0.6; pop(); }
+        if (t.z < lz || t.z > hz) { t.z = Math.min(hz, Math.max(lz, t.z)); t.vz *= -0.6; pop(); }
         const k = Math.exp(-1.7 * dt); t.vx *= k; t.vz *= k;
         if (Math.hypot(t.vx, t.vz) < 0.04) t.vx = t.vz = 0;
         t.mesh.rotation.z -= t.vx * dt * 20; t.mesh.rotation.x += t.vz * dt * 20;
@@ -296,7 +308,7 @@ export const interactionMethods = {
       a.lookAt(tgt); a.play(i % 2 ? "attack" : "jump", { target: tgt }); pop(); this._vib(15);
       await this.wait(0.35); if (!this._alive(gen)) return;
       if (toy.kind === "bolinha") { const ang = Math.atan2(toy.x - a.position.x, toy.z - a.position.z) + (this._rng() - 0.5) * 1.4; toy.vx = Math.sin(ang) * 1.7; toy.vz = Math.cos(ang) * 1.7; }
-      else { toy.x += (this._rng() - 0.5) * 0.3; toy.z += (this._rng() - 0.5) * 0.3; [toy.x, toy.z] = clampToRoom(toy.x, toy.z, 0.25); toy.mesh.position.set(toy.x, 0, toy.z); }
+      else { toy.x += (this._rng() - 0.5) * 0.3; toy.z += (this._rng() - 0.5) * 0.3; [toy.x, toy.z] = clampToWorld(toy.x, toy.z, 0.25); toy.mesh.position.set(toy.x, 0, toy.z); }
       await this.wait(0.9 + this._rng() * 0.6);
     }
     if (!this._alive(gen)) return;

@@ -1,8 +1,9 @@
 // Diário do Pedro — linha do tempo por dia, com ícone do evento, 💛 (vira afeto + memória) e copiar uma entrada.
 import { useEffect } from "react";
 
-const ICONE = { dormir: "😴", descansar_janela: "🪟", comer: "🍗", beber: "💧", limpar: "🫧", amassar: "🧶", brincar: "🏃", explorar: "🐾", arranhar: "🪵", esconder: "📦", sentar: "🐱" };
+const ICONE = { dormir: "😴", descansar_janela: "🪟", comer: "🍗", beber: "💧", limpar: "🫧", amassar: "🧶", brincar: "🏃", explorar: "🐾", arranhar: "🪵", esconder: "📦", sentar: "🐱", tomar_sol: "☀️", passear: "🌿", cacar: "🦋", cheirar: "🌸", observar_passaro: "🐦" };
 function icone(e) {
+  if (e.ev?.descoberta) return "🔍"; if (e.ev?.chuva) return "🌧️"; if (e.ev?.borboleta) return "🦋"; if (e.ev?.visita) return "🐦";
   if (e.ev?.achado) return "🎁"; if (e.ev?.passarinho) return "🐦"; if (e.ev?.sonho != null) return "💭"; if (e.ev?.derrubou) return "🫢";
   if (e.tipo === "resumo") return "📝";
   return ICONE[e.evento] || "🐾";

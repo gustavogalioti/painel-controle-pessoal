@@ -2,14 +2,17 @@
 // São Paulo, loop com pausa em aba oculta, qualidade adaptativa e gestos. Zero React aqui.
 import * as THREE from "three";
 import { buildRoom } from "./world/RoomScene.js";
-import { ROOM, POIS, clampToRoom } from "./world/pois.js";
+import { buildYard } from "./world/YardScene.js";
+import { ROOM, YARD, POIS, clampToWorld } from "./world/pois.js";
+import { weatherFor } from "./weather.js";
 import { PedroActor } from "./actor/PedroActor.js";
 import { pickNext, mulberry32 } from "./behavior/brain.js";
 import { lightingFor, saoPauloHour } from "./time.js";
 import { interactionMethods } from "./interaction.js";
-import { meow, chomp, lap } from "./audio.js";
+import { meow, chomp, lap, startRain, stopRain } from "./audio.js";
 
 const WIN_TARGET = new THREE.Vector3(-0.2, 1.3, -ROOM.d / 2);
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 // níveis de qualidade (0 = máximo). O gato é gerado/baked em `medium`; os níveis mexem no resto.
 const LEVELS = [
   { pr: 2, shadow: 2048, shadows: true,  fps: 60, lod: 0 },
@@ -18,8 +21,11 @@ const LEVELS = [
   { pr: 1, shadow: 512,  shadows: false, fps: 30, lod: 1 },
 ];
 
+const mixHex = (a, b, t) => { const c = (x, sh) => (x >> sh) & 255, m = (sh) => Math.round(c(a, sh) + (c(b, sh) - c(a, sh)) * t); return (m(16) << 16) | (m(8) << 8) | m(0); };
+
 export class PedroScene {
-  constructor({ canvas, onFrame, onStatus, hourOverride = null, debug = false, forceLevel = null, initial = null }) {
+  constructor({ canvas, onFrame, onStatus, hourOverride = null, debug = false, forceLevel = null, initial = null, weatherOverride = null }) {
+    this.weatherOverride = weatherOverride; // debug: ?pedroclima=sol|nublado|chuva|vento
     this.initial = initial; // { poi, tipo, ate }: onde o servidor diz que o Pedro está e o que ele faz agora
     this.canvas = canvas; this.onFrame = onFrame; this.onStatus = onStatus; this.hourOverride = hourOverride; this.debug = debug;
     this.reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -45,9 +51,10 @@ export class PedroScene {
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.05, 40);
 
     this.room = buildRoom(); scene.add(this.room);
+    this.yard = buildYard(); scene.add(this.yard);
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x886644, 1); scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xffffff, 2); this.sun.castShadow = true; scene.add(this.sun, this.sun.target);
-    const sc = this.sun.shadow.camera; sc.left = -3; sc.right = 3; sc.top = 3; sc.bottom = -3; sc.near = 0.5; sc.far = 14; this.sun.shadow.bias = -0.0006; this.sun.shadow.normalBias = 0.02;
+    const sc = this.sun.shadow.camera; sc.left = -3.3; sc.right = 7.3; sc.top = 3.3; sc.bottom = -3.3; sc.near = 0.5; sc.far = 14; this.sun.shadow.bias = -0.0006; this.sun.shadow.normalBias = 0.02;
     this._applyLevel(); this._applyLighting(true);
     this._initFx();
 
@@ -79,6 +86,7 @@ export class PedroScene {
     this._tickWaiters(dt);
     this.actor.update(dt);
     this._updateFx(dt);
+    this.yard.userData.update(dt, { reduced: this.reduced });
     this._updateCamera(dt);
     this._lightT += dt; if (this._lightT > 30) this._applyLighting(false);
     this.renderer.render(this.scene, this.camera);
@@ -103,21 +111,29 @@ export class PedroScene {
   }
 
   _hour() { return this.hourOverride ?? saoPauloHour(new Date()); }
+  _weather() { return this.weatherOverride ? { tipo: this.weatherOverride, forca: 0.7 } : weatherFor(Date.now()); }
 
   _applyLighting() {
     this._lightT = 0;
     const L = lightingFor(this._hour());
+    // clima do mundinho (sem API): nublado/chuva escurecem e deixam o céu cinza; vento só balança as coisas
+    const w = this._weather(), wf = { sol: { sun: 1, hemi: 1, g: 0 }, vento: { sun: 0.95, hemi: 1, g: 0.1 }, nublado: { sun: 0.45, hemi: 0.95, g: 0.55 }, chuva: { sun: 0.15, hemi: 0.8, g: 0.8 } }[w.tipo];
+    const lum0 = (((L.sky >> 16) & 255) + ((L.sky >> 8) & 255) + (L.sky & 255)) / 3, gr = Math.round(lum0 * (w.tipo === "chuva" ? 0.7 : 0.9));
+    L.sky = mixHex(L.sky, (gr << 16) | (gr << 8) | Math.min(255, gr + 8), wf.g);
+    this.yard.userData.setWeather(w); this._wTipo = w.tipo;
+    if (w.tipo === "chuva") startRain(); else stopRain();
     this.scene.background.setHex(L.sky);
     this.room.userData.outside.material.color.setHex(L.sky).multiplyScalar(0.82);
     const luma = (((L.sky >> 16) & 255) + ((L.sky >> 8) & 255) + (L.sky & 255)) / 3;
     this.room.userData.treeMat.color.setHex(0x5f8f4e).multiplyScalar(0.2 + 0.8 * Math.min(1, luma / 170));
-    this.hemi.color.setHex(L.hemiSky); this.hemi.groundColor.setHex(L.hemiGround); this.hemi.intensity = L.hemiIntensity;
+    this.hemi.color.setHex(L.hemiSky); this.hemi.groundColor.setHex(L.hemiGround); this.hemi.intensity = L.hemiIntensity * wf.hemi;
     // sol entra pela janela dos fundos: azimute -90..90 (esq/dir), elevação em graus
     const az = THREE.MathUtils.degToRad(L.sunAzimuth), el = THREE.MathUtils.degToRad(Math.max(6, L.sunElevation));
     const dist = 9;
-    this.sun.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, -Math.cos(az) * Math.cos(el) * dist);
-    this.sun.target.position.set(0, 0, 0);
-    this.sun.color.setHex(L.sun); this.sun.intensity = L.sunIntensity; this.sun.visible = L.sunIntensity > 0.02;
+    const tx = 2; // centro do mundo (sala + quintal)
+    this.sun.position.set(tx + Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, -Math.cos(az) * Math.cos(el) * dist);
+    this.sun.target.position.set(tx, 0, 0);
+    this.sun.color.setHex(L.sun); this.sun.intensity = L.sunIntensity * wf.sun; this.sun.visible = this.sun.intensity > 0.02;
     this.renderer.toneMappingExposure = L.exposure;
     this.room.userData.lampLight.intensity = L.lamp * 11;
     this.room.userData.lampShade.material.emissiveIntensity = L.lamp * 1.4;
@@ -145,11 +161,14 @@ export class PedroScene {
   _updateCamera(dt) {
     const k = 1 - Math.exp(-dt * (this.reduced ? 8 : 3));
     const target = this.actor.position.clone(); target.y += 0.26;
-    [target.x, target.z] = clampToRoom(target.x, target.z, 0.05);
+    [target.x, target.z] = clampToWorld(target.x, target.z, 0.05);
     this._look.lerp(target, k);
     const dist = 1.2 * this._zoom * this._zb;
     const x = this._look.x + Math.sin(this._orbit) * dist, z = this._look.z + Math.cos(this._orbit) * dist;
-    this.camera.position.set(Math.min(ROOM.w / 2 - 0.2, Math.max(-ROOM.w / 2 + 0.2, x)), 0.42 + 0.1 * this._zoom, Math.min(ROOM.d / 2 + 1.1, z));
+    // a câmera não pode ficar do lado de fora da parede direita enquanto o gato está na sala: o limite desliza suavemente
+    const fora = this._look.x > ROOM.w / 2 + 0.15 ? 1 : 0, alvoMax = fora ? YARD.x1 - 0.25 : ROOM.w / 2 - 0.2;
+    this._camMaxX = (this._camMaxX ?? ROOM.w / 2 - 0.2) + (alvoMax - (this._camMaxX ?? ROOM.w / 2 - 0.2)) * k;
+    this.camera.position.set(Math.min(this._camMaxX, Math.max(-ROOM.w / 2 + 0.2, x)), 0.42 + 0.1 * this._zoom, Math.min((fora ? YARD.z1 : ROOM.d / 2) + 1.1, z));
     this.camera.lookAt(this._look);
     if (Math.abs(this._inset - this._insetTarget) > 0.5) { this._inset += (this._insetTarget - this._inset) * k; this._updateViewOffset(); }
   }
@@ -176,10 +195,10 @@ export class PedroScene {
       if (this.initial) { // 1ª atividade = a que o servidor diz que ele está fazendo agora (consistência ao abrir o app)
         const i = this.initial; this.initial = null;
         const restanteMin = Math.max(0, (Date.parse(i.ate) - Date.now()) / 60000);
-        next = POIS[i.poi] && ["dormir", "descansar_janela", "esconder", "limpar", "amassar", "sentar", "comer", "beber", "brincar", "explorar", "arranhar"].includes(i.tipo)
+        next = POIS[i.poi] && ["dormir", "descansar_janela", "esconder", "limpar", "amassar", "sentar", "comer", "beber", "brincar", "explorar", "arranhar", "tomar_sol", "passear", "cacar", "cheirar", "observar_passaro"].includes(i.tipo)
           ? { poi: i.poi, ativ: i.tipo, duracao: Math.min(70, Math.max(12, restanteMin * 0.7)) } : null;
       }
-      if (!next) next = pickNext({ hour: this._hour(), last, rng: this._rng, needs: this.needs });
+      if (!next) next = pickNext({ hour: this._hour(), last, rng: this._rng, needs: this.needs, clima: this._wTipo });
       last = next;
       try { await this._doActivity(next, gen); } catch (e) { console.warn("Pedro brain:", e); await this.wait(2); }
     }
@@ -197,6 +216,25 @@ export class PedroScene {
     const hold = async (s) => { await this.wait(s); };
     const idleBlinks = async (total) => { let t = 0; while (t < total && this._alive(gen)) { const s = 5 + this._rng() * 6; await this.wait(Math.min(s, total - t)); t += s; if (this._alive(gen) && t < total) a.play("slowblink"); } };
     switch (ativ) {
+      case "tomar_sol": a.play("loaf"); await idleBlinks(duracao); break;
+      case "passear": {
+        for (let i = 0; i < 3 && this._alive(gen); i++) {
+          const [tx, tz] = clampToWorld(poi.x + (this._rng() - 0.5) * 2.2, poi.z + (this._rng() - 0.5) * 2.2, 0.3);
+          await a.moveTo(tx, tz, { speed: a.walkSpeed(), timeoutS: 10 }); if (!this._alive(gen)) return;
+          a.play("sit"); a.lookAt(V3(tx + (this._rng() - 0.5), 0.15, tz + (this._rng() - 0.5))); await hold(1.4); a.lookAt(null);
+        }
+        break;
+      }
+      case "cacar": {
+        for (let i = 0; i < 3 && this._alive(gen); i++) {
+          const bs = this.yard.userData.butterflyPositions(); const b = bs[(i + (this._rng() * 3 | 0)) % bs.length];
+          a.play("stalk"); await a.moveTo(b.x, b.z, { speed: a.runSpeed(), timeoutS: 6 }); if (!this._alive(gen)) return;
+          a.play("jump", { target: V3(b.x, 0.5, b.z) }); await hold(1.3);
+        }
+        break;
+      }
+      case "cheirar": a.play("sit"); a.lookAt(V3(poi.x, 0.12, poi.z - 0.3)); await idleBlinks(duracao); a.lookAt(null); break;
+      case "observar_passaro": a.play("sit"); a.lookAt(this.yard.userData.feederTop); await idleBlinks(duracao); a.lookAt(null); break;
       case "dormir": a.play("sleep", { side: this._rng() > 0.5 ? 1 : -1 }); await hold(duracao); break;
       case "esconder": a.play("loaf"); await hold(duracao); break;
       case "descansar_janela": a.play("sit"); a.lookAt(WIN_TARGET); await idleBlinks(duracao); a.lookAt(null); break;
@@ -207,7 +245,7 @@ export class PedroScene {
       case "arranhar": for (let i = 0; i < 3 && this._alive(gen); i++) { a.play("attack", { target: new THREE.Vector3(poi.x + 0.28, 0.4, poi.z) }); await hold(1.6); } break;
       case "brincar": {
         for (let i = 0; i < 3 && this._alive(gen); i++) {
-          const [tx, tz] = clampToRoom((this._rng() - 0.5) * 2.2, (this._rng() - 0.5) * 2.2, 0.4);
+          const [tx, tz] = clampToWorld((this._rng() - 0.5) * 2.2, (this._rng() - 0.5) * 2.2, 0.4);
           a.play("stalk"); await a.moveTo(tx, tz, { speed: a.runSpeed(), timeoutS: 8 }); if (!this._alive(gen)) return;
           a.play("jump", { target: new THREE.Vector3(tx + 0.2, 0, tz) }); await hold(1.2);
         }
@@ -218,7 +256,7 @@ export class PedroScene {
     if (this._alive(gen)) {
       a.stopAction();
       // necessidades atendidas pelo próprio Pedro (ou por um toque) viram eventos de cuidado
-      const ev = { comer: { type: "refeicao", kind }, beber: { type: "bebeu" }, dormir: duracao >= 20 ? { type: "dormiu" } : null, limpar: { type: "limpou" }, brincar: { type: "brincou", toy: "zoomies" } }[ativ];
+      const ev = { cacar: { type: "brincou", toy: "borboleta" }, passear: { type: "passeou" }, cheirar: { type: "passeou" }, observar_passaro: { type: "passeou" }, comer: { type: "refeicao", kind }, beber: { type: "bebeu" }, dormir: duracao >= 20 ? { type: "dormiu" } : null, limpar: { type: "limpou" }, brincar: { type: "brincou", toy: "zoomies" } }[ativ];
       if (ev) this._emit({ ...ev, auto: !manual });
       if (ativ === "comer" || ativ === "beber") this.hearts.spawn(this._head(), 1);
     }
@@ -263,7 +301,7 @@ export class PedroScene {
   dispose() {
     this._disposed = true; this._gen++; this.stop();
     document.removeEventListener("visibilitychange", this._visHandler);
-    this._unbind?.(); this._disposeFx(); this._waiters.splice(0).forEach((w) => w.res(false));
+    this._unbind?.(); this._disposeFx(); stopRain(); this._waiters.splice(0).forEach((w) => w.res(false));
     this.actor?.dispose();
     this.scene?.traverse((o) => { o.geometry?.dispose?.(); const m = o.material; (Array.isArray(m) ? m : m ? [m] : []).forEach((x) => { x.map?.dispose?.(); x.dispose?.(); }); });
     this.renderer?.dispose();
