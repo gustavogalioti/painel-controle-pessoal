@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import DailyCenter from "./DailyCenter.jsx";
 import { PEDRO_ATIVO } from "./pedro-standby.js";
@@ -7987,6 +7987,7 @@ const DASH_CARD_DEFS = [
   { id:"infos",      nav:"infos",     defC:1, defR:1 },
   { id:"jarbas",     nav:"jarbas",    defC:1, defR:1 },
   { id:"saude",      nav:"saude",     defC:1, defR:1 },
+  ...(PEDRO_ATIVO ? [{ id:"pedro", nav:"pedro", defC:1, defR:1 }] : []), // tile só com o Pedro ativo
   { id:"panorama",   nav:null, href:PANORAMA_URL, defC:1, defR:1 },
   { id:"tp450",      nav:null, href:"/tanca-print-tp450.html", open:"tp450", defC:1, defR:1 },
 ];
@@ -8017,7 +8018,7 @@ const DASH_COMPONENTS = {
   diario: DiarioCard, tarefas: TarefasCard, rascunhos: RascunhosCard,
   listas: ListasCard, documentos: DocumentosCard, agenda: AgendaCard, contas: ContasCard,
   tempo: TempoCard,
-  infos: InfosCard, jarbas: JarbasCard, saude: SaudeCard, panorama: PanoramaCard, tp450: TP450Card,
+  infos: InfosCard, jarbas: JarbasCard, saude: SaudeCard, pedro: PedroCard, panorama: PanoramaCard, tp450: TP450Card,
 };
 
 const DESKTOP_BREAKPOINT = 1200; // matches the .dash-grid CSS breakpoint
@@ -9613,35 +9614,13 @@ function PedroAdminModal({ onClose }) {
   );
 }
 
-function PedroWidget() {
-  const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useKV("pedro_chat_v1", []);
-  const [input, setInput] = useState("");
-  const [thinking, setThinking] = useState(false);
-  const [unread, setUnread] = useState(false);
-  // Qual "cérebro" respondeu a última mensagem — groq, openai (reserva) ou fallback
-  // (quando os dois LLMs falharam) — só pra dar visibilidade discreta do modo reduzido.
-  const [lastEngine, setLastEngine] = useState(null);
-  const [lastFallbackMotivo, setLastFallbackMotivo] = useState(null);
+// Cena 3D do Pedro (three.js + gato procedural): carregada só quando a tela do Pedro abre.
+const PedroScreen = lazy(() => import("./pedro/PedroScreen.jsx"));
+
+// Tela própria do Pedro ("Pedro" na Home). Sem botão flutuante nas outras telas: ele só vive aqui dentro.
+function PedroPage({ onBack }) {
   const [adminOpen, setAdminOpen] = useState(false);
   const [notifPerm, setNotifPerm] = useState(() => (typeof Notification !== "undefined" ? Notification.permission : "unsupported"));
-  const scrollRef = useRef(null);
-
-  const notifyOS = async (text) => {
-    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-    const opts = { body: text, icon: "/pedro-avatar.jpg", badge: "/pedro-avatar.jpg", tag: `pedro-${Date.now()}` };
-    try {
-      // No Chrome/Android, com Service Worker ativo, a notificação PRECISA passar por ele —
-      // "new Notification()" direto falha silenciosamente nesse cenário.
-      if ("serviceWorker" in navigator) {
-        const reg = await navigator.serviceWorker.ready;
-        if (reg && reg.showNotification) { await reg.showNotification("Pedro 🐾", opts); return; }
-      }
-      new Notification("Pedro 🐾", opts);
-    } catch (e) {
-      try { new Notification("Pedro 🐾", opts); } catch {}
-    }
-  };
 
   const subscribePush = async () => {
     try {
@@ -9675,97 +9654,26 @@ function PedroWidget() {
     if (perm === "granted") subscribePush();
   };
 
-  const pushPedro = (text) => {
-    setMessages(prev => [...prev, { from: "pedro", text, at: Date.now() }].slice(-60));
-    setUnread(true);
-    notifyOS(text);
-  };
-
-  useEffect(() => {
-    if (open) {
-      setUnread(false);
-      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-    }
-  }, [open, messages]);
-
-  const send = async () => {
-    const text = input.trim();
-    if (!text) return;
-    const historyForRequest = messages.slice(-12).map(m => ({ from: m.from, text: m.text, at: m.at }));
-    setMessages(prev => [...prev, { from: "user", text, at: Date.now() }]);
-    setInput("");
-    setThinking(true);
-    try {
-      const r = await fetch("/api/pedro?action=chat", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, history: historyForRequest }),
-      });
-      const d = await r.json();
-      setLastEngine(d.engine || null);
-      setLastFallbackMotivo(d.fallbackMotivo || null);
-      pushPedro(d.reply || "🐾");
-    } catch {
-      pushPedro("Escorreguei em algum lugar por aqui... tenta de novo? 😹");
-    }
-    setThinking(false);
-  };
-
-  return createPortal(
+  return (
     <>
-      <button onClick={() => setOpen(o => !o)} title="Falar com o Pedro"
-        style={{position:"fixed",right:20,bottom:20,width:56,height:56,borderRadius:"50%",background:"var(--accent)",
-          border:"none",boxShadow:"0 4px 16px rgba(0,0,0,0.35)",cursor:"pointer",zIndex:1200,
-          display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:0}}>
-        <img src="/pedro-avatar.jpg" alt="Pedro" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-        {unread && !open && <span style={{position:"absolute",top:2,right:2,width:12,height:12,borderRadius:"50%",background:"#ff4d4f",border:"2px solid var(--bg-card)"}}/>}
-      </button>
-      {open && (
-        <div style={{position:"fixed",right:20,bottom:86,width:320,maxWidth:"calc(100vw - 40px)",height:420,
-          maxHeight:"calc(100vh - 140px)",background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:16,
-          boxShadow:"0 8px 32px rgba(0,0,0,0.4)",zIndex:1200,display:"flex",flexDirection:"column",overflow:"hidden",animation:"fadeIn .2s ease"}}>
-          <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-            <span style={{fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:8}}>
-              <img src="/pedro-avatar.jpg" alt="Pedro" style={{width:22,height:22,borderRadius:"50%",objectFit:"cover"}}/>
-              Pedro
-              {lastEngine && (() => {
-                const info = {
-                  groq: { color: "#3ecf6e", label: "groq" },
-                  openai: { color: "#4da3ff", label: "openai (reserva)" },
-                  fallback: { color: "#f5a623", label: "modo simples" },
-                }[lastEngine] || { color: "var(--text-3)", label: lastEngine };
-                const title = `cérebro: ${info.label}` + (lastFallbackMotivo ? ` — groq/openai falharam (${lastFallbackMotivo})` : "");
-                return <span title={title} style={{width:7,height:7,borderRadius:"50%",background:info.color,flexShrink:0,cursor:"default"}}/>;
-              })()}
-            </span>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              {notifPerm === "default" && (
-                <button onClick={requestNotifPerm} title="Ativar notificações do Pedro fora do app" style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",fontSize:15,lineHeight:1}}>🔔</button>
-              )}
-              <button onClick={() => setAdminOpen(true)} title="Memória do Pedro" style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",fontSize:15,lineHeight:1}}>⚙️</button>
-              <button onClick={() => setOpen(false)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.x} size={18}/></button>
-            </div>
-          </div>
-          <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
-            {messages.length === 0 && <div style={{color:"var(--text-3)",fontSize:12,textAlign:"center",marginTop:20,lineHeight:1.6}}>Oi! Eu sou o Pedro 🐾<br/>Vem conversar comigo, me conta como foi seu dia!</div>}
-            {messages.map((m, i) => (
-              <div key={i} style={{alignSelf: m.from === "pedro" ? "flex-start" : "flex-end",
-                background: m.from === "pedro" ? "var(--bg-sub)" : "var(--accent)",
-                color: m.from === "pedro" ? "var(--text-1)" : "#fff",
-                borderRadius:12,padding:"8px 12px",fontSize:13,maxWidth:"85%",whiteSpace:"pre-wrap"}}>
-                {m.text}
-              </div>
-            ))}
-            {thinking && <div style={{alignSelf:"flex-start",color:"var(--text-3)",fontSize:12}}>Pedro está digitando...</div>}
-          </div>
-          <div style={{padding:10,borderTop:"1px solid var(--border)",display:"flex",gap:8,flexShrink:0}}>
-            <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") send(); }}
-              placeholder="Fala com o Pedro..." style={{...inp, fontSize:13, padding:"8px 12px"}}/>
-            <button onClick={send} style={btn()}><Icon path={I.next} size={16}/></button>
-          </div>
-        </div>
-      )}
-      {adminOpen && <PedroAdminModal onClose={() => setAdminOpen(false)}/>}
-    </>,
-    document.body
+      <Suspense fallback={<div style={{position:"fixed",inset:0,zIndex:1500,background:"#f3e3c8",color:"#4a3524",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>Acordando o Pedro… 🐾</div>}>
+        <PedroScreen useKV={useKV} onBack={onBack} onOpenAdmin={() => setAdminOpen(true)} notifPerm={notifPerm} onEnableNotif={requestNotifPerm}/>
+      </Suspense>
+      {adminOpen && <div style={{position:"relative",zIndex:1600}}><PedroAdminModal onClose={() => setAdminOpen(false)}/></div>}
+    </>
+  );
+}
+
+// Tile "Pedro" da Home (só aparece com o Pedro ativo — ver src/pedro-standby.js).
+function PedroCard({ onClick }) {
+  return (
+    <div onClick={onClick} style={{...homeCardStyle("#7a4a22"), height:"100%"}}>
+      <CardHeader icon={null} label="Pedro"/>
+      <div style={{display:"flex",justifyContent:"center",margin:"4px 0 14px"}}>
+        <img src="/pedro-avatar.jpg" alt="Pedro" width={64} height={64} style={{borderRadius:"50%",objectFit:"cover",boxShadow:"0 2px 10px rgba(0,0,0,0.35)"}}/>
+      </div>
+      <div style={{fontSize:13,color:"rgba(255,255,255,0.9)",textAlign:"center"}}>Vem ver o que o Pedro tá fazendo 🐾</div>
+    </div>
   );
 }
 
@@ -10025,6 +9933,7 @@ function AppContent() {
       case "projects":   return <ProjectsPage/>;
       case "jarbas":     return <JarbasPage/>;
       case "saude":      return <SaudePage/>;
+      case "pedro":      return null; // a tela do Pedro é um overlay em tela cheia (PedroPage)
       default:           return <HomePage onNavigate={setPage}/>;
     }
   };
@@ -10149,7 +10058,7 @@ function AppContent() {
         <span style={{fontSize:10,color:"var(--border)"}}>{new Date().toLocaleDateString("pt-BR")}</span>
       </footer>
 
-      {PEDRO_ATIVO && <PedroWidget/>}
+      {PEDRO_ATIVO && page==="pedro" && <PedroPage onBack={()=>setPage("home")}/>}
       <JarbasCommandBar/>
     </div>
   );
