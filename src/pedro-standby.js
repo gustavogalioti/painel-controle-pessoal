@@ -1,9 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Interruptor único do Pedro (front) — ver docs/PEDRO-STANDBY.md pra reativar.
-// Em stand by (valor atual: false): PedroWidget/PedroAdminModal não são
-// montados, nenhum efeito do Pedro roda (sem useKV de pedro_chat_v1/
-// pedro_state_v1, sem timers, sem pedir permissão de notificação, sem
-// push_subscribe, sem fetch pra /api/pedro) e pedroNotify vira um no-op.
+// ATIVO (valor atual: true): o tile "Pedro" aparece na Home e a tela do Pedro monta.
+// Para voltar ao STAND BY (kill-switch): troque pra false e rode o build — nada do
+// Pedro monta, nenhum fetch pra /api/pedro, nenhum push local. (No servidor, tire
+// a env PEDRO_ATIVO ou troque o valor: o handler e o cron respondem 'standby'.)
 //
 // Esse projeto não usa variáveis de ambiente do Vite (nenhum import.meta.env
 // em nenhum outro arquivo do src/) — por isso o interruptor aqui é uma
@@ -15,4 +15,4 @@
 //      api/_pedro-standby.js) — sem isso o servidor continua em stand by
 //      mesmo com o front achando que está ativo.
 //   3. Resuma (unpause) o cron job no cron-job.org.
-export const PEDRO_ATIVO = false;
+export const PEDRO_ATIVO = true;
