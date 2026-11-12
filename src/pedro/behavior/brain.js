@@ -31,8 +31,21 @@ const DURACAO = {
   brincar: [10, 22], explorar: [6, 12], arranhar: [5, 9], esconder: [20, 50], sentar: [8, 18],
 };
 
-export function pickNext({ hour, last = null, rng = Math.random }) {
-  const w = activityWeights(hour);
+// As necessidades (0..100, 100 = satisfeito) puxam o comportamento: com fome ele vai comer, cansado dorme,
+// entediado brinca, sujo se limpa. Só pesos — o gato continua sendo gato (e nada aqui é "urgente").
+export function needsBoost(w, n) {
+  if (!n) return w;
+  const f = (v, lim, k) => (v < lim ? 1 + ((lim - v) / lim) * k : 1);
+  return {
+    ...w,
+    comer: w.comer * f(n.fome, 55, 5), beber: w.beber * f(n.sede, 55, 5),
+    dormir: w.dormir * f(n.energia, 45, 4), brincar: w.brincar * f(n.diversao, 50, 3.5) * (n.energia < 25 ? 0.3 : 1),
+    limpar: w.limpar * f(n.higiene, 50, 4), esconder: w.esconder * f(n.energia, 45, 2),
+  };
+}
+
+export function pickNext({ hour, last = null, rng = Math.random, needs = null }) {
+  const w = needsBoost(activityWeights(hour), needs);
   const options = [];
   for (const poi of Object.values(POIS)) {
     for (const ativ of poi.ativ) {

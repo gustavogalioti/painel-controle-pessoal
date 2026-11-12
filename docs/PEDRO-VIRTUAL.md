@@ -4,7 +4,7 @@ Evolução do Pedro IA: de "assistente do painel" para **bichinho virtual** (o g
 Gustavo). Spec completa: `PEDRO-VIRTUAL-SPEC.md` (fora do repositório, enviada pelo
 Gustavo). Este arquivo registra o que já foi feito e como operar.
 
-## Estado atual: Fase 2 (cena 3D) pronta — Pedro continua em STAND BY
+## Estado atual: Fase 3 (interação e cuidados) pronta — Pedro continua em STAND BY
 
 > Decisões do Gustavo: **sem botão flutuante** (o Pedro só vive dentro da tela própria, nunca nas outras
 > telas do painel) e o tile se chama **"Pedro"**.
@@ -122,7 +122,52 @@ O tile só aparece com `PEDRO_ATIVO = true` (`src/pedro-standby.js`) e o servido
 prévia **só visual** (sem chat), troque a constante do front localmente: o chat dependeria da env no servidor.
 Parâmetros úteis na URL: `?pedrohora=21` (força a hora do dia), `?pedrodebug`, `?pedronivel=2`.
 
+---
+
+## Fase 3 — interação e cuidados
+
+### Gestos (toque primeiro; mouse equivale)
+| Gesto | Reação |
+|---|---|
+| Tocar no Pedro | "Oi": olha pra você, miado e piscada lenta (vibra de leve) |
+| Arrastar **devagar** sobre ele | **Carinho**: ele senta, ronrona (som + vibração), sobem corações; com afeto ≥ 45 e > 5 s, "amassa pãozinho" |
+| Arrastar **rápido/bagunçado** | **Incomoda**: bufa e se afasta (nunca pune, só reage) |
+| **Segurar** (0,6 s) | **Colo**: câmera se aproxima, ele relaxa e ronrona — ou se debate e sai correndo se estiver cheio de energia e entediado |
+| Tocar no chão | Ele olha e, se perto, vem |
+| Tocar na **tigela de comida / água** | Vai, come/bebe (com som). Se não precisa, **recusa** ("Tô sem fome agora 😸") |
+| Tocar em **caixa, mala, caminha, poltrona, papéis** | Convite: com sono ou curiosidade, entra e se acomoda |
+| **Bandeja** 🎾🐭🪶🍗🍪: arrastar pra dentro da sala | Bolinha: arremesso (rola, quica nas paredes) e ele caça e pula. Ratinho: ele espreita e dá o bote. **Pena**: ele segue a ponta e ataca enquanto você arrasta. Comida: vai à tigela. Petisco: aparece onde caiu e ele come. Um **toque** (sem arrastar) joga o brinquedo perto dele |
+| Chamar pelo nome no chat | (Fase 2) vem até a câmera |
+
+Feedback sempre: som, vibração (`navigator.vibrate`, desligável na lojinha), corações. Reduced-motion: menos partículas e animação de "+1" estática.
+
+### Estado, necessidades e biscoitos (`pedro_pet_v1`)
+- `src/pedro/pet-state.js` (puro, testado): `necessidades` 0–100 onde **100 = satisfeito** (fome, sede, energia, diversão, afeto, higiene), humor derivado
+  (`feliz|calmo|brincalhao|sonolento|manhoso|curioso`), decaimento por hora (com **catch-up** ao abrir, teto de 48 h), eventos de cuidado e loja.
+- **Cuidado sem culpa:** piso de 8 — nada vai a zero; baixa necessidade deixa o Pedro manhoso/dorminhoco, **nunca** doente ou em risco; sem game over.
+- Necessidades **mudam o comportamento** (brain): com fome ele vai comer, cansado dorme, entediado brinca, sujo se limpa. O que ele faz **sozinho**
+  também atende as necessidades (mas não rende biscoito).
+- **Biscoitos 🍪 (moedas):** carinho ≥ 3 s (+1), refeição (+2), beber (+1), brincar (+2) — só quando a necessidade estava < 85 (anti-farm).
+- O chat do servidor **já lê** `necessidades`/`humor` do `pedro_pet_v1`: o Pedro fala conforme o estado.
+- Barras discretas no topo + contador de biscoitos; alvos de toque ≥ 44 px.
+
+### Lojinha (decisão em aberto nº 5 da spec — proposta inicial, fácil de mudar em `CATALOGO`)
+- **Pijama de biscoito de gengibre** (azul-marinho com biscoitinhos e bengalas): 🍪 25, vestir/tirar. É um casaquinho 3D preso ao tronco do gato.
+- **Petisco**: 🍪 3 cada (consumível; recusa se a barriga está cheia e devolve).
+- Bolinha, ratinho e pena são grátis e ilimitados.
+
+### Sons (decisão nº 2): síntese procedural com WebAudio, 100 % original
+Miado (glissando + formante), ronronar (ruído filtrado modulado a 24 Hz), mastigar, lamber água, pulo da bolinha, tilintar de biscoito, bufada.
+O áudio só liga após o primeiro gesto; botão 🔊/🔇 no topo. Nenhum som de jogo.
+
+### Testes e verificação
+- `src/pedro-state.test.mjs`: normalização (preserva campos do servidor), decaimento/piso/catch-up, humor, eventos e biscoitos (incl. anti-farm), recusas, loja, necessidades puxando o comportamento.
+- Em Chromium headless (renderização por software): carinho (+24 afeto, +1 🍪), incômodo, arrasto real da bolinha da bandeja (+diversão, +2 🍪), comida (fome 30→82, +2 🍪), compra e uso do pijama, colo (zoom), corações e a tela noturna/diurna conferidos por screenshot. Corrigido no caminho: loop de render infinito por setter instável do `useKV`.
+- **Não verificado em aparelho real:** toque/gestos em tela de verdade (a latência do headless atrapalhou o "segurar" de 0,6 s), vibração, **áudio audível** (sintetizado, mas ninguém ouviu) e os 30 fps.
+
+### Limitações conhecidas
+- O front grava `pedro_pet_v1` de tempos em tempos; se o servidor semear as manias *depois* de o front carregar o estado, a flag `seeds` pode ser sobrescrita uma vez (efeito: uma mania apagada pode reaparecer). Será resolvido na Fase 4, quando o servidor passa a ser dono do estado.
+- Brinquedos e colisões são simples (sem física entre móveis; o gato atravessa móveis baixos). Convites e passeios usam rotas retas entre POIs.
+
 ### Fica para as próximas fases
-Fase 3: gestos de cuidado (carinho, colo, bolinha/brinquedos, comida e água pelo toque, sons, partículas, haptics,
-inventário/biscoitos, roupinha de biscoito de gengibre, barras de necessidades). Fase 4: `advancePet`, vida fora do
-app, diário e pushes. Fase 5: quintal.
+Fase 4: `advancePet` no servidor (vida com o app fechado), Diário e pushes com orçamento/silêncio. Fase 5: quintal/varanda, passeio, descobertas.

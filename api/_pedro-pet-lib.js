@@ -155,7 +155,7 @@ function estadoBlock(petState) {
   if (e.humor) partes.push(`humor: ${e.humor}`);
   if (e.atividade?.tipo) partes.push(`fazendo: ${e.atividade.tipo}`);
   if (e.local?.poi) partes.push(`onde está: ${e.local.poi}`);
-  if (e.necessidades) partes.push(`necessidades (0-100): ${Object.entries(e.necessidades).map(([k, v]) => `${k} ${v}`).join(", ")}`);
+  if (e.necessidades) partes.push(`necessidades (0-100, onde 100 = satisfeito e valores baixos = ele está pedindo atenção, nunca algo grave): ${Object.entries(e.necessidades).map(([k, v]) => `${k} ${v}`).join(", ")}`);
   return partes.length ? `\n\nSeu estado agora (reaja a ele naturalmente, sem recitar números): ${partes.join("; ")}.` : "";
 }
 
