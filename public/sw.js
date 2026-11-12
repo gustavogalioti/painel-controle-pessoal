@@ -1,4 +1,4 @@
-// Service Worker do Painel — hoje usado só pra receber push notifications do Pedro.
+// Service Worker do Painel — hoje usado só pra receber push notifications do Pedro (o gato virtual).
 self.addEventListener("install", () => { self.skipWaiting(); });
 self.addEventListener("activate", (event) => { event.waitUntil(self.clients.claim()); });
 

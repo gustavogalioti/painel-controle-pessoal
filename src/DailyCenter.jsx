@@ -1462,7 +1462,7 @@ function Picker({ c, onClose }) {
 const TABS = [["day", "Meu Dia"], ["doing", "Em Andamento"], ["inbox", "Caixa de Entrada"], ["upcoming", "Próximos Dias"], ["all", "Todas as Tarefas"], ["history", "Histórico"]];
 
 function DailyCenterInner({ tasks, setTasks, board, synced, sync, ui }) {
-  const { useKV, pedroNotify } = ui;
+  const { useKV } = ui;
   const [view, setView] = useState("day");
   const [today, setToday] = useState(() => L.dateStr());
   const [reviews, setReviews] = useKV("daily_reviews_v1", {});
@@ -1517,9 +1517,7 @@ function DailyCenterInner({ tasks, setTasks, board, synced, sync, ui }) {
     start: id => mutate(p => L.startTask(p, id, today)),
     complete: id => {
       const old = byId(id); if (!old || L.isDone(old)) return;
-      const others = tasksRef.current.some(x => x.id !== id && x.status === "today");
       mutate(p => L.completeTask(p, id));
-      try { pedroNotify("task_done", { text: old.text }); if (old.status === "today" && !others) pedroNotify("all_today_done", {}); } catch { /* pedro opcional */ }
       flash("Tarefa concluída.", () => mutate(p => L.restoreTask(p, old)));
     },
     reopen: id => mutate(p => L.reopenTask(p, id, today)),

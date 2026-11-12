@@ -1,7 +1,7 @@
 {
   "name": "Painel de Controle Pessoal",
   "short_name": "Painel",
-  "description": "Painel de Controle Pessoal com Pedro, o assistente IA",
+  "description": "Painel de Controle Pessoal com o Pedro, o gato virtual",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0f",

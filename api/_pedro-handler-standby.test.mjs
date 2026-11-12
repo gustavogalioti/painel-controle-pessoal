@@ -35,8 +35,8 @@ const ACTIONS = [
   { action: "chat", method: "POST", body: { message: "oi" } },
   { action: "push_subscribe", method: "POST", body: { subscription: { endpoint: "https://exemplo/sub" } } },
   { action: "push_unsubscribe", method: "POST", body: { endpoint: "https://exemplo/sub" } },
-  { action: "admin_intents", method: "GET" },
   { action: "admin_memory", method: "GET" },
+  { action: "admin_learned", method: "GET" },
 ];
 
 // ---------- stand by (padrão): toda action responde standby, sem tocar em fetch/sql ----------
@@ -62,7 +62,7 @@ console.log("pedro.js: toda action em stand by responde sem chamar fetch/sql: OK
   // importa aqui é só confirmar que NÃO foi a resposta de stand by, ou seja,
   // que o PEDRO_ATIVO=1 realmente deixa passar pro comportamento de sempre.
   globalThis.fetch = throwingFetch("smoke PEDRO_ATIVO=1");
-  const res = await handler(makeReq("admin_intents", { method: "GET" }));
+  const res = await handler(makeReq("admin_memory", { method: "GET" }));
   const data = await res.json();
   assert.equal(res.status, 500, "sem rede/DB de verdade, cai no catch original (500) — não relacionado ao stand by");
   assert.notEqual(data.standby, true, "não pode ser a resposta de stand by");

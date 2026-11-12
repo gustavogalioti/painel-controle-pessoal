@@ -4,7 +4,7 @@ import { requireSession } from "./_auth-lib.js";
 
 // Sem Access-Control-Allow-Origin liberado: só o navegador do painel (mesma
 // origem) chama o handler HTTP abaixo. getValidToken/ensureTable continuam
-// exportados e usados por import direto (_gusos-lib.js, pedro.js, pedro-cron.js,
+// exportados e usados por import direto (_gusos-lib.js,
 // jarbas.js) — isso nunca passa por aqui nem por sessão/CORS, é chamada de função.
 const CORS = {
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",

@@ -1,5 +1,11 @@
 # Pedro IA — Stand By
 
+> **Atualização (Fase 1 do Pedro Virtual):** o Pedro deixou de ser assistente do painel e
+> virou um pet — ver `docs/PEDRO-VIRTUAL.md`. O stand by continua valendo como
+> kill-switch e segue ATIVO (Pedro desligado). Algumas descrições abaixo (agenda, tarefas,
+> `pedroNotify`, timers, intents, lembretes no cron) descrevem o estado **anterior** à
+> Fase 1 e ficam aqui só como histórico.
+
 O Pedro (o assistente/gato do Painel, 100% independente do Jarbas) foi
 colocado em **stand by**: zero chamada de LLM, zero consulta ao Neon, zero
 push — mas **nada foi apagado**. Dados, tabelas, chaves, intents, memória e
