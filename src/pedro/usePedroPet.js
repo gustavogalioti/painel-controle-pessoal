@@ -50,6 +50,7 @@ export function usePedroPet() {
   const wear = useCallback((id) => { setPet(vestir(petRef.current, id)); push({ op: "vestir", item: id || null }); }, [setPet, push]);
   const spendCookie = useCallback(() => { const r = gastarPetisco(petRef.current); if (r.ok) { setPet(r.pet); push({ op: "gastar_petisco" }); } return r.ok; }, [setPet, push]);
   const refundCookie = useCallback(() => { const p = petRef.current; setPet({ ...p, inventario: { ...p.inventario, petiscos: p.inventario.petiscos + 1 } }); push({ op: "devolver_petisco" }); }, [setPet, push]);
+  const markTold = useCallback((id) => { const p = petRef.current; setPet({ ...p, contar: (p.contar || []).map((c) => (c.id === id ? { ...c, contada: true } : c)) }); push({ op: "contar_ok", id }); }, [setPet, push]);
   const config = useCallback((patch) => {
     const p = petRef.current;
     setPet({ ...p, config: { ...p.config, ...patch, push: { ...p.config.push, ...(patch.push || {}) } } });
@@ -63,5 +64,5 @@ export function usePedroPet() {
   }, [sync]);
   const loadDiary = useCallback(async () => { try { const d = await call("diary?limit=120"); if (d?.entradas) setDiario(d); } catch {} }, []);
 
-  return { pet, petRef, diario, synced, firstSync, sync, event, buy, wear, spendCookie, refundCookie, config, readDiary, react, loadDiary };
+  return { pet, petRef, diario, synced, firstSync, sync, event, buy, wear, spendCookie, refundCookie, markTold, config, readDiary, react, loadDiary };
 }

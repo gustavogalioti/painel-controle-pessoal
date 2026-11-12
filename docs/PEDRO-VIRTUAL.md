@@ -4,7 +4,7 @@ Evolução do Pedro IA: de "assistente do painel" para **bichinho virtual** (o g
 Gustavo). Spec completa: `PEDRO-VIRTUAL-SPEC.md` (fora do repositório, enviada pelo
 Gustavo). Este arquivo registra o que já foi feito e como operar.
 
-## Estado atual: Fase 4 (vida fora do app, Diário e push) pronta — Pedro continua em STAND BY
+## Estado atual: Fase 5 (quintal, passeio, clima e descobertas) pronta — Pedro continua em STAND BY
 
 > Decisões do Gustavo: **sem botão flutuante** (o Pedro só vive dentro da tela própria, nunca nas outras
 > telas do painel) e o tile se chama **"Pedro"**.
@@ -222,4 +222,46 @@ O áudio só liga após o primeiro gesto; botão 🔊/🔇 no topo. Nenhum som d
 ### Limitações conhecidas
 - O chat (`pedro_chat_v1`) ainda é escrito pelo app e, no push, pelo servidor: se os dois escreverem ao mesmo tempo (app aberto durante o push, o que a política evita), uma fala pode se perder.
 - Escritas concorrentes cron × app no `pedro_pet_v1` são "última vence" (o app só envia deltas via `pet_update`, que relê o estado; o diário usa ids estáveis, então não duplica).
-- Quintal, passeio e descobertas ao ar livre: Fase 5.
+
+---
+
+## Fase 5 — mundo ampliado: quintal, passeio, clima e descobertas
+
+### Quintal e porta (mundo contínuo)
+- Uma **porta** na parede direita da sala (batente, folha de vidro aberta, soleira) leva à **varanda (deque)** e ao **quintal**: gramado com tufos, caminho de pedras, **cerca**, **árvore** com sombra, **vasos de flores**, arbustos,
+  pedra de sol, **comedouro de passarinhos**, **borboletas** e **passarinhos** animados (pousam e voam), nuvens, chuva e vento. Tudo primitivas/texturas procedurais (`world/YardScene.js`); nenhuma dependência nova.
+- É um **mundo único** (sem tela de carregamento): o Pedro **atravessa a porta andando** (`routePoints`: se origem e destino estão em ambientes diferentes, passa pelos pontos da porta) e a câmera o acompanha.
+  Para isso, a sala ganhou a abertura, e a planta/caixa de areia mudaram de canto. Os POIs ganharam `ambiente` (`sala`/`quintal`); o estado do servidor guarda `local.ambiente`.
+- Novos POIs: `varanda`, `gramado`, `vaso`, `arvore`, `comedouro`, `pedra`, `cerca`. Novas atividades: **tomar sol**, **passear**, **caçar borboletas**, **cheirar flores**, **vigiar passarinhos**.
+  O quintal **só abre de dia (7h–18h30) e sem chuva** (regra única `foraOk`, usada pela cena e pelo simulador): à noite ou na chuva ele fica em casa (e na chuva olha a água da janela).
+- Toque num canto do quintal = convite (com sol ele vai; chovendo/à noite recusa: "Tá chovendo, prefiro ficar aqui dentro 😸").
+
+### Clima visual **sem API** (`src/pedro/weather.js`)
+- Determinístico por data/hora de São Paulo (sol, nublado, chuva, vento): cada dia é "seco" ou "úmido" e cada bloco de 3 h sorteia dentro disso (chuva tende a vir em sequência nos dias úmidos).
+  **Não consulta nenhuma API de clima** e não tem relação com o tempo real; o prompt do chat avisa que é só ambientação (o Pedro nunca afirma saber/prever o clima de verdade).
+- Visual: céu e luz mudam (nublado/chuva escurecem e cinzam), **chuva** em partículas + som de chuva suave (só com áudio liberado), nuvens, vento balança árvore/flores e acelera as borboletas.
+  Ícone do tempo no topo (☀️⛅🌧️💨). Parâmetro de teste: `?pedroclima=sol|nublado|chuva|vento`.
+- O clima também entra na vida: ele não passeia na chuva e o diário registra ("Choveu e eu fiquei olhando da janela").
+
+### Descobertas → diário → "quero te contar"
+- Passeando/cheirando, o servidor sorteia **descobertas** (minhoca, besouro, folha, flor nova, graveto, pena, sapinho, cheiro de terra molhada). Viram **entrada marcante do diário**, aumentam `stats.descobertas`,
+  os objetos (folha, graveto, pena) viram **presentes** no inventário e a descoberta entra em `pedro_pet_v1.contar` (pendente).
+- **Push de "descoberta"** (já existia na política da Fase 4) usa o texto do diário. No **app**: com a tela aberta, o Pedro **vem até a câmera** e diz "Quero te contar uma coisa! Descobri … 🌿" (uma vez).
+- No **chat**: o prompt recebe "você descobriu X e ainda não contou: conte com empolgação e pergunte se ele já viu algo parecido"; depois de responder, marca como contada (não repete).
+- Novos textos do diário (passeio, caça, tomar sol, cheirar, vigiar, chuva, borboleta, visita de passarinho) e ícones próprios.
+
+### Itens
+- **Bandana vermelha de passeio** (🍪 15, 3D no pescoço), ao lado do pijama (só um por vez). Os presentes achados aparecem na lojinha. Evento novo `passeou` (+diversão, −energia).
+
+### Testes e verificação
+- Novos/atualizados: `pedro-pure` (mundo sala+quintal, limites, **rota pela porta**, clima determinístico e distribuição, **quintal só de dia e sem chuva**), `pedro-sim` (milhares de passeios: horário/clima, descobertas, presentes, borboletas, chuva na janela, textos e push de descoberta), `_pedro-life` ("quero te contar": pendência única, chat conta uma vez, clima só ambientação, `contar_ok`). Um teste **achou um bug real** (à noite ele podia escolher dormir na varanda) — corrigido.
+- Navegador (headless): o gato atravessou a porta e chegou ao gramado; quintal de dia (sol), chuva (gotas, céu cinza, 🌧️), nublado (⛅), bandana, borboletas e "quero te contar" (chamada ao servidor `contar_ok`).
+- **Não verificado em aparelho:** desempenho do quintal (mais malha/sombras: o nível adaptativo de qualidade cobre, mas use `?pedrodebug`), o **som da chuva** (ninguém ouviu) e o toque nos cantos do quintal.
+
+### Limitações conhecidas
+- A câmera baixa pode ficar **atrás de um móvel** (caixa, poltrona) e esconder o gato por um instante; orbitar de leve resolve. Sem oclusão inteligente ainda.
+- O caminho dentro do quintal é reto (sem desviar de árvore/pedra); o gato pode "raspar" nos objetos.
+- O diário/servidor simula o quintal por horário e clima determinísticos; ao abrir o app o gato nasce no ponto certo (inclusive no quintal), mas a ordem exata do que ele fez no intervalo é só a do diário.
+
+### Fim do roteiro da spec
+As 5 fases da spec estão entregues. Pendências de produto/operação: **ativar o Pedro** (checklist da Fase 4), medir desempenho no Poco F5, validar push real, e decisões em aberto (itens/preços finais, botão flutuante = não, nome do tile = "Pedro").

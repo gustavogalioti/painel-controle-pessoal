@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { tickPedro, applyUpdate, listDiary, markDiaryRead, reactDiary, runCronTick, loadPet, MAX_LLM_DIARIO_DIA } from "./_pedro-life.js";
+import { tickPedro, applyUpdate, listDiary, markDiaryRead, reactDiary, runCronTick, loadPet, marcarContada, MAX_LLM_DIARIO_DIA } from "./_pedro-life.js";
 import { handleChat } from "./pedro.js";
 import { PEDRO_KEYS } from "./_pedro-pet-lib.js";
 import { normalizePet } from "../src/pedro/pet-state.js";
@@ -175,6 +175,43 @@ const comBase = (extra = {}) => ({ [PEDRO_KEYS.pet]: normalizePet({ ultimoTick: 
   assert.ok([...sql.touched].every((k) => k.startsWith("pedro_")));
   globalThis.fetch = ORIGINAL_FETCH; delete process.env.GROQ_API_KEY;
   console.log("chat com estado e diário: OK");
+}
+
+// ---------- "quero te contar": descoberta no quintal vira pendência; o chat conta uma vez ----------
+{
+  const ORIGINAL_FETCH = globalThis.fetch;
+  process.env.GROQ_API_KEY = "g"; delete process.env.OPENAI_API_KEY;
+  let sistemas = [];
+  globalThis.fetch = async (url, init) => { const b = JSON.parse(init.body); sistemas.push(b.messages[0].content); return { ok: true, json: async () => ({ choices: [{ message: { role: "assistant", content: "Miau! Achei uma minhoca 🐾" } }] }) }; };
+  // acha uma janela de tempo em que ele descobre algo
+  let sql, r;
+  for (let d = 0; d < 80; d++) {
+    const ini = T0 + d * 3 * H;
+    sql = fakeSql(comBase({ ultimoTick: new Date(ini).toISOString(), visto: new Date(ini - 30 * H).toISOString(), ultimaInteracao: new Date(ini - 30 * H).toISOString() }));
+    r = await tickPedro(sql, ini + 20 * H);
+    if (r.pet.contar.some((c) => !c.contada)) { sql._agora = ini + 20 * H; break; }
+  }
+  const pend = r.pet.contar.filter((c) => !c.contada);
+  assert.ok(pend.length >= 1, "achou uma descoberta pendente");
+  assert.ok(pend[0].nome && pend[0].onde && !pend[0].contada);
+  assert.ok(sql.read(PEDRO_KEYS.diary).some((e) => e.ev?.descoberta), "virou entrada marcante do diário");
+  assert.ok(r.pet.stats.descobertas >= 1);
+  // reprocessar não duplica a pendência
+  const again = await tickPedro(sql, sql._agora); assert.equal(again.pet.contar.length, r.pet.contar.length);
+  // chat: o prompt pede pra contar, e depois de responder marca como contada
+  const nome = pend[0].nome;
+  await handleChat(sql, { message: "oi pedro", history: [] });
+  assert.match(sistemas.at(-1), /AINDA NÃO CONTOU/); assert.ok(sistemas.at(-1).includes(nome));
+  assert.match(sistemas.at(-1), /NÃO é previsão do tempo real/, "clima é só ambientação");
+  assert.ok(sql.read(PEDRO_KEYS.pet).contar.find((c) => c.id === pend[0].id).contada, "marcada como contada");
+  await handleChat(sql, { message: "e aí?", history: [] });
+  if (sql.read(PEDRO_KEYS.pet).contar.filter((c) => !c.contada).length === 0) assert.doesNotMatch(sistemas.at(-1), /AINDA NÃO CONTOU/, "não repete a mesma descoberta");
+  // marcarContada idempotente; op do app
+  assert.equal(await marcarContada(sql, pend[0].id), false);
+  const up = await applyUpdate(sql, T0, { op: "contar_ok", id: "x" }); assert.equal(up.ok, true);
+  assert.equal((await applyUpdate(sql, T0, { ev: { type: "passeou", auto: true } })).ok, true);
+  globalThis.fetch = ORIGINAL_FETCH; delete process.env.GROQ_API_KEY;
+  console.log("quero te contar (descoberta → pendência → chat uma vez): OK");
 }
 
 console.log("_pedro-life.test.mjs: todos os testes passaram");

@@ -1,7 +1,10 @@
-// Dados do mundo (sala): pontos de interesse (POIs) onde o Pedro pode estar. Sem three — só dados,
+// Dados do mundo (sala + quintal): pontos de interesse (POIs) onde o Pedro pode estar. Sem three — só dados,
 // compartilhados pela cena (RoomScene), pelo comportamento (brain) e, na Fase 4, pelo simulador do servidor.
 // Metros. x: direita, z: em direção à câmera, parede dos fundos (janela) em z = -ROOM.d/2. Heading 0 olha +z.
 export const ROOM = { w: 3.8, d: 3.8, h: 2.6 };
+// Quintal/varanda: continua a sala pela PORTA da parede direita (x = ROOM.w/2). Mesmo sistema de coordenadas (mundo único).
+export const YARD = { x0: ROOM.w / 2, x1: ROOM.w / 2 + 5.0, z0: -2.6, z1: 2.6 };
+export const DOOR = { z0: 0.35, z1: 1.05, zc: 0.7, h: 2.0, dentro: { x: 1.45, z: 0.7 }, fora: { x: 2.45, z: 0.7 } };
 
 export const POIS = {
   centro:   { id: "centro",   x: 0.1,   z: 0.9,   heading: 0,    ativ: ["sentar", "limpar"] },
@@ -16,13 +19,29 @@ export const POIS = {
   comida:   { id: "comida",   x: 0.7,   z: -1.4,  heading: Math.PI, ativ: ["comer"] },
   agua:     { id: "agua",     x: 1.05,  z: -1.4,  heading: Math.PI, ativ: ["beber"] },
   arranhador: { id: "arranhador", x: 1.3, z: 1.25, heading: -1.5, ativ: ["arranhar", "explorar"] },
+  // ---- quintal
+  varanda:  { id: "varanda",  x: 2.7, z: 1.4,   heading: 0.6,  ativ: ["tomar_sol", "dormir", "limpar"] },
+  gramado:  { id: "gramado",  x: 4.3, z: 1.0,   heading: 1.0,  ativ: ["passear", "cacar", "cheirar"] },
+  vaso:     { id: "vaso",     x: 3.3, z: -1.9,  heading: Math.PI, ativ: ["cheirar"] },
+  arvore:   { id: "arvore",   x: 5.5, z: -1.1,  heading: -2.2, ativ: ["dormir", "observar_passaro"] },
+  comedouro: { id: "comedouro", x: 4.5, z: -1.9, heading: Math.PI, ativ: ["observar_passaro"] },
+  pedra:    { id: "pedra",    x: 4.3, z: -0.1,  heading: 0.3,  ativ: ["tomar_sol"] },
+  cerca:    { id: "cerca",    x: 6.1, z: 1.1,   heading: 1.5,  ativ: ["passear", "cheirar"] },
 };
+for (const p of Object.values(POIS)) p.ambiente = p.x > ROOM.w / 2 ? "quintal" : "sala";
 
 export const POI_IDS = Object.keys(POIS);
 
-// Altura do chão (para os pés do gato) em (x, z): caminha afunda um pouco, tapete e papéis elevam um fio.
+// Em que ambiente o ponto (x) está.
+export const ambienteDe = (x) => (x > ROOM.w / 2 ? "quintal" : "sala");
+
+// Altura do chão (para os pés do gato) em (x, z): caminha afunda um pouco, tapete e papéis elevam um fio; a varanda é um deque.
 const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 export function groundHeight(x, z) {
+  if (x > ROOM.w / 2) { // quintal
+    const deck = Math.max(Math.abs(x - 2.75) / 0.9, Math.abs(z - 1.1) / 1.2);
+    return 0.03 * smooth(1.0, 0.9, deck);
+  }
   const bed = Math.hypot(x - POIS.caminha.x, z - POIS.caminha.z);
   const rug = Math.hypot((x - 0.3) / 0.75, (z - 0.55) / 0.5);
   const paper = Math.max(Math.abs(x - POIS.papeis.x) / 0.32, Math.abs(z - POIS.papeis.z) / 0.28);
@@ -32,4 +51,19 @@ export function groundHeight(x, z) {
 // Mantém o gato dentro da sala (margem das paredes e dos móveis encostados).
 export function clampToRoom(x, z, margin = 0.25) {
   return [Math.min(ROOM.w / 2 - margin, Math.max(-ROOM.w / 2 + margin, x)), Math.min(ROOM.d / 2 - margin, Math.max(-ROOM.d / 2 + margin, z))];
+}
+
+// Limites do mundo todo: sala OU quintal (depende de onde o ponto está).
+export function clampToWorld(x, z, margin = 0.25) {
+  if (x > ROOM.w / 2) return [Math.min(YARD.x1 - 0.3, Math.max(YARD.x0 + 0.15, x)), Math.min(YARD.z1 - 0.3, Math.max(YARD.z0 + 0.3, z))];
+  return clampToRoom(x, z, margin);
+}
+
+// Rota do ponto A até o ponto B passando pela PORTA quando mudam de ambiente (senão, linha reta).
+export function routePoints(from, to) {
+  const a = ambienteDe(from.x), b = ambienteDe(to.x);
+  if (a === b) return [{ x: to.x, z: to.z }];
+  return b === "quintal"
+    ? [{ x: DOOR.dentro.x, z: DOOR.zc }, { x: DOOR.fora.x, z: DOOR.zc }, { x: to.x, z: to.z }]
+    : [{ x: DOOR.fora.x, z: DOOR.zc }, { x: DOOR.dentro.x, z: DOOR.zc }, { x: to.x, z: to.z }];
 }

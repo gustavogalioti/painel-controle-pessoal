@@ -7,6 +7,7 @@ import { POIS } from "./world/pois.js";
 import { pickNext, mulberry32 } from "./behavior/brain.js";
 import { normalizePet, applyEvent, moodFor, decayNeeds, MAX_CATCHUP_H } from "./pet-state.js";
 import { saoPauloHour } from "./time.js";
+import { weatherFor } from "./weather.js";
 
 export const STEP_MIN = 10;
 
@@ -14,9 +15,16 @@ export const STEP_MIN = 10;
 const DURACAO_MIN = {
   dormir: [60, 170], descansar_janela: [20, 60], comer: [10, 10], beber: [10, 10], limpar: [10, 20], amassar: [10, 20],
   brincar: [20, 40], explorar: [10, 30], arranhar: [10, 10], esconder: [30, 90], sentar: [10, 30],
+  tomar_sol: [20, 60], passear: [10, 30], cacar: [20, 40], cheirar: [10, 10], observar_passaro: [20, 50],
 };
 
 const ACHADOS = ["uma meia perdida", "um botão", "uma bolinha de papel", "uma pena"];
+// o que ele pode descobrir no quintal (`item` = vira presente no inventário)
+export const DESCOBERTAS = [
+  { nome: "uma minhoca saindo da terra" }, { nome: "um besouro brilhante" }, { nome: "uma folha amarela perfeita", item: "uma folha amarela" },
+  { nome: "uma flor nova no vaso" }, { nome: "um graveto perfeito", item: "um graveto" }, { nome: "uma pena de passarinho", item: "uma pena de passarinho" },
+  { nome: "um sapinho pulando entre as plantas" }, { nome: "um cheiro novo de terra molhada" },
+];
 export const SONHOS = ["uma mala gigante cheia de petiscos", "um castelo de caixas de papelão", "um passarinho que deixava eu pegar", "uma poltrona que flutuava", "um mar de papéis macios"];
 
 const hourOf = (ms) => saoPauloHour(new Date(ms));
@@ -28,6 +36,10 @@ export function seedFor(lastMs) { return (Math.floor(lastMs / 60000) ^ 0x9e3779b
 function scoreOf(ev) {
   let s = 0.5;
   if (ev.achado) s += 3;
+  if (ev.descoberta) s += 3.5;
+  if (ev.borboleta) s += 2;
+  if (ev.visita) s += 2;
+  if (ev.chuva) s += 2;
   if (ev.passarinho) s += 2;
   if (ev.sonho != null) s += 2;
   if (ev.derrubou) s += 2;
@@ -44,7 +56,7 @@ function pickDuracao(tipo, rng) {
 }
 
 // necessidade atendida ao concluir a atividade
-const EFEITO = { comer: { type: "refeicao", kind: "comida" }, beber: { type: "bebeu" }, dormir: { type: "dormiu" }, limpar: { type: "limpou" }, brincar: { type: "brincou", toy: "zoomies" } };
+const EFEITO = { comer: { type: "refeicao", kind: "comida" }, beber: { type: "bebeu" }, dormir: { type: "dormiu" }, limpar: { type: "limpou" }, brincar: { type: "brincou", toy: "zoomies" }, cacar: { type: "brincou", toy: "borboleta" }, passear: { type: "passeou" }, cheirar: { type: "passeou" }, observar_passaro: { type: "passeou" } };
 
 export function advancePet(petRaw, agora, rng = mulberry32(1)) {
   let p = normalizePet(petRaw);
@@ -66,25 +78,35 @@ export function advancePet(petRaw, agora, rng = mulberry32(1)) {
         const efeito = EFEITO[atv.tipo];
         const dur = (Date.parse(atv.ate) - Date.parse(atv.desde)) / 60000;
         const ev = { id: `ev_${Date.parse(atv.ate)}_${atv.tipo}`, t: atv.ate, tipo: atv.tipo, poi: atv.poi, minutos: dur, humor: p.humor };
-        if (atv.tipo === "descansar_janela" && rng() < 0.3) ev.passarinho = true;
+        const clima = weatherFor(Date.parse(atv.ate)).tipo;
+        if (atv.tipo === "descansar_janela" && clima === "chuva") ev.chuva = true;
+        else if (atv.tipo === "descansar_janela" && rng() < 0.3) ev.passarinho = true;
+        if ((atv.tipo === "passear" && rng() < 0.28) || (atv.tipo === "cheirar" && rng() < 0.2)) {
+          const i = Math.floor(rng() * DESCOBERTAS.length); ev.descoberta = { i, nome: DESCOBERTAS[i].nome };
+        }
+        if (atv.tipo === "cacar" && rng() < 0.4) ev.borboleta = true;
+        if (atv.tipo === "observar_passaro" && rng() < 0.4) ev.visita = true; // um passarinho pousou pertinho
         if (atv.tipo === "explorar" && rng() < 0.18) ev.achado = ACHADOS[Math.floor(rng() * ACHADOS.length)];
         if (atv.tipo === "dormir" && dur >= 90 && rng() < 0.35) ev.sonho = Math.floor(rng() * SONHOS.length);
         if (atv.tipo === "brincar" && rng() < 0.12) ev.derrubou = true;
         ev.score = scoreOf(ev);
         if (efeito) p = applyEvent(p, { ...efeito, auto: true }, Date.parse(atv.ate)).pet;
+        const itemDescoberta = ev.descoberta ? DESCOBERTAS[ev.descoberta.i]?.item : null;
+        if (itemDescoberta) p = { ...p, inventario: { ...p.inventario, presentes: [...p.inventario.presentes, { nome: itemDescoberta, quando: ev.t }].slice(-12) } };
+        if (ev.descoberta) p = { ...p, stats: { ...p.stats, descobertas: p.stats.descobertas + 1 } };
         if (ev.achado) {
           p = { ...p, inventario: { ...p.inventario, presentes: [...p.inventario.presentes, { nome: ev.achado, quando: ev.t }].slice(-12) }, stats: { ...p.stats, descobertas: p.stats.descobertas + 1 } };
         }
         eventos.push(ev);
       }
-      const next = pickNext({ hour: hourOf(tEnd), last: lastPick, rng, needs: p.necessidades });
+      const next = pickNext({ hour: hourOf(tEnd), last: lastPick, rng, needs: p.necessidades, clima: weatherFor(tEnd).tipo });
       lastPick = next;
       atv = { tipo: next.ativ, poi: next.poi, desde: iso(tEnd), ate: iso(tEnd + pickDuracao(next.ativ, rng) * 60e3) };
       p = { ...p, humor: moodFor(p.necessidades) };
     }
     t = tEnd;
   }
-  p = { ...p, atividade: atv, local: { ambiente: "sala", poi: atv?.poi && POIS[atv.poi] ? atv.poi : "centro" }, humor: moodFor(p.necessidades), ultimoTick: iso(agora) };
+  p = { ...p, atividade: atv, local: { ambiente: atv?.poi && POIS[atv.poi] ? POIS[atv.poi].ambiente : "sala", poi: atv?.poi && POIS[atv.poi] ? atv.poi : "centro" }, humor: moodFor(p.necessidades), ultimoTick: iso(agora) };
   return { pet: p, eventos };
 }
 

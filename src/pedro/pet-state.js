@@ -13,6 +13,7 @@ const DECAY_H = { fome: 4, sede: 5, energia: 3, diversao: 4, afeto: 3, higiene: 
 
 export const CATALOGO = {
   roupinha: { id: "roupinha", nome: "Pijama de biscoito de gengibre", preco: 25, tipo: "vestir", emoji: "🧥" },
+  bandana:  { id: "bandana",  nome: "Bandana vermelha de passeio",      preco: 15, tipo: "vestir", emoji: "🧣" },
   petisco:  { id: "petisco",  nome: "Petisco",                          preco: 3,  tipo: "consumivel", emoji: "🍪" },
 };
 
@@ -26,7 +27,7 @@ export function defaultPet() {
     ultimaInteracao: null, ultimoTick: null,
     inventario: { moedas: 5, itens: [...BRINQUEDOS], petiscos: 0, desbloqueados: [], vestindo: null, presentes: [] },
     local: { ambiente: "sala", poi: "centro" }, atividade: null, // onde ele está / o que faz (Fase 4: o servidor é o dono)
-    pendentes: [], visto: null, // eventos triviais ainda sem entrada no diário; última vez que o app esteve aberto
+    contar: [], pendentes: [], visto: null, // eventos triviais ainda sem entrada no diário; última vez que o app esteve aberto
     push: { dia: null, n: 0, ultimo: null, ultimoTipo: null, saudadeEm: null, fomeEm: null },
     diario: { llm: { dia: null, n: 0 } },
     stats: { carinhos: 0, refeicoes: 0, brincadeiras: 0, descobertas: 0 },
@@ -50,7 +51,7 @@ export function normalizePet(raw) {
   inv.presentes = Array.isArray(inv.presentes) ? inv.presentes.slice(-12) : [];
   const out = { ...d, ...p, necessidades: nec, inventario: inv, stats: { ...d.stats, ...(p.stats || {}) }, config: { ...d.config, ...(p.config || {}), push: { ...d.config.push, ...(p.config?.push || {}) } },
     local: { ...d.local, ...(p.local || {}) }, push: { ...d.push, ...(p.push || {}) }, diario: { llm: { ...d.diario.llm, ...(p.diario?.llm || {}) } },
-    pendentes: Array.isArray(p.pendentes) ? p.pendentes.slice(-40) : [] };
+    pendentes: Array.isArray(p.pendentes) ? p.pendentes.slice(-40) : [], contar: Array.isArray(p.contar) ? p.contar.slice(-8) : [] };
   out.humor = moodFor(out.necessidades);
   return out;
 }
@@ -133,6 +134,7 @@ export function applyEvent(pet, ev, agora = Date.now()) {
     }
     case "dormiu": up("energia", ev.auto === false ? 15 : 28); break;
     case "limpou": up("higiene", 22); break;
+    case "passeou": up("diversao", 14); up("energia", -4); up("higiene", -3); up("afeto", 1); break; // passeio/cheirar/observar no quintal
     case "incomodo": break; // só reage; nunca pune
     default: return { pet: p, moedas: 0 };
   }

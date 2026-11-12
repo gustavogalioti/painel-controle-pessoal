@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { advancePet, advancePetSeeded, STEP_MIN } from "./pedro/sim.js";
-import { normalizePet, defaultPet, PISO } from "./pedro/pet-state.js";
+import { normalizePet, defaultPet, applyEvent, PISO } from "./pedro/pet-state.js";
 import { mulberry32 } from "./pedro/behavior/brain.js";
 import { POIS } from "./pedro/world/pois.js";
 import { eventoTexto, ehMarcante, turnoDe, buildEntries, mergeEntries, diaryPrompt, sanitizarTextoLlm, resumoTexto } from "./pedro/diary-lib.js";
 import { decidePush, registrarPush, emSilencio } from "./pedro/push-policy.js";
+import { weatherFor } from "./pedro/weather.js";
+import { foraOk } from "./pedro/behavior/brain.js";
 
 const H = 3600e3;
 const T0 = Date.parse("2026-11-12T12:00:00Z"); // 09:00 em SP
@@ -182,4 +184,61 @@ const petEm = (ms, extra = {}) => normalizePet({ ...extra, ultimoTick: new Date(
   assert.ok(decidePush({ pet: base(), novasEntradas: marcante(3, "a".repeat(500)), agoraMs: noite(10) }).texto.length <= 150);
   console.log("política de push: OK");
 }
+// ---------- quintal: passeios só de dia e sem chuva; descobertas; consistência de local ----------
+{
+  let noQuintal = 0, descobertas = 0, comItem = 0, borboleta = 0, chuvaJanela = 0;
+  for (let i = 0; i < 80; i++) {
+    const t0 = T0 + i * 29 * H / 7;
+    const { pet, eventos } = advancePet(petEm(t0), t0 + 30 * H, mulberry32(i));
+    assert.equal(pet.local.ambiente, POIS[pet.atividade.poi].ambiente, "ambiente = o do POI atual");
+    for (const e of eventos) {
+      const ini = Date.parse(e.t) - e.minutos * 60e3;
+      if (POIS[e.poi].ambiente === "quintal") {
+        noQuintal++;
+        assert.ok(foraOk(new Date(ini).getUTCHours() - 3 + new Date(ini).getUTCMinutes() / 60, weatherFor(ini).tipo), `atividade no quintal começou fora de hora/chuva: ${new Date(ini).toISOString()} ${weatherFor(ini).tipo}`);
+      }
+      if (e.descoberta) { descobertas++; assert.ok(e.score >= 3.5); assert.ok(e.descoberta.nome); }
+      if (e.borboleta) borboleta++;
+      if (e.chuva) { chuvaJanela++; assert.equal(e.tipo, "descansar_janela"); assert.equal(weatherFor(Date.parse(e.t)).tipo, "chuva"); }
+    }
+    if (pet.inventario.presentes.some((g) => /graveto|folha|pena de passarinho/.test(g.nome))) comItem++;
+  }
+  assert.ok(noQuintal > 100, `passeia bastante no quintal: ${noQuintal}`);
+  assert.ok(descobertas > 10, `descobre coisas: ${descobertas}`);
+  assert.ok(comItem > 3, "descobertas-objeto viram presentes");
+  assert.ok(borboleta > 3 && chuvaJanela > 0, "borboletas e dias de chuva olhando da janela aparecem");
+  // efeito 'passeou' sobe diversão
+  const r = applyEventForTest();
+  assert.ok(r.pet.necessidades.diversao > 40 && r.pet.necessidades.energia < 80);
+  console.log("quintal (horário/clima/descobertas/presentes): OK");
+}
+function applyEventForTest() {
+  return applyEvent(normalizePet({ necessidades: { fome: 80, sede: 80, energia: 80, diversao: 30, afeto: 70, higiene: 80 } }), { type: "passeou", auto: true });
+}
+
+// ---------- diário do quintal: textos, marcantes e push de descoberta ----------
+{
+  assert.match(eventoTexto({ tipo: "passear", poi: "gramado", descoberta: { nome: "uma minhoca saindo da terra" } }), /minhoca.*quintal.*contar/i);
+  assert.match(eventoTexto({ tipo: "descansar_janela", poi: "janela", chuva: true }), /Choveu/);
+  assert.match(eventoTexto({ tipo: "cacar", poi: "gramado", borboleta: true }), /borboleta/);
+  assert.match(eventoTexto({ tipo: "observar_passaro", poi: "comedouro", visita: true }), /passarinho pousou/);
+  for (const tipo of ["tomar_sol", "passear", "cacar", "cheirar", "observar_passaro"]) {
+    for (const poi of ["varanda", "gramado", "vaso", "arvore", "comedouro", "pedra", "cerca"]) {
+      const t = eventoTexto({ tipo, poi }, mulberry32(4)); assert.ok(t.length > 10 && !/undefined|agenda|tarefa|painel|triste|doente/i.test(t), `${tipo}/${poi}: ${t}`);
+    }
+  }
+  assert.match(eventoTexto({ tipo: "dormir", poi: "arvore" }, () => 0), /sombra da árvore/);
+  assert.match(resumoTexto([{ tipo: "tomar_sol" }, { tipo: "cacar" }, { tipo: "passear" }], "tarde"), /tomei sol, caçei borboletas e passeei no quintal/);
+  const msgs = diaryPrompt({ evento: "passear", local: "gramado", texto: "x", ev: { descoberta: { nome: "um sapinho pulando entre as plantas" } } }, { hora: "tarde" });
+  assert.match(msgs[1].content, /sapinho/);
+  // descoberta = marcante, score alto => push 'descoberta' (quero te contar)
+  const ev = { id: "ev_1_passear", t: new Date(T0).toISOString(), tipo: "passear", poi: "gramado", minutos: 20, descoberta: { i: 0, nome: "uma minhoca saindo da terra" }, score: 4 };
+  const { entries } = buildEntries({ eventos: [ev], agoraMs: T0 + 60e3, rng: mulberry32(1) });
+  assert.equal(entries[0].marcante, true);
+  const pet = normalizePet({ visto: new Date(T0 - 40 * H).toISOString(), ultimaInteracao: new Date(T0 - 40 * H).toISOString() });
+  const d = decidePush({ pet, novasEntradas: entries, agoraMs: Date.parse("2026-11-12T16:00:00Z") });
+  assert.equal(d.tipo, "descoberta"); assert.match(d.texto, /minhoca/);
+  console.log("diário do quintal: OK");
+}
+
 console.log("pedro-sim.test.mjs: todos os testes passaram");

@@ -3,7 +3,7 @@
 // tapete colorido, planta, caminha de vime, tigelas, caixa de papelão, mala aberta, poltrona preta,
 // mesa com papéis, arranhador, caixa de areia (discreta) e abajur (luz noturna).
 import * as THREE from "three";
-import { ROOM, POIS } from "./pois.js";
+import { ROOM, POIS, DOOR } from "./pois.js";
 
 const W = ROOM.w, D = ROOM.d, H = ROOM.h;
 const WIN = { x0: -0.95, x1: 0.55, y0: 0.8, y1: 2.05 }; // abertura da janela na parede dos fundos
@@ -73,11 +73,24 @@ export function buildRoom() {
   const T = 0.12, zb = -D / 2 - T / 2;
   const wb = (x0, x1, y0, y1) => box(x1 - x0, y1 - y0, T, wallMat, { x: (x0 + x1) / 2, y: y0, z: zb });
   wb(-W / 2 - T, WIN.x0, 0, H); wb(WIN.x1, W / 2 + T, 0, H); wb(WIN.x0, WIN.x1, 0, WIN.y0); wb(WIN.x0, WIN.x1, WIN.y1, H);
-  box(T, H, D + T, wallMat, { x: -W / 2 - T / 2, z: 0 }); box(T, H, D + T, wallMat, { x: W / 2 + T / 2, z: 0 });
+  box(T, H, D + T, wallMat, { x: -W / 2 - T / 2, z: 0 });
+  // parede direita com a PORTA pro quintal (abertura em z ∈ [DOOR.z0, DOOR.z1])
+  { const zA = -D / 2 - T / 2, zB = D / 2 + T / 2, xw = W / 2 + T / 2;
+    box(T, H, DOOR.z0 - zA, wallMat, { x: xw, z: (zA + DOOR.z0) / 2 }); box(T, H, zB - DOOR.z1, wallMat, { x: xw, z: (DOOR.z1 + zB) / 2 });
+    box(T, H - DOOR.h, DOOR.z1 - DOOR.z0, wallMat, { x: xw, y: DOOR.h, z: DOOR.zc }); }
   // rodapé
   const baseMat = std(0xfaf3e6, 0.6);
   box(W, 0.09, 0.025, baseMat, { z: -D / 2 + 0.0125, cast: false });
-  box(0.025, 0.09, D, baseMat, { x: -W / 2 + 0.0125, cast: false }); box(0.025, 0.09, D, baseMat, { x: W / 2 - 0.0125, cast: false });
+  box(0.025, 0.09, D, baseMat, { x: -W / 2 + 0.0125, cast: false });
+  box(0.025, 0.09, DOOR.z0 + D / 2, baseMat, { x: W / 2 - 0.0125, z: (-D / 2 + DOOR.z0) / 2, cast: false }); box(0.025, 0.09, D / 2 - DOOR.z1, baseMat, { x: W / 2 - 0.0125, z: (DOOR.z1 + D / 2) / 2, cast: false });
+  // batente da porta + folha de vidro aberta + soleira
+  { const fr = std(0xf6efe2, 0.5), fx = W / 2;
+    box(0.07, DOOR.h, 0.05, fr, { x: fx, z: DOOR.z0 - 0.025 }); box(0.07, DOOR.h, 0.05, fr, { x: fx, z: DOOR.z1 + 0.025 }); box(0.07, 0.05, DOOR.z1 - DOOR.z0 + 0.1, fr, { x: fx, y: DOOR.h, z: DOOR.zc });
+    box(0.14, 0.02, DOOR.z1 - DOOR.z0, std(0xd8c7a4, 0.7), { x: fx, z: DOOR.zc, cast: false });
+    const leaf = new THREE.Group(); leaf.position.set(fx - 0.03, 0, DOOR.z1); leaf.rotation.y = 1.25; root.add(leaf); // aberta pra dentro
+    const lw = DOOR.z1 - DOOR.z0 - 0.04;
+    box(0.04, DOOR.h - 0.05, 0.05, fr, { z: -0.025, parent: leaf }); box(0.04, DOOR.h - 0.05, 0.05, fr, { z: -lw, parent: leaf }); box(0.04, 0.05, lw, fr, { z: -lw / 2, y: 0, parent: leaf }); box(0.04, 0.05, lw, fr, { z: -lw / 2, y: DOOR.h - 0.1, parent: leaf });
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.01, DOOR.h - 0.2, lw - 0.06), new THREE.MeshStandardMaterial({ color: 0xcfe6f2, transparent: true, opacity: 0.25, roughness: 0.1 })); glass.position.set(0, DOOR.h / 2, -lw / 2); leaf.add(glass); }
 
   // ---- janela: esquadria (projeta sombra), peitoril, "lá fora" e cortinas
   const frame = std(0xf6efe2, 0.5), fw = 0.045, wz = -D / 2 + 0.01;
@@ -149,7 +162,7 @@ export function buildRoom() {
     [[-0.1, 0.05, 0.4, 1], [0.12, -0.06, -0.5, 2], [0.0, 0.14, 1.3, 3], [-0.12, -0.14, 0.1, 4]].forEach((a) => floorSheet(...a)); }
 
   // ---- planta
-  { const g = new THREE.Group(); g.position.set(W / 2 - 0.3, 0, 0.35); root.add(g);
+  { const g = new THREE.Group(); g.position.set(W / 2 - 0.3, 0, -1.55); root.add(g);
     cyl(0.14, 0.1, 0.26, std(0xc2623f, 0.8), { parent: g }); cyl(0.12, 0.12, 0.02, std(0x3a2a1f, 1), { y: 0.25, parent: g, cast: false });
     const leaf = std(0x3f8f4a, 0.7), leaf2 = std(0x5fae5a, 0.7);
     for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2, tilt = 0.35 + (i % 3) * 0.18; const m = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), i % 2 ? leaf : leaf2); m.scale.set(0.55, 1.9, 0.12); m.position.set(Math.cos(a) * 0.1, 0.5 + (i % 3) * 0.07, Math.sin(a) * 0.1); m.rotation.set(Math.sin(a) * tilt, a, -Math.cos(a) * tilt); add(m, { parent: g }); } }
@@ -160,7 +173,7 @@ export function buildRoom() {
     const top = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 10), std(0xe0d2b8, 1)); add(top, { y: 0.68, parent: g }); }
 
   // ---- caixa de areia (discreta, canto do fundo à direita)
-  { const g = new THREE.Group(); g.position.set(W / 2 - 0.35, 0, -D / 2 + 0.3); root.add(g);
+  { const g = new THREE.Group(); g.position.set(W / 2 - 0.35, 0, D / 2 - 0.25); root.add(g);
     const shell = std(0x9bb3b0, 0.6);
     box(0.4, 0.14, 0.03, shell, { z: 0.185, parent: g }); box(0.4, 0.14, 0.03, shell, { z: -0.185, parent: g }); box(0.03, 0.14, 0.34, shell, { x: 0.185, parent: g }); box(0.03, 0.14, 0.34, shell, { x: -0.185, parent: g });
     box(0.36, 0.08, 0.34, std(0xdccfb0, 1), { parent: g, cast: false }); }

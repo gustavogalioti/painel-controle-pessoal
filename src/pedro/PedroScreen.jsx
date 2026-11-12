@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { PedroScene } from "./PedroScene.js";
 import { detectCall } from "./names.js";
 import { CATALOGO } from "./pet-state.js";
+import { weatherFor, CLIMA_EMOJI, CLIMA_NOME } from "./weather.js";
 import { usePedroPet } from "./usePedroPet.js";
 import DiaryPanel from "./ui/DiaryPanel.jsx";
 import { unlockAudio, jingle, setSoundEnabled } from "./audio.js";
@@ -74,7 +75,7 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
         const cur = petRef.current;
         scene = new PedroScene({
           initial: cur.atividade ? { poi: cur.local?.poi, tipo: cur.atividade.tipo, ate: cur.atividade.ate } : null,
-          canvas: canvasRef.current, debug, forceLevel: q.get("pedronivel") != null ? parseInt(q.get("pedronivel"), 10) : null,
+          canvas: canvasRef.current, debug, weatherOverride: q.get("pedroclima") || null, forceLevel: q.get("pedronivel") != null ? parseInt(q.get("pedronivel"), 10) : null,
           hourOverride: q.get("pedrohora") ? parseFloat(q.get("pedrohora")) : null,
           onFrame: (s) => {
             const el = bubbleRef.current; if (!el) return;
@@ -154,12 +155,25 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
 
   // ---- loja
   const comprarItem = (id) => { const r = P.buy(id); if (r.ok) jingle(); else say(r.motivo === "sem_biscoitos" ? "Faltam biscoitos! Cuida de mim que eles aparecem 🍪" : "Esse já é meu! 😸"); };
-  const toggleVestir = () => P.wear(pet.inventario.vestindo ? null : "roupinha");
+  const toggleVestir = (id) => P.wear(pet.inventario.vestindo === id ? null : id);
   const toggleCfg = (k) => P.config({ [k]: !(petRef.current.config[k] !== false) });
   const togglePush = () => P.config({ push: { ligado: !petRef.current.config.push.ligado } });
 
   // ---- diário
   const abrirDiario = () => { unlockAudio(); setDiarioAberto(true); P.loadDiary(); };
+
+  // "quero te contar": uma descoberta nova no quintal -> ele vem até a câmera e conta (uma vez), mesmo com o app aberto
+  const anunciadas = useRef(new Set());
+  useEffect(() => {
+    if (status.loading || !P.synced) return;
+    const pend = (pet.contar || []).find((c) => !c.contada && !anunciadas.current.has(c.id));
+    if (!pend) return;
+    anunciadas.current.add(pend.id);
+    avisouRef.current = true;
+    sceneRef.current?.callPedro();
+    say(`Quero te contar uma coisa! Descobri ${pend.nome} no quintal 🌿`);
+    P.markTold(pend.id);
+  }, [pet.contar, status.loading, P.synced]);
 
   // novidades ao abrir: push que abriu o app (abrirMsg) ou entradas novas do diário
   const avisouRef = useRef(false);
@@ -192,6 +206,7 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
   };
 
   const lastPedro = [...messages].reverse().find((m) => m.from === "pedro");
+  const clima = q.get("pedroclima") ? { tipo: q.get("pedroclima") } : weatherFor(Date.now());
   const nec = pet.necessidades, inv = pet.inventario, somOn = pet.config.som !== false, vibOn = pet.config.vibracao !== false;
 
   return (
@@ -239,6 +254,7 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
             </div>
           ))}
         </div>
+        <div title={`Tempo no mundinho do Pedro: ${CLIMA_NOME[clima.tipo]} (só ambientação, não é o clima real)`} style={{background:"rgba(20,16,12,0.5)",borderRadius:12,padding:"4px 8px",fontSize:15,lineHeight:1.2}}>{CLIMA_EMOJI[clima.tipo]}</div>
         <div style={{position:"relative",background:"rgba(20,16,12,0.5)",color:"#fff",borderRadius:12,padding:"5px 10px",fontSize:13,fontWeight:700,whiteSpace:"nowrap"}}>
           🍪 {inv.moedas}
           {gain && <span key={gain.k} style={{position:"absolute",right:4,top:"100%",color:"#ffd36b",fontWeight:800,fontSize:14,animation:"pedroGain 1.6s ease-out forwards"}}>+{gain.n} 🍪</span>}
@@ -268,7 +284,7 @@ export default function PedroScreen({ useKV, onBack, onOpenAdmin, notifPerm, onE
                       <div style={{fontSize:12,opacity:0.7}}>{it.tipo === "consumivel" ? `Você tem ${inv.petiscos}` : tem ? "Já é do Pedro" : "Roupinha"}</div>
                     </div>
                     {it.tipo === "vestir" && tem
-                      ? <button onClick={toggleVestir} style={{minHeight:44,padding:"0 14px",borderRadius:12,border:"none",background:inv.vestindo ? "#e8d8bf" : "#2563eb",color:inv.vestindo ? "#3a2a1c" : "#fff",fontWeight:700,cursor:"pointer"}}>{inv.vestindo ? "Tirar" : "Vestir"}</button>
+                      ? <button onClick={() => toggleVestir(it.id)} style={{minHeight:44,padding:"0 14px",borderRadius:12,border:"none",background:inv.vestindo === it.id ? "#e8d8bf" : "#2563eb",color:inv.vestindo === it.id ? "#3a2a1c" : "#fff",fontWeight:700,cursor:"pointer"}}>{inv.vestindo === it.id ? "Tirar" : "Vestir"}</button>
                       : <button onClick={() => comprarItem(it.id)} disabled={inv.moedas < it.preco} style={{minHeight:44,padding:"0 14px",borderRadius:12,border:"none",background:"#d97706",color:"#fff",fontWeight:700,cursor:"pointer",opacity:inv.moedas < it.preco ? 0.45 : 1}}>🍪 {it.preco}</button>}
                   </div>
                 );

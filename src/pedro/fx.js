@@ -76,3 +76,15 @@ export function makeOutfit() {
   m.scale.set(1, 0.92, 1); m.castShadow = true; m.name = "outfit";
   return m;
 }
+
+// Bandana vermelha de passeio: anel no pescoço + triângulo caindo no peito (ancorada na cabeça).
+export function makeBandana() {
+  const g = new THREE.Group(); g.name = "outfit";
+  const red = new THREE.MeshStandardMaterial({ color: 0xc8333f, roughness: 0.85 });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.013, 8, 20), red); ring.position.set(0, -0.085, -0.045); ring.scale.set(1, 1.05, 1);
+  const tri = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.085, 3), red); tri.position.set(0, -0.13, 0.015); tri.rotation.set(0, 0, Math.PI); tri.scale.set(1, 1, 0.3);
+  const dots = new THREE.MeshStandardMaterial({ color: 0xfff3e0, roughness: 0.9 });
+  [[-0.012, -0.12], [0.014, -0.135], [0, -0.105]].forEach(([x, y]) => { const d = new THREE.Mesh(new THREE.SphereGeometry(0.005, 6, 4), dots); d.position.set(x, y, 0.03); g.add(d); });
+  g.add(ring, tri); g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}

@@ -58,4 +58,18 @@ export function pop() { if (!ok()) return; const t = ctx.currentTime, o = ctx.cr
 export function jingle() { if (!ok()) return; const t = ctx.currentTime; [880, 1318].forEach((fr, i) => { const o = ctx.createOscillator(); o.type = "triangle"; o.frequency.value = fr; const g = ctx.createGain(); env(g, t + i * 0.09, 0.01, 0.14, 0.22); o.connect(g).connect(master); o.start(t + i * 0.09); o.stop(t + i * 0.09 + 0.3); }); }
 export function hiss() { if (!ok()) return; const t = ctx.currentTime; noiseBurst(t, 0.35, 5200, 0.8, 0.12); }
 
+// chuva ambiente (ruído filtrado, bem baixinho) — só com áudio liberado e som ligado
+let rain = null;
+export function startRain() {
+  if (!ok() || rain) return;
+  const src = ctx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+  const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 900; const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 6500;
+  const g = ctx.createGain(); g.gain.value = 0.0001; g.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 1.5);
+  src.connect(hp).connect(lp).connect(g).connect(master); src.start(); rain = { src, g };
+}
+export function stopRain() {
+  if (!rain) return; const { src, g } = rain; rain = null;
+  try { const t = ctx.currentTime; g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.8); src.stop(t + 1); } catch {}
+}
+
 export function vibrate(ms, on = true) { try { if (on && navigator.vibrate) navigator.vibrate(ms); } catch {} }

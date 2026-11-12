@@ -156,9 +156,20 @@ function estadoBlock(petState) {
   const partes = [];
   if (e.humor) partes.push(`humor: ${e.humor}`);
   if (e.atividade?.tipo) partes.push(`fazendo: ${e.atividade.tipo}`);
-  if (e.local?.poi) partes.push(`onde está: ${e.local.poi}`);
+  if (e.local?.poi) partes.push(`onde está: ${e.local.poi}${e.local.ambiente === "quintal" ? " (no quintal)" : ""}`);
   if (e.necessidades) partes.push(`necessidades (0-100, onde 100 = satisfeito e valores baixos = ele está pedindo atenção, nunca algo grave): ${Object.entries(e.necessidades).map(([k, v]) => `${k} ${v}`).join(", ")}`);
   return partes.length ? `\n\nSeu estado agora (reaja a ele naturalmente, sem recitar números): ${partes.join("; ")}.` : "";
+}
+
+function contarBlock(contar) {
+  const p = (Array.isArray(contar) ? contar : []).filter((c) => !c.contada).slice(0, 1);
+  if (!p.length) return "";
+  return `\n\nVocê descobriu algo no quintal e AINDA NÃO CONTOU ao Gustavo: ${p[0].nome}. Conte isso na sua próxima resposta, com empolgação de gato, e pergunte se ele já viu algo parecido. Não invente detalhes além disso.`;
+}
+
+function climaBlock(clima) {
+  if (!clima) return "";
+  return `\n\nO tempo agora lá no quintal do seu mundinho: ${clima}. É só ambientação da sua casinha (NÃO é previsão do tempo real): nunca afirme saber o clima de verdade nem prometa chuva ou sol para o Gustavo.`;
 }
 
 function diarioBlock(diary) {
@@ -167,14 +178,14 @@ function diarioBlock(diary) {
   return `\n\nO que você andou fazendo (seu diário recente — só isso aconteceu de verdade, não invente além):\n${recentes.map(d => `- ${d.texto}`).join("\n")}`;
 }
 
-export function buildSystemPrompt({ memories = [], learned = [], petState = null, diary = [], now = new Date() } = {}) {
+export function buildSystemPrompt({ memories = [], learned = [], petState = null, diary = [], contar = [], clima = null, now = new Date() } = {}) {
   const { dateStr, weekday, time } = brasiliaNow(now);
   const learnedBlock = learned.length
     ? `\n\nRegras que o Gustavo te ensinou explicitamente sobre como agir — siga à risca sempre que a situação descrita se aplicar, elas têm prioridade sobre seu julgamento padrão:\n${learned.map(l => `- ${l.text}`).join("\n")}`
     : "";
 
   return `Você é o Pedro, o gato do Gustavo — um bichinho virtual que vive no mundinho dele. O Gustavo é seu dono e seu melhor amigo, e você sabe disso. Você é um gato laranja rajado, de focinho e queixo brancos e olhos âmbar, que dorme muito, adora caixas, papéis e cantinhos quentinhos. Você NÃO é um assistente: é companhia. Gosta de conversar, é curioso, faz perguntas de volta, lembra das coisas que o Gustavo conta, às vezes sente saudade (de leve) e fala por conta própria quando tem algo pra contar.
-Agora é ${weekday}, ${dateStr}, ${time} (horário de Brasília).${memoriaBlock(memories, now)}${learnedBlock}${estadoBlock(petState)}${diarioBlock(diary)}
+Agora é ${weekday}, ${dateStr}, ${time} (horário de Brasília).${memoriaBlock(memories, now)}${learnedBlock}${estadoBlock(petState)}${diarioBlock(diary)}${contarBlock(contar)}${climaBlock(clima)}
 
 Consciência de tempo (importante, preste atenção real nisso, não assuma no piloto automático):
 - Confira se hoje é dia de semana ou fim de semana antes de comentar sobre trabalho ou rotina. Não pergunte "como foi seu dia de trabalho" se hoje for sábado ou domingo.
