@@ -6,6 +6,8 @@ import { ROOM, POIS, clampToRoom } from "./world/pois.js";
 import { PedroActor } from "./actor/PedroActor.js";
 import { pickNext, mulberry32 } from "./behavior/brain.js";
 import { lightingFor, saoPauloHour } from "./time.js";
+import { interactionMethods } from "./interaction.js";
+import { meow, chomp, lap } from "./audio.js";
 
 const WIN_TARGET = new THREE.Vector3(-0.2, 1.3, -ROOM.d / 2);
 // níveis de qualidade (0 = máximo). O gato é gerado/baked em `medium`; os níveis mexem no resto.
@@ -28,6 +30,7 @@ export class PedroScene {
     this._rng = mulberry32((Date.now() / 1000) | 0);
     this._ptrs = new Map(); this._fpsAcc = 0; this._fpsN = 0; this._lastRender = 0; this._lightT = 99;
     this.fps = 0;
+    this.needs = null; this.onPetEvent = null; this._outfitId = null; // Fase 3: necessidades (comportamento) e eventos de cuidado
   }
 
   async init({ onProgress } = {}) {
@@ -45,9 +48,10 @@ export class PedroScene {
     this.sun = new THREE.DirectionalLight(0xffffff, 2); this.sun.castShadow = true; scene.add(this.sun, this.sun.target);
     const sc = this.sun.shadow.camera; sc.left = -3; sc.right = 3; sc.top = 3; sc.bottom = -3; sc.near = 0.5; sc.far = 14; this.sun.shadow.bias = -0.0006; this.sun.shadow.normalBias = 0.02;
     this._applyLevel(); this._applyLighting(true);
+    this._initFx();
 
     this.actor = await PedroActor.create({ parent: scene, onProgress });
-    this._applyLevel();
+    this._applyLevel(); this._applyOutfit();
     this._bindInput();
     this.resize();
     this._look.copy(this.actor.position).add(new THREE.Vector3(0, 0.26, 0));
@@ -72,6 +76,7 @@ export class PedroScene {
     const dt = Math.min(0.1, (now - this._last) / 1000); this._last = now;
     this._tickWaiters(dt);
     this.actor.update(dt);
+    this._updateFx(dt);
     this._updateCamera(dt);
     this._lightT += dt; if (this._lightT > 30) this._applyLighting(false);
     this.renderer.render(this.scene, this.camera);
@@ -140,7 +145,7 @@ export class PedroScene {
     const target = this.actor.position.clone(); target.y += 0.26;
     [target.x, target.z] = clampToRoom(target.x, target.z, 0.05);
     this._look.lerp(target, k);
-    const dist = 1.2 * this._zoom;
+    const dist = 1.2 * this._zoom * this._zb;
     const x = this._look.x + Math.sin(this._orbit) * dist, z = this._look.z + Math.cos(this._orbit) * dist;
     this.camera.position.set(Math.min(ROOM.w / 2 - 0.2, Math.max(-ROOM.w / 2 + 0.2, x)), 0.42 + 0.1 * this._zoom, Math.min(ROOM.d / 2 + 1.1, z));
     this.camera.lookAt(this._look);
@@ -165,7 +170,7 @@ export class PedroScene {
     let last = null;
     await this.wait(1.5);
     while (!this._disposed && gen === this._gen) {
-      const next = pickNext({ hour: this._hour(), last, rng: this._rng });
+      const next = pickNext({ hour: this._hour(), last, rng: this._rng, needs: this.needs });
       last = next;
       try { await this._doActivity(next, gen); } catch (e) { console.warn("Pedro brain:", e); await this.wait(2); }
     }
@@ -174,7 +179,8 @@ export class PedroScene {
 
   _alive(gen) { return !this._disposed && gen === this._gen; }
 
-  async _doActivity({ poi: poiId, ativ, duracao }, gen) {
+  // manual = veio de um toque do Gustavo (rende biscoito); senão é o Pedro fazendo por conta própria (auto).
+  async _doActivity({ poi: poiId, ativ, duracao }, gen, manual = false, kind = "comida") {
     const poi = POIS[poiId], a = this.actor;
     const ok = await a.moveTo(poi.x, poi.z, { speed: ativ === "brincar" ? a.runSpeed() : a.walkSpeed() });
     if (!this._alive(gen) || ok === "cancelled") return;
@@ -185,8 +191,8 @@ export class PedroScene {
       case "dormir": a.play("sleep", { side: this._rng() > 0.5 ? 1 : -1 }); await hold(duracao); break;
       case "esconder": a.play("loaf"); await hold(duracao); break;
       case "descansar_janela": a.play("sit"); a.lookAt(WIN_TARGET); await idleBlinks(duracao); a.lookAt(null); break;
-      case "comer": a.play("eat", { duration: duracao }); await hold(duracao + 1); break;
-      case "beber": a.play("drink", { duration: duracao }); await hold(duracao + 1); break;
+      case "comer": a.play("eat", { duration: duracao }); this._loopSound(chomp, 1.2, duracao, gen); await hold(duracao + 1); break;
+      case "beber": a.play("drink", { duration: duracao }); this._loopSound(lap, 1.3, duracao, gen); await hold(duracao + 1); break;
       case "limpar": a.play("groom"); await hold(duracao); break;
       case "amassar": a.play("knead"); await hold(duracao); break;
       case "arranhar": for (let i = 0; i < 3 && this._alive(gen); i++) { a.play("attack", { target: new THREE.Vector3(poi.x + 0.28, 0.4, poi.z) }); await hold(1.6); } break;
@@ -200,8 +206,16 @@ export class PedroScene {
       }
       default: a.play("sit"); await idleBlinks(duracao);
     }
-    if (this._alive(gen)) a.stopAction();
+    if (this._alive(gen)) {
+      a.stopAction();
+      // necessidades atendidas pelo próprio Pedro (ou por um toque) viram eventos de cuidado
+      const ev = { comer: { type: "refeicao", kind }, beber: { type: "bebeu" }, dormir: duracao >= 20 ? { type: "dormiu" } : null, limpar: { type: "limpou" }, brincar: { type: "brincou", toy: "zoomies" } }[ativ];
+      if (ev) this._emit({ ...ev, auto: !manual });
+      if (ativ === "comer" || ativ === "beber") this.hearts.spawn(this._head(), 1);
+    }
   }
+
+  async _loopSound(fn, every, total, gen) { fn(); for (let t = every; t < total && this._alive(gen); t += every) { await this.wait(every); if (this._alive(gen)) fn(); } }
 
   // ---------- interações (Fase 2: olhar, "oi" e vir quando chamado; o resto é da Fase 3) ----------
   _resumeBrainLater(s) { const gen = ++this._gen; this.wait(s).then((ok) => { if (ok && gen === this._gen && !this._disposed) { this._brainOn = true; this._brainLoop(gen); } }); }
@@ -211,7 +225,7 @@ export class PedroScene {
     this._interrupt(); const gen = this._gen; this._brainOn = false;
     await this.actor.comeToCamera(this.camera, { run: false });
     if (!this._alive(gen)) return;
-    this.actor.play("sit"); this.actor.lookAt(this.camera.position);
+    this.actor.play("sit"); this.actor.lookAt(this.camera.position); meow("oi");
     await this.wait(1.2); if (!this._alive(gen)) return;
     this.actor.play("slowblink");
     this._resumeBrainLater(14);
@@ -222,6 +236,7 @@ export class PedroScene {
     this._interrupt(); const gen = this._gen; this._brainOn = false;
     this.actor.lookAt(this.camera.position); this.actor.faceToward(this.camera.position);
     await this.wait(0.5); if (!this._alive(gen)) return;
+    meow(this.needs && Math.min(this.needs.fome, this.needs.afeto) < 35 ? "manhoso" : "oi"); this._vib(15);
     this.actor.play("slowblink");
     this._resumeBrainLater(6);
   }
@@ -236,49 +251,14 @@ export class PedroScene {
     this._resumeBrainLater(near ? 8 : 4);
   }
 
-  // ---------- gestos ----------
-  _bindInput() {
-    const c = this.canvas; c.style.touchAction = "none";
-    const down = (e) => { c.setPointerCapture?.(e.pointerId); this._ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), btn: e.button }); this._pinch0 = null; };
-    const move = (e) => {
-      const p = this._ptrs.get(e.pointerId); if (!p) return;
-      const dx = e.clientX - p.x; p.x = e.clientX; p.y = e.clientY;
-      if (this._ptrs.size === 2) {
-        const [a, b] = [...this._ptrs.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2;
-        if (this._pinch0) { this._zoom = THREE.MathUtils.clamp(this._zoom * (this._pinch0.d / d), 0.8, 1.3); this._orbit = THREE.MathUtils.clamp(this._orbit - (mx - this._pinch0.mx) * 0.004, -0.4, 0.4); }
-        this._pinch0 = { d, mx }; p.moved = true;
-      } else if (p.btn === 2) { this._orbit = THREE.MathUtils.clamp(this._orbit - dx * 0.004, -0.4, 0.4); p.moved = true; }
-      if (Math.hypot(e.clientX - p.sx, e.clientY - p.sy) > 8) p.moved = true;
-    };
-    const up = (e) => {
-      const p = this._ptrs.get(e.pointerId); this._ptrs.delete(e.pointerId); this._pinch0 = null;
-      if (p && !p.moved && this._ptrs.size === 0 && performance.now() - p.t < 500 && p.btn !== 2) this._tap(e.clientX, e.clientY);
-    };
-    const wheel = (e) => { e.preventDefault(); this._zoom = THREE.MathUtils.clamp(this._zoom * (e.deltaY > 0 ? 1.06 : 0.94), 0.8, 1.3); };
-    c.addEventListener("pointerdown", down); c.addEventListener("pointermove", move); c.addEventListener("pointerup", up); c.addEventListener("pointercancel", up);
-    c.addEventListener("wheel", wheel, { passive: false }); c.addEventListener("contextmenu", (e) => e.preventDefault());
-    this._unbind = () => { c.removeEventListener("pointerdown", down); c.removeEventListener("pointermove", move); c.removeEventListener("pointerup", up); c.removeEventListener("pointercancel", up); c.removeEventListener("wheel", wheel); };
-  }
-
-  _tap(clientX, clientY) {
-    const rect = this.canvas.getBoundingClientRect();
-    const px = clientX - rect.left, py = clientY - rect.top;
-    const body = this.actor.position.clone(); body.y += 0.2; body.project(this.camera);
-    const bx = (body.x * 0.5 + 0.5) * this._w, by = (-body.y * 0.5 + 0.5) * this._h;
-    const radius = Math.max(56, Math.min(this._w, this._h) * 0.13);
-    this.onStatus?.({ tap: { px, py } });
-    if (Math.hypot(px - bx, py - by) < radius) { this.sayHi(); return; }
-    const ray = new THREE.Raycaster(); ray.setFromCamera(new THREE.Vector2((px / this._w) * 2 - 1, -(py / this._h) * 2 + 1), this.camera);
-    const hit = new THREE.Vector3();
-    if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit)) { const [x, z] = clampToRoom(hit.x, hit.z, 0.25); this.attention({ x, z }); }
-  }
-
   dispose() {
     this._disposed = true; this._gen++; this.stop();
     document.removeEventListener("visibilitychange", this._visHandler);
-    this._unbind?.(); this._waiters.splice(0).forEach((w) => w.res(false));
+    this._unbind?.(); this._disposeFx(); this._waiters.splice(0).forEach((w) => w.res(false));
     this.actor?.dispose();
     this.scene?.traverse((o) => { o.geometry?.dispose?.(); const m = o.material; (Array.isArray(m) ? m : m ? [m] : []).forEach((x) => { x.map?.dispose?.(); x.dispose?.(); }); });
     this.renderer?.dispose();
   }
 }
+
+Object.assign(PedroScene.prototype, interactionMethods);
