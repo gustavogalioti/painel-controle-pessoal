@@ -90,6 +90,7 @@ export function buildRoom() {
   outside.position.set(cxw, 2, -D / 2 - 3.2); root.add(outside);
   // copa de árvore (silhueta verde lá fora)
   const treeMat = new THREE.MeshBasicMaterial({ color: 0x5f8f4e, fog: false });
+  root.userData.treeMat = treeMat;
   [[-1.2, 1.15, 0.4], [-0.55, 1.5, 0.32], [0.25, 1.25, 0.45], [0.7, 1.05, 0.3]].forEach(([x, y, r]) => { const m = new THREE.Mesh(new THREE.CircleGeometry(r, 24), treeMat); m.position.set(x, y, -D / 2 - 3.1); root.add(m); });
   const curtain = std(0xe8b27a, 0.95);
   [WIN.x0 - 0.13, WIN.x1 + 0.13].forEach((x) => box(0.2, wh + 0.3, 0.05, curtain, { x, y: WIN.y0 - 0.05, z: -D / 2 + 0.12, receive: false }));
@@ -165,7 +166,7 @@ export function buildRoom() {
     box(0.36, 0.08, 0.34, std(0xdccfb0, 1), { parent: g, cast: false }); }
 
   // ---- abajur (mesinha ao lado da poltrona) com luz noturna
-  const lampLight = new THREE.PointLight(0xffc27a, 0, 3.2, 1.6);
+  const lampLight = new THREE.PointLight(0xffc27a, 0, 4, 1.4);
   { const g = new THREE.Group(); g.position.set(-W / 2 + 0.3, 0, POIS.poltrona.z - 0.85); root.add(g);
     cyl(0.17, 0.17, 0.42, std(0xb08a5a, 0.7), { parent: g });
     cyl(0.025, 0.025, 0.25, std(0x3a3a3a, 0.4), { y: 0.42, parent: g }, 8);

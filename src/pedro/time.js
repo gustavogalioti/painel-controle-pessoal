@@ -7,16 +7,16 @@ export function saoPauloHour(date = new Date()) {
 
 // hora, céu, sol (cor/intensidade/elevação°/azimute°), hemisfério (céu/chão/intensidade), abajur 0..1, exposição
 const KEYS = [
-  { h: 0,    sky: 0x0d1530, sun: 0x6f86c9, si: 0.0,  el: 20, az: -35, hs: 0x2a3566, hg: 0x15121c, hi: 0.55, lamp: 1,   ex: 0.95 },
-  { h: 5,    sky: 0x1a2447, sun: 0x8a96d0, si: 0.0,  el: 8,  az: -50, hs: 0x34406e, hg: 0x1c1720, hi: 0.6,  lamp: 0.9, ex: 0.95 },
+  { h: 0,    sky: 0x0d1530, sun: 0x7f96d9, si: 0.7,  el: 24, az: -35, hs: 0x4a5a99, hg: 0x2a2438, hi: 1.0,  lamp: 1,   ex: 1.1 },
+  { h: 5,    sky: 0x1a2447, sun: 0x8a96d0, si: 0.5,  el: 12, az: -50, hs: 0x4a5a99, hg: 0x2a2438, hi: 0.95, lamp: 0.9, ex: 1.08 },
   { h: 6.5,  sky: 0xf4b987, sun: 0xffb36b, si: 1.5,  el: 9,  az: -55, hs: 0xffd2a6, hg: 0x8a6b4a, hi: 0.8,  lamp: 0.3, ex: 1.0 },
   { h: 9,    sky: 0xbfe0ff, sun: 0xffdca0, si: 2.6,  el: 32, az: -42, hs: 0xfff0d8, hg: 0x9a7b56, hi: 1.05, lamp: 0,   ex: 1.0 },
   { h: 13,   sky: 0xcfe8ff, sun: 0xfff1d6, si: 3.0,  el: 52, az: -15, hs: 0xfff6e8, hg: 0xa38460, hi: 1.15, lamp: 0,   ex: 1.0 },
   { h: 16.5, sky: 0xf8d9a8, sun: 0xffc27a, si: 2.7,  el: 28, az: 35,  hs: 0xffe3bf, hg: 0x98764f, hi: 1.0,  lamp: 0.05, ex: 1.0 },
   { h: 18.5, sky: 0xf29a6b, sun: 0xff8f4a, si: 1.9,  el: 9,  az: 52,  hs: 0xffc592, hg: 0x7d5a46, hi: 0.8,  lamp: 0.5, ex: 1.0 },
-  { h: 20,   sky: 0x3a3f7a, sun: 0x8a8fd0, si: 0.0,  el: 8,  az: 55,  hs: 0x56609a, hg: 0x2b2230, hi: 0.65, lamp: 0.9, ex: 0.97 },
-  { h: 22,   sky: 0x141b3d, sun: 0x7088cc, si: 0.0,  el: 15, az: 20,  hs: 0x2d3868, hg: 0x17131d, hi: 0.55, lamp: 1,   ex: 0.95 },
-  { h: 24,   sky: 0x0d1530, sun: 0x6f86c9, si: 0.0,  el: 20, az: -35, hs: 0x2a3566, hg: 0x15121c, hi: 0.55, lamp: 1,   ex: 0.95 },
+  { h: 20,   sky: 0x3a3f7a, sun: 0x8a8fd0, si: 0.6,  el: 12, az: 55,  hs: 0x56609a, hg: 0x34293c, hi: 0.95, lamp: 0.9, ex: 1.05 },
+  { h: 22,   sky: 0x141b3d, sun: 0x7f96d9, si: 0.7,  el: 20, az: 20,  hs: 0x4a5a99, hg: 0x2a2438, hi: 1.0,  lamp: 1,   ex: 1.1 },
+  { h: 24,   sky: 0x0d1530, sun: 0x7f96d9, si: 0.7,  el: 24, az: -35, hs: 0x4a5a99, hg: 0x2a2438, hi: 1.0,  lamp: 1,   ex: 1.1 },
 ];
 
 const lerp = (a, b, t) => a + (b - a) * t;

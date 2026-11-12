@@ -102,6 +102,8 @@ export class PedroScene {
     const L = lightingFor(this._hour());
     this.scene.background.setHex(L.sky);
     this.room.userData.outside.material.color.setHex(L.sky).multiplyScalar(0.82);
+    const luma = (((L.sky >> 16) & 255) + ((L.sky >> 8) & 255) + (L.sky & 255)) / 3;
+    this.room.userData.treeMat.color.setHex(0x5f8f4e).multiplyScalar(0.2 + 0.8 * Math.min(1, luma / 170));
     this.hemi.color.setHex(L.hemiSky); this.hemi.groundColor.setHex(L.hemiGround); this.hemi.intensity = L.hemiIntensity;
     // sol entra pela janela dos fundos: azimute -90..90 (esq/dir), elevação em graus
     const az = THREE.MathUtils.degToRad(L.sunAzimuth), el = THREE.MathUtils.degToRad(Math.max(6, L.sunElevation));
@@ -110,7 +112,7 @@ export class PedroScene {
     this.sun.target.position.set(0, 0, 0);
     this.sun.color.setHex(L.sun); this.sun.intensity = L.sunIntensity; this.sun.visible = L.sunIntensity > 0.02;
     this.renderer.toneMappingExposure = L.exposure;
-    this.room.userData.lampLight.intensity = L.lamp * 5.5;
+    this.room.userData.lampLight.intensity = L.lamp * 11;
     this.room.userData.lampShade.material.emissiveIntensity = L.lamp * 1.4;
     this.room.userData.lampLight.visible = L.lamp > 0.03;
   }

@@ -9,6 +9,7 @@ import { groundHeight, clampToRoom } from "../world/pois.js";
 // "Receita" do Pedro (ver docs/PEDRO-VIRTUAL.md): gato ginger rajado, macho, focinho/queixo brancos,
 // olhos dourados. Mudou aqui => rodar `node scripts/pedro-bake.mjs` pra regerar o .animal.
 export const PEDRO_LOOK = { seed: 2, sex: "male", variant: "ginger", overrides: { muzzleWhite: true, white: 0.8, eye: "gold" } };
+const ARRIVE_R = 0.3; // igual ao raio de parada da lib (0.35 * k)
 export const BAKED_URL = "/pedro/pedro-cat-medium.animal";
 
 export class PedroActor {
@@ -17,6 +18,7 @@ export class PedroActor {
     let animal = null, source = "baked";
     try {
       const baked = fetch(BAKED_URL).then((r) => { if (!r.ok) throw new Error(`bake ${r.status}`); return r.arrayBuffer(); });
+      baked.catch(() => {}); // a falha é tratada abaixo (fallback em runtime); evita 'unhandled rejection'
       animal = await createAnimal("cat", { ...common, baked });
     } catch (e) {
       console.warn("Pedro: bake indisponível, gerando em runtime:", e?.message || e);
@@ -31,7 +33,7 @@ export class PedroActor {
   constructor(animal, source) {
     this.animal = animal; this.source = source;
     this.object = animal.object;
-    this._moveSeq = 0; this._moveDone = null;
+    this._moveSeq = 0; this._moveDone = null; this._target = null;
     this.mood = "calmo"; this.outfit = null;
     animal.on("arrive", () => { const d = this._moveDone; this._moveDone = null; d?.("arrive"); });
   }
@@ -42,21 +44,32 @@ export class PedroActor {
   get gears() { return this.animal.gears || {}; }
   get stats() { return this.animal.stats; }
 
-  update(dt) { this.animal.update(dt); }
+  update(dt) {
+    this.animal.update(dt);
+    const t = this._target;
+    if (t) {
+      t.t += dt;
+      if (Math.hypot(this.position.x - t.x, this.position.z - t.z) < ARRIVE_R) { this.animal.stop(); t.finish("arrive"); }
+      else if (t.t > t.timeoutS) { this.animal.stop(); t.finish("timeout"); }
+    }
+  }
 
   // Vai até (x,z) (dentro da sala). Resolve "arrive" | "cancelled" | "timeout".
-  moveTo(x, z, { speed = this.gears.walk || 0.6, timeoutS = 40 } = {}) {
+  // Chegou = evento `arrive` da lib OU a menos de ARRIVE_R do alvo (a lib às vezes orbita um alvo
+  // apertado ou nem dispara o evento quando o gato já está lá). Timeout em tempo de CENA (pausa com a aba).
+  moveTo(x, z, { speed = this.gears.walk || 0.6, timeoutS = 25 } = {}) {
     this.cancelMove();
     const [cx, cz] = clampToRoom(x, z, 0.2);
+    if (Math.hypot(this.position.x - cx, this.position.z - cz) < ARRIVE_R) return Promise.resolve("arrive");
     const seq = ++this._moveSeq;
     return new Promise((resolve) => {
-      let timer = setTimeout(() => finish("timeout"), timeoutS * 1000);
-      const finish = (why) => { clearTimeout(timer); if (this._moveSeq === seq) this._moveDone = null; resolve(why); };
+      const finish = (why) => { if (this._moveSeq === seq) { this._moveDone = null; this._target = null; } resolve(why); };
       this._moveDone = finish;
+      this._target = { x: cx, z: cz, t: 0, timeoutS, finish };
       this.animal.moveTo(new THREE.Vector3(cx, 0, cz), { speed });
     });
   }
-  cancelMove() { const d = this._moveDone; this._moveDone = null; this._moveSeq++; d?.("cancelled"); }
+  cancelMove() { const d = this._moveDone; this._moveDone = null; this._target = null; this._moveSeq++; d?.("cancelled"); }
 
   walkSpeed() { return this.gears.walk || 0.6; }
   runSpeed() { return this.gears.trot || this.gears.bound || this.gears.walk || 1.2; }
