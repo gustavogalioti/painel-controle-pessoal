@@ -166,15 +166,6 @@ const KV = {
   },
 };
 
-// ── Pedro — barramento leve de eventos (páginas avisam, o widget reage) ──────
-// Em stand by (PEDRO_ATIVO=false), isso é um no-op: as páginas continuam
-// chamando pedroNotify sem erro, só que o evento nunca é disparado de fato
-// (e, de qualquer forma, não há mais ninguém ouvindo "pedro:event" com o
-// PedroWidget desmontado).
-const pedroNotify = (type, payload) => {
-  if (!PEDRO_ATIVO) return;
-  try { window.dispatchEvent(new CustomEvent("pedro:event", { detail: { type, payload } })); } catch {}
-};
 
 // ── PAINEL-3 PARTE B.3: "@jarbas" em campos de texto existentes vira recado pro
 // Jarbas — reaproveita o MESMO armazenamento (jarbas_recados_v1) que a aba "Rotina e
@@ -2735,11 +2726,6 @@ function TasksBoard({ tasks, setTasks }) {
       : { plannedDate:null, focusDate:null, focusOrder:null, ...(status==="standby" ? { inbox:false } : {}) };
     const n = tasksRef.current.map(t => t.id===id ? { ...t, ...plan, status, done: status==="done", doneAt: status==="done" ? nowISO() : t.doneAt } : t);
     save(n);
-    if (status === "done" && prevTask?.status !== "done") {
-      pedroNotify("task_done", { text: prevTask?.text });
-      const stillPendingToday = n.some(x => x.status==="today");
-      if (prevTask?.status==="today" && !stillPendingToday) pedroNotify("all_today_done", {});
-    }
   };
 
   const del = (id) => { setTasks(p=>p.filter(t=>t.id!==id)); };
@@ -3186,7 +3172,7 @@ function TasksPage() {
   return (
     <DailyCenter
       tasks={tasks} setTasks={setTasks} synced={synced} sync={sync}
-      ui={{ useKV, pedroNotify, fromGoogleEvent, fromOutlookEvent }}
+      ui={{ useKV, fromGoogleEvent, fromOutlookEvent }}
       board={<TasksBoard tasks={tasks} setTasks={setTasks}/>}
     />
   );
@@ -5697,7 +5683,6 @@ function BillsPage() {
   const toggle = id=>{
     const b=bills.find(b=>b.id===id);
     const n=bills.map(b=>b.id===id?{...b,paid:!b.paid}:b); setBills(n); DB.update("bills",{id,paid:!b.paid});
-    if (!b.paid) pedroNotify("bill_paid", { name: b.name });
   };
   const del = id=>{ setBills(p=>p.filter(b=>b.id!==id)); };
   const day = new Date().getDate();
@@ -6044,7 +6029,6 @@ function AgendaPage() {
       setEvents(prev => [...prev,{id:Date.now(),...form,googleId,outlookId,outlookAccount}].sort(sortFn));
     } else {
       setEvents(prev => [...prev,{id:Date.now(),...form,googleId}].sort(sortFn));
-      pedroNotify("event_created", { title: form.title });
     }
     pushJarbasRecadoFromMention(form.notes, { pagina:"events", itemId: editId || null });
     setModal(false); setEditId(null);
@@ -9547,8 +9531,7 @@ function DJPage() {
   );
 }
 
-// ─── PEDRO — assistente IA do Painel (independente do Pedro do Daily) ───────
-const pedroTodayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+// ─── PEDRO — bichinho virtual do Gustavo (ver docs/PEDRO-VIRTUAL.md) ────────
 
 // Chave pública VAPID (é seguro expor no client — a privada fica só no servidor)
 const VAPID_PUBLIC_KEY = "BKahJboZrxGOHO9eiJ3Xd0yCllKiltvv14ZnhTsA9aQNRhQb6lLK16SmStsZrwDnAL5bixW1PUSIaT7QPnAY0wM";
@@ -9562,199 +9545,87 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 function PedroAdminModal({ onClose }) {
-  const [tab, setTab] = useState("intents");
-  const [intents, setIntents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState(null);
-  const [detail, setDetail] = useState({ keywords: [], responses: [] });
-  const [newKw, setNewKw] = useState("");
-  const [newRsp, setNewRsp] = useState("");
-  const [unmatched, setUnmatched] = useState([]);
-  const [newIntentName, setNewIntentName] = useState("");
-  const [newIntentCat, setNewIntentCat] = useState("");
+  const [tab, setTab] = useState("memory");
+  const [memories, setMemories] = useState(null);
+  const [learned, setLearned] = useState(null);
 
   const jpost = (action, body) => fetch(`/api/pedro?action=${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const loadMemories = async () => {
+    try { const d = await fetch("/api/pedro?action=admin_memory").then(r => r.json()); setMemories(d.memories || []); } catch { setMemories([]); }
+  };
+  const loadLearned = async () => {
+    try { const d = await fetch("/api/pedro?action=admin_learned").then(r => r.json()); setLearned(d.learned || []); } catch { setLearned([]); }
+  };
+  useEffect(() => { loadMemories(); loadLearned(); }, []);
 
-  const loadIntents = async () => {
-    try { const d = await fetch("/api/pedro?action=admin_intents").then(r => r.json()); setIntents(d.intents || []); } catch {}
-    setLoading(false);
-  };
-  const loadUnmatched = async () => {
-    try { const d = await fetch("/api/pedro?action=admin_unmatched").then(r => r.json()); setUnmatched(d.logs || []); } catch {}
-  };
-  useEffect(() => { loadIntents(); loadUnmatched(); }, []);
+  const delMemory = async (id) => { if (!confirm("Apagar esta memória do Pedro?")) return; await jpost("admin_memory_delete", { id }); loadMemories(); };
+  const delLearned = async (id) => { if (!confirm("Apagar esta regra ensinada?")) return; await jpost("admin_learned_delete", { id }); loadLearned(); };
 
-  const loadDetail = async (intentId) => {
-    try {
-      const [kd, rd] = await Promise.all([
-        fetch(`/api/pedro?action=admin_keywords&intent_id=${intentId}`).then(r => r.json()),
-        fetch(`/api/pedro?action=admin_responses&intent_id=${intentId}`).then(r => r.json()),
-      ]);
-      setDetail({ keywords: kd.keywords || [], responses: rd.responses || [] });
-    } catch {}
-  };
-
-  const toggleExpand = (intent) => {
-    if (expandedId === intent.id) { setExpandedId(null); return; }
-    setExpandedId(intent.id);
-    loadDetail(intent.id);
-  };
-
-  const addKeyword = async (intentId) => {
-    if (!newKw.trim()) return;
-    await jpost("admin_keyword_add", { intent_id: intentId, keyword: newKw });
-    setNewKw(""); loadDetail(intentId); loadIntents();
-  };
-  const delKeyword = async (id, intentId) => { await jpost("admin_keyword_delete", { id }); loadDetail(intentId); loadIntents(); };
-  const addResponse = async (intentId) => {
-    if (!newRsp.trim()) return;
-    await jpost("admin_response_add", { intent_id: intentId, content: newRsp });
-    setNewRsp(""); loadDetail(intentId); loadIntents();
-  };
-  const delResponse = async (id, intentId) => { await jpost("admin_response_delete", { id }); loadDetail(intentId); loadIntents(); };
-  const toggleResponse = async (id, active, intentId) => { await jpost("admin_response_toggle", { id, active: active ? 0 : 1 }); loadDetail(intentId); };
-  const toggleIntent = async (intent) => { await jpost("admin_intent_toggle", { id: intent.id, active: intent.active ? 0 : 1 }); loadIntents(); };
-  const deleteIntent = async (id) => {
-    if (!confirm("Apagar este intent e todas suas keywords/respostas?")) return;
-    await jpost("admin_intent_delete", { id }); setExpandedId(null); loadIntents();
-  };
-  const createIntent = async () => {
-    if (!newIntentName.trim() || !newIntentCat.trim()) return;
-    await jpost("admin_intent_create", { name: newIntentName, category: newIntentCat });
-    setNewIntentName(""); setNewIntentCat(""); loadIntents();
-  };
-  const deleteUnmatched = async (id) => { await jpost("admin_unmatched_delete", { id }); loadUnmatched(); };
+  const row = { display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,background:"var(--bg-sub)",border:"1px solid var(--border)",borderRadius:8,padding:"8px 12px" };
+  const delBtn = { background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",flexShrink:0 };
+  const tabs = [["memory", "Memória"], ["learned", "Ensinado"], ["diary", "Diário"], ["state", "Estado"]];
 
   return (
     <Modal title="🐾 Cérebro do Pedro" onClose={onClose} wide>
-      <div style={{display:"flex",gap:8,marginBottom:16}}>
-        <button onClick={() => setTab("intents")} style={btn(tab === "intents" ? "var(--accent)" : "var(--bg-sub)")}>Intents</button>
-        <button onClick={() => setTab("unmatched")} style={btn(tab === "unmatched" ? "var(--accent)" : "var(--bg-sub)")}>Não reconhecidas ({unmatched.length})</button>
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        {tabs.map(([k, label]) => <button key={k} onClick={() => setTab(k)} style={btn(tab === k ? "var(--accent)" : "var(--bg-sub)")}>{label}</button>)}
       </div>
 
-      {tab === "intents" && (
-        <>
-          <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-            <input placeholder="Nome do intent" value={newIntentName} onChange={e => setNewIntentName(e.target.value)} style={{...inp,flex:1,minWidth:140}}/>
-            <input placeholder="Categoria" value={newIntentCat} onChange={e => setNewIntentCat(e.target.value)} style={{...inp,flex:1,minWidth:120}}/>
-            <button onClick={createIntent} style={btn()}><Icon path={I.plus} size={16}/></button>
-          </div>
-          {loading ? <div style={{color:"var(--text-3)",fontSize:13}}>Carregando...</div> : (
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {intents.map(intent => (
-                <div key={intent.id} style={{border:"1px solid var(--border)",borderRadius:10,overflow:"hidden"}}>
-                  <div onClick={() => toggleExpand(intent)} style={{padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",background: intent.active ? "transparent" : "rgba(255,0,0,0.05)"}}>
-                    <div>
-                      <div style={{fontWeight:700,fontSize:13}}>{intent.name}</div>
-                      <div style={{fontSize:11,color:"var(--text-3)"}}>{intent.category} · {intent.keyword_count} keywords · {intent.response_count} respostas{intent.is_external ? " · externo" : ""}</div>
-                    </div>
-                    <div style={{display:"flex",alignItems:"center",gap:8}} onClick={e => e.stopPropagation()}>
-                      <label style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text-3)"}}>
-                        <input type="checkbox" checked={!!intent.active} onChange={() => toggleIntent(intent)}/> ativo
-                      </label>
-                      {intent.name !== "fallback" && (
-                        <button onClick={() => deleteIntent(intent.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
-                      )}
-                    </div>
-                  </div>
-                  {expandedId === intent.id && (
-                    <div style={{padding:14,borderTop:"1px solid var(--border)",background:"var(--bg-sub)",display:"flex",flexDirection:"column",gap:14}}>
-                      {!intent.is_external && (
-                        <div>
-                          <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",marginBottom:6,textTransform:"uppercase"}}>Palavras-chave</div>
-                          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
-                            {detail.keywords.map(k => (
-                              <span key={k.id} style={{display:"flex",alignItems:"center",gap:4,background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:8,padding:"3px 8px",fontSize:12}}>
-                                {k.keyword}
-                                <button onClick={() => delKeyword(k.id, intent.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",padding:0,display:"flex"}}><Icon path={I.x} size={11}/></button>
-                              </span>
-                            ))}
-                          </div>
-                          <div style={{display:"flex",gap:6}}>
-                            <input value={newKw} onChange={e => setNewKw(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addKeyword(intent.id); }} placeholder="nova palavra-chave" style={{...inp,fontSize:12,padding:"6px 10px"}}/>
-                            <button onClick={() => addKeyword(intent.id)} style={btn()}><Icon path={I.plus} size={14}/></button>
-                          </div>
-                        </div>
-                      )}
-                      <div>
-                        <div style={{fontSize:11,fontWeight:700,color:"var(--text-3)",marginBottom:6,textTransform:"uppercase"}}>
-                          {intent.is_external ? "Conector externo — sem respostas fixas" : "Respostas"}
-                        </div>
-                        {!intent.is_external && (
-                          <>
-                            <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:8}}>
-                              {detail.responses.map(r => (
-                                <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:8,padding:"6px 10px",opacity: r.active ? 1 : 0.5}}>
-                                  <span style={{flex:1,fontSize:12}}>{r.content}</span>
-                                  <button onClick={() => toggleResponse(r.id, r.active, intent.id)} title={r.active ? "Desativar" : "Ativar"} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.check} size={13}/></button>
-                                  <button onClick={() => delResponse(r.id, intent.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={13}/></button>
-                                </div>
-                              ))}
-                            </div>
-                            <div style={{display:"flex",gap:6}}>
-                              <input value={newRsp} onChange={e => setNewRsp(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addResponse(intent.id); }} placeholder="nova resposta" style={{...inp,fontSize:12,padding:"6px 10px"}}/>
-                              <button onClick={() => addResponse(intent.id)} style={btn()}><Icon path={I.plus} size={14}/></button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {tab === "unmatched" && (
+      {tab === "memory" && (
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {unmatched.length === 0 && <div style={{color:"var(--text-3)",fontSize:13}}>Nenhuma mensagem sem resposta registrada 🐾</div>}
-          {unmatched.map(u => (
-            <div key={u.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:"var(--bg-sub)",border:"1px solid var(--border)",borderRadius:8,padding:"8px 12px"}}>
+          <div style={{fontSize:12,color:"var(--text-3)",marginBottom:4}}>O que o Pedro sabe sobre você e sobre ele mesmo. Ele guarda sozinho quando você conta algo marcante.</div>
+          {memories === null && <div style={{color:"var(--text-3)",fontSize:13}}>Carregando...</div>}
+          {memories && memories.length === 0 && <div style={{color:"var(--text-3)",fontSize:13}}>Nenhuma memória ainda 🐾</div>}
+          {(memories || []).map(m => (
+            <div key={m.id} style={row}>
               <div>
-                <div style={{fontSize:13}}>{u.message}</div>
-                <div style={{fontSize:10,color:"var(--text-3)"}}>{new Date(u.created_at).toLocaleString("pt-BR")}</div>
+                <div style={{fontSize:13}}>{m.text}</div>
+                <div style={{fontSize:10,color:"var(--text-3)"}}>
+                  {m.at ? new Date(m.at).toLocaleString("pt-BR") : ""}{m.categoria ? ` · ${m.categoria.replace(/_/g, " ")}` : ""}
+                </div>
               </div>
-              <button onClick={() => deleteUnmatched(u.id)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.trash} size={14}/></button>
+              <button onClick={() => delMemory(m.id)} title="Apagar" style={delBtn}><Icon path={I.trash} size={14}/></button>
             </div>
           ))}
         </div>
       )}
+
+      {tab === "learned" && (
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          <div style={{fontSize:12,color:"var(--text-3)",marginBottom:4}}>Regras que você ensinou no chat com <b>aprenda: …</b></div>
+          {learned === null && <div style={{color:"var(--text-3)",fontSize:13}}>Carregando...</div>}
+          {learned && learned.length === 0 && <div style={{color:"var(--text-3)",fontSize:13}}>Nada ensinado ainda. Escreva "aprenda: ..." pro Pedro 🐾</div>}
+          {(learned || []).map(l => (
+            <div key={l.id} style={row}>
+              <div>
+                <div style={{fontSize:13}}>{l.text}</div>
+                <div style={{fontSize:10,color:"var(--text-3)"}}>{l.at ? new Date(l.at).toLocaleString("pt-BR") : ""}</div>
+              </div>
+              <button onClick={() => delLearned(l.id)} title="Apagar" style={delBtn}><Icon path={I.trash} size={14}/></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === "diary" && <div style={{color:"var(--text-3)",fontSize:13,lineHeight:1.6}}>📖 O Diário do Pedro (o que ele fez enquanto você estava fora) chega na Fase 4.</div>}
+      {tab === "state" && <div style={{color:"var(--text-3)",fontSize:13,lineHeight:1.6}}>🐱 O estado do Pedro (fome, humor, energia, onde ele está) chega junto com o mundo 3D, nas próximas fases.</div>}
     </Modal>
   );
 }
 
-const PEDRO_REACTIONS = {
-  task_done: ["Boa! Mais uma riscada da lista 🐾✅", "Aeee, aquele gostinho de tarefa concluída! 😻", "Confirmado com a patinha! 🐾", "Manda mais! Tô contando aqui 🐱"],
-  all_today_done: ["UAU! Terminou tudo que era de hoje! Isso merece um agrado 🏆🐾", "Zerou a lista de hoje! Sensacional 😻", "Hoje foi produtivo demais! Orgulho de gato 🐾🎉"],
-  bill_paid: ["Conta paga é conta que não pesa mais 💰🐾", "Boa! Uma a menos na lista 🐱", "Certifiquei aqui com a patinha ✅💰"],
-  event_created: ["Compromisso anotado! Vou ficar de olho pra te lembrar 📅🐾", "Show, já tô de olho nesse compromisso! 🐱", "Marcado! Conte comigo pra te lembrar na hora certa 🐾"],
-};
-
-function PedroWidget({ page }) {
+function PedroWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useKV("pedro_chat_v1", []);
-  const [pState, setPState] = useKV("pedro_state_v1", { lastGreetedDate: null, remindedEventIds: [], lastEveningCheckDate: null, lastBillsOverdueCheckDate: null, notifPermAsked: false });
-  const [events] = useKV("events_v1", []);
-  const [tasks] = useKV("tasks_v1", []);
-  const [bills] = useKV("bills_v1", []);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [unread, setUnread] = useState(false);
-  // Qual "cérebro" respondeu a última mensagem — groq, openai (reserva) ou keywords
-  // (quando os dois LLMs falharam) — só pra dar visibilidade discreta de quando o
-  // Pedro está em modo reduzido, sem precisar abrir o console.
+  // Qual "cérebro" respondeu a última mensagem — groq, openai (reserva) ou fallback
+  // (quando os dois LLMs falharam) — só pra dar visibilidade discreta do modo reduzido.
   const [lastEngine, setLastEngine] = useState(null);
   const [lastFallbackMotivo, setLastFallbackMotivo] = useState(null);
   const [adminOpen, setAdminOpen] = useState(false);
   const [notifPerm, setNotifPerm] = useState(() => (typeof Notification !== "undefined" ? Notification.permission : "unsupported"));
   const scrollRef = useRef(null);
-  const greetedRef = useRef(false);
-  const eveningCheckedRef = useRef(false);
-  const billsCheckedRef = useRef(false);
-  const remindedRef = useRef(new Set(pState.remindedEventIds || []));
-  const pendingRef = useRef(null); // clarificação pendente: { type, newText?, prio? }
 
   const notifyOS = async (text) => {
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
@@ -9810,87 +9681,6 @@ function PedroWidget({ page }) {
     notifyOS(text);
   };
 
-  // Saudação diária — primeira vez que abre o painel no dia
-  useEffect(() => {
-    if (greetedRef.current) return;
-    const today = pedroTodayStr();
-    if (pState.lastGreetedDate === today) { greetedRef.current = true; return; }
-    greetedRef.current = true;
-    const t = setTimeout(() => {
-      pushPedro("Bom dia! 🐾 Como você está hoje?");
-      setPState(prev => ({ ...prev, lastGreetedDate: today }));
-    }, 2500);
-    return () => clearTimeout(t);
-  }, [pState.lastGreetedDate]);
-
-  // Lembretes proativos de compromissos próximos (AGENDA)
-  useEffect(() => {
-    const check = () => {
-      const now = new Date();
-      const todayStr = pedroTodayStr();
-      (events || []).forEach(ev => {
-        if (ev.date !== todayStr || !ev.time || remindedRef.current.has(ev.id)) return;
-        const [h, m] = ev.time.split(":").map(Number);
-        const evDate = new Date(); evDate.setHours(h || 0, m || 0, 0, 0);
-        const diffMin = (evDate - now) / 60000;
-        if (diffMin > 0 && diffMin <= 20) {
-          remindedRef.current.add(ev.id);
-          pushPedro(`⏰ Daqui a pouco (${ev.time}) você tem "${ev.title}"${ev.local ? ` em ${ev.local}` : ""}. Já está tudo certo ou precisa de ajuda com algo? 🐾`);
-          setPState(prev => ({ ...prev, remindedEventIds: [...new Set([...(prev.remindedEventIds || []), ev.id])] }));
-        }
-      });
-    };
-    check();
-    const id = setInterval(check, 60000);
-    return () => clearInterval(id);
-  }, [events]);
-
-  // Check-in no fim do dia — se ainda sobrou tarefa "De Hoje" não concluída
-  useEffect(() => {
-    const check = () => {
-      if (eveningCheckedRef.current) return;
-      const now = new Date();
-      if (now.getHours() < 20) return;
-      const today = pedroTodayStr();
-      if (pState.lastEveningCheckDate === today) { eveningCheckedRef.current = true; return; }
-      const pendentesHoje = (tasks || []).filter(t => t.status === "today");
-      if (pendentesHoje.length === 0) return; // nada pendente marcado pra hoje — não incomoda
-      eveningCheckedRef.current = true;
-      pushPedro(`Já é fim de dia e ainda restam ${pendentesHoje.length} tarefa(s) de hoje: ${pendentesHoje.slice(0,3).map(t=>t.text).join(", ")}. Precisa de ajuda ou deixamos pra amanhã? 🐾🌙`);
-      setPState(prev => ({ ...prev, lastEveningCheckDate: today }));
-    };
-    check();
-    const id = setInterval(check, 5 * 60000);
-    return () => clearInterval(id);
-  }, [tasks, pState.lastEveningCheckDate]);
-
-  // Comentário contextual — ao abrir a página de Contas, se houver conta vencida, avisa (1x por dia)
-  useEffect(() => {
-    if (page !== "bills" || billsCheckedRef.current) return;
-    const today = pedroTodayStr();
-    if (pState.lastBillsOverdueCheckDate === today) { billsCheckedRef.current = true; return; }
-    const dia = new Date().getDate();
-    const vencidas = (bills || []).filter(b => !b.paid && +b.dueDay < dia);
-    if (!vencidas.length) return;
-    billsCheckedRef.current = true;
-    const t = setTimeout(() => {
-      pushPedro(`Reparei que ${vencidas.length > 1 ? "essas contas já venceram" : `"${vencidas[0].name}" já venceu`}: ${vencidas.slice(0,3).map(b=>b.name).join(", ")}. Quer que eu marque como paga alguma delas? 🐾💳`);
-      setPState(prev => ({ ...prev, lastBillsOverdueCheckDate: today }));
-    }, 1500);
-    return () => clearTimeout(t);
-  }, [page, bills, pState.lastBillsOverdueCheckDate]);
-
-  // Reage em tempo real a ações feitas nas páginas (tarefa concluída, conta paga, compromisso criado...)
-  useEffect(() => {
-    const onPedroEvent = (e) => {
-      const { type } = e.detail || {};
-      const pool = PEDRO_REACTIONS[type];
-      if (pool && pool.length) pushPedro(pool[Math.floor(Math.random() * pool.length)]);
-    };
-    window.addEventListener("pedro:event", onPedroEvent);
-    return () => window.removeEventListener("pedro:event", onPedroEvent);
-  }, []);
-
   useEffect(() => {
     if (open) {
       setUnread(false);
@@ -9901,29 +9691,20 @@ function PedroWidget({ page }) {
   const send = async () => {
     const text = input.trim();
     if (!text) return;
-    const historyForRequest = messages.slice(-12).map(m => ({ from: m.from, text: m.text }));
+    const historyForRequest = messages.slice(-12).map(m => ({ from: m.from, text: m.text, at: m.at }));
     setMessages(prev => [...prev, { from: "user", text, at: Date.now() }]);
     setInput("");
     setThinking(true);
     try {
-      const cachedCoords = loadCoordsCache();
-      const coords = cachedCoords ? { lat: cachedCoords.lat, lon: cachedCoords.lon } : null;
-      const pending = pendingRef.current;
       const r = await fetch("/api/pedro?action=chat", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, coords, pending, history: historyForRequest }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, history: historyForRequest }),
       });
       const d = await r.json();
       setLastEngine(d.engine || null);
       setLastFallbackMotivo(d.fallbackMotivo || null);
       pushPedro(d.reply || "🐾");
-      if (d.needsClarification) {
-        pendingRef.current = { type: d.needsClarification, ...(d.pendingExtra || {}) };
-      } else {
-        pendingRef.current = null;
-      }
     } catch {
       pushPedro("Escorreguei em algum lugar por aqui... tenta de novo? 😹");
-      pendingRef.current = null;
     }
     setThinking(false);
   };
@@ -9949,7 +9730,7 @@ function PedroWidget({ page }) {
                 const info = {
                   groq: { color: "#3ecf6e", label: "groq" },
                   openai: { color: "#4da3ff", label: "openai (reserva)" },
-                  keywords: { color: "#f5a623", label: "atalhos" },
+                  fallback: { color: "#f5a623", label: "modo simples" },
                 }[lastEngine] || { color: "var(--text-3)", label: lastEngine };
                 const title = `cérebro: ${info.label}` + (lastFallbackMotivo ? ` — groq/openai falharam (${lastFallbackMotivo})` : "");
                 return <span title={title} style={{width:7,height:7,borderRadius:"50%",background:info.color,flexShrink:0,cursor:"default"}}/>;
@@ -9959,12 +9740,12 @@ function PedroWidget({ page }) {
               {notifPerm === "default" && (
                 <button onClick={requestNotifPerm} title="Ativar notificações do Pedro fora do app" style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",fontSize:15,lineHeight:1}}>🔔</button>
               )}
-              <button onClick={() => setAdminOpen(true)} title="Gerenciar cérebro do Pedro" style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",fontSize:15,lineHeight:1}}>⚙️</button>
+              <button onClick={() => setAdminOpen(true)} title="Memória do Pedro" style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",fontSize:15,lineHeight:1}}>⚙️</button>
               <button onClick={() => setOpen(false)} style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer"}}><Icon path={I.x} size={18}/></button>
             </div>
           </div>
           <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
-            {messages.length === 0 && <div style={{color:"var(--text-3)",fontSize:12,textAlign:"center",marginTop:20,lineHeight:1.6}}>Oi! Eu sou o Pedro 🐾<br/>Manda um oi, pergunta sua agenda, ou peça "cria tarefa: X" que eu já faço!</div>}
+            {messages.length === 0 && <div style={{color:"var(--text-3)",fontSize:12,textAlign:"center",marginTop:20,lineHeight:1.6}}>Oi! Eu sou o Pedro 🐾<br/>Vem conversar comigo, me conta como foi seu dia!</div>}
             {messages.map((m, i) => (
               <div key={i} style={{alignSelf: m.from === "pedro" ? "flex-start" : "flex-end",
                 background: m.from === "pedro" ? "var(--bg-sub)" : "var(--accent)",
@@ -10368,7 +10149,7 @@ function AppContent() {
         <span style={{fontSize:10,color:"var(--border)"}}>{new Date().toLocaleDateString("pt-BR")}</span>
       </footer>
 
-      {PEDRO_ATIVO && <PedroWidget page={page}/>}
+      {PEDRO_ATIVO && <PedroWidget/>}
       <JarbasCommandBar/>
     </div>
   );

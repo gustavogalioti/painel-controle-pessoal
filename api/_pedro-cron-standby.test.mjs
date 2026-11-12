@@ -48,22 +48,19 @@ console.log("pedro-cron: secret errado -> 401: OK");
 }
 console.log("pedro-cron: stand by responde 200 {ok:true,standby:true} sem chamar fetch/sql: OK");
 
-// ---------- PEDRO_ATIVO=1: passa do gate de stand by (smoke) ----------
+// ---------- PEDRO_ATIVO=1: passa do gate de stand by; Fase 1 não envia nada, não toca fetch/sql ----------
 {
   process.env.PEDRO_ATIVO = "1";
-  delete process.env.VAPID_PUBLIC_KEY;
-  delete process.env.VAPID_PRIVATE_KEY;
-  // Sem VAPID configurado, o handler ORIGINAL (comportamento de antes desta
-  // mudança, nada a ver com stand by) responde 500 — é só isso que este
-  // smoke test confere: que o PEDRO_ATIVO=1 não ficou preso no gate de stand by.
-  globalThis.fetch = throwingFetch("smoke PEDRO_ATIVO=1");
+  globalThis.fetch = throwingFetch("PEDRO_ATIVO=1 (cron da Fase 1 não faz nada)");
   const res = makeRes();
   await handler({ query: { secret: "segredo-de-teste" } }, res);
-  assert.equal(res.statusCode, 500, "sem VAPID, o comportamento original (pré-existente) é 500");
-  assert.notDeepEqual(res.body, { ok: true, standby: true }, "não pode ser a resposta de stand by");
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.ok, true);
+  assert.notEqual(res.body.standby, true, "não pode ser a resposta de stand by");
+  assert.equal(res.body.sent, 0, "Fase 1: nenhum push é enviado (sem agenda, sem check-in)");
   restoreFetch();
 }
-console.log("pedro-cron: PEDRO_ATIVO=1 passa do gate de stand by (smoke): OK");
+console.log("pedro-cron: PEDRO_ATIVO=1 não envia push nem toca fetch/sql (Fase 1): OK");
 
 restoreEnv();
 restoreFetch();
