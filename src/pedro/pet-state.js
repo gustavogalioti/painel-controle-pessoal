@@ -24,9 +24,13 @@ export function defaultPet() {
     necessidades: { fome: 80, sede: 85, energia: 85, diversao: 70, afeto: 70, higiene: 90 },
     humor: "calmo",
     ultimaInteracao: null, ultimoTick: null,
-    inventario: { moedas: 5, itens: [...BRINQUEDOS], petiscos: 0, desbloqueados: [], vestindo: null },
+    inventario: { moedas: 5, itens: [...BRINQUEDOS], petiscos: 0, desbloqueados: [], vestindo: null, presentes: [] },
+    local: { ambiente: "sala", poi: "centro" }, atividade: null, // onde ele está / o que faz (Fase 4: o servidor é o dono)
+    pendentes: [], visto: null, // eventos triviais ainda sem entrada no diário; última vez que o app esteve aberto
+    push: { dia: null, n: 0, ultimo: null, ultimoTipo: null, saudadeEm: null, fomeEm: null },
+    diario: { llm: { dia: null, n: 0 } },
     stats: { carinhos: 0, refeicoes: 0, brincadeiras: 0, descobertas: 0 },
-    config: { som: true, vibracao: true },
+    config: { som: true, vibracao: true, push: { ligado: true, max: 3, silencioDe: 22, silencioAte: 8 } },
   };
 }
 
@@ -43,7 +47,10 @@ export function normalizePet(raw) {
   inv.petiscos = Math.max(0, Math.floor(Number(inv.petiscos) || 0));
   inv.itens = Array.isArray(inv.itens) && inv.itens.length ? inv.itens : [...BRINQUEDOS];
   inv.desbloqueados = Array.isArray(inv.desbloqueados) ? inv.desbloqueados : [];
-  const out = { ...d, ...p, necessidades: nec, inventario: inv, stats: { ...d.stats, ...(p.stats || {}) }, config: { ...d.config, ...(p.config || {}) } };
+  inv.presentes = Array.isArray(inv.presentes) ? inv.presentes.slice(-12) : [];
+  const out = { ...d, ...p, necessidades: nec, inventario: inv, stats: { ...d.stats, ...(p.stats || {}) }, config: { ...d.config, ...(p.config || {}), push: { ...d.config.push, ...(p.config?.push || {}) } },
+    local: { ...d.local, ...(p.local || {}) }, push: { ...d.push, ...(p.push || {}) }, diario: { llm: { ...d.diario.llm, ...(p.diario?.llm || {}) } },
+    pendentes: Array.isArray(p.pendentes) ? p.pendentes.slice(-40) : [] };
   out.humor = moodFor(out.necessidades);
   return out;
 }
@@ -60,6 +67,13 @@ export function moodFor(n) {
   if (media >= 72) return "feliz";
   if (n.diversao < 45 && n.energia > 55) return "curioso";
   return "calmo";
+}
+
+// Decaimento de `horas` horas acordado (usado pelo applyDecay e pelo simulador do servidor).
+export function decayNeeds(nec, horas, { dormindo = false } = {}) {
+  const out = { ...nec };
+  for (const k of NECESSIDADES) { if (dormindo && k === "energia") continue; out[k] = clamp(out[k] - DECAY_H[k] * horas); }
+  return out;
 }
 
 // Passagem do tempo (catch-up ao abrir / a cada minuto). `agora` em ms.

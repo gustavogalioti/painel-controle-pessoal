@@ -9549,6 +9549,9 @@ function PedroAdminModal({ onClose }) {
   const [tab, setTab] = useState("memory");
   const [memories, setMemories] = useState(null);
   const [learned, setLearned] = useState(null);
+  const [diary, setDiary] = useState(null);
+  const [petAdm, setPetAdm] = useState(null);
+  const [necEdit, setNecEdit] = useState({});
 
   const jpost = (action, body) => fetch(`/api/pedro?action=${action}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const loadMemories = async () => {
@@ -9557,13 +9560,21 @@ function PedroAdminModal({ onClose }) {
   const loadLearned = async () => {
     try { const d = await fetch("/api/pedro?action=admin_learned").then(r => r.json()); setLearned(d.learned || []); } catch { setLearned([]); }
   };
-  useEffect(() => { loadMemories(); loadLearned(); }, []);
+  const loadDiary = async () => {
+    try { const d = await fetch("/api/pedro?action=admin_diary").then(r => r.json()); setDiary(d.entradas || []); } catch { setDiary([]); }
+  };
+  const loadPetAdm = async () => {
+    try { const d = await fetch("/api/pedro?action=admin_pet").then(r => r.json()); setPetAdm(d.pet || null); setNecEdit(d.pet?.necessidades || {}); } catch { setPetAdm(null); }
+  };
+  useEffect(() => { loadMemories(); loadLearned(); loadDiary(); loadPetAdm(); }, []);
 
   const delMemory = async (id) => { if (!confirm("Apagar esta memória do Pedro?")) return; await jpost("admin_memory_delete", { id }); loadMemories(); };
   const delLearned = async (id) => { if (!confirm("Apagar esta regra ensinada?")) return; await jpost("admin_learned_delete", { id }); loadLearned(); };
 
   const row = { display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,background:"var(--bg-sub)",border:"1px solid var(--border)",borderRadius:8,padding:"8px 12px" };
   const delBtn = { background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",flexShrink:0 };
+  const delDiary = async (id) => { if (!confirm("Apagar esta entrada do diário?")) return; await jpost("admin_diary_delete", { id }); loadDiary(); };
+  const savePetAdm = async (body) => { await jpost("admin_pet_set", body); loadPetAdm(); };
   const tabs = [["memory", "Memória"], ["learned", "Ensinado"], ["diary", "Diário"], ["state", "Estado"]];
 
   return (
@@ -9608,8 +9619,46 @@ function PedroAdminModal({ onClose }) {
         </div>
       )}
 
-      {tab === "diary" && <div style={{color:"var(--text-3)",fontSize:13,lineHeight:1.6}}>📖 O Diário do Pedro (o que ele fez enquanto você estava fora) chega na Fase 4.</div>}
-      {tab === "state" && <div style={{color:"var(--text-3)",fontSize:13,lineHeight:1.6}}>🐱 O estado do Pedro (fome, humor, energia, onde ele está) chega junto com o mundo 3D, nas próximas fases.</div>}
+      {tab === "diary" && (
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          <div style={{fontSize:12,color:"var(--text-3)",marginBottom:4}}>O que o Pedro anotou sobre a vida dele (gerado pela simulação; textos de modelo, e IA só nos momentos marcantes).</div>
+          {diary === null && <div style={{color:"var(--text-3)",fontSize:13}}>Carregando...</div>}
+          {diary && diary.length === 0 && <div style={{color:"var(--text-3)",fontSize:13}}>Nenhuma entrada ainda 🐾</div>}
+          {(diary || []).slice(0, 80).map(e => (
+            <div key={e.id} style={row}>
+              <div>
+                <div style={{fontSize:13}}>{e.texto}</div>
+                <div style={{fontSize:10,color:"var(--text-3)"}}>{new Date(e.quando).toLocaleString("pt-BR")} · {e.tipo}{e.marcante ? " · marcante" : ""} · {e.fonte}{e.reacao ? " · 💛" : ""}</div>
+              </div>
+              <button onClick={() => delDiary(e.id)} title="Apagar" style={delBtn}><Icon path={I.trash} size={14}/></button>
+            </div>
+          ))}
+        </div>
+      )}
+      {tab === "state" && (
+        <div style={{display:"flex",flexDirection:"column",gap:10,fontSize:13}}>
+          {!petAdm && <div style={{color:"var(--text-3)"}}>Carregando...</div>}
+          {petAdm && (<>
+            <div style={{color:"var(--text-3)",fontSize:12,lineHeight:1.6}}>
+              Último tick: <b>{petAdm.ultimoTick ? new Date(petAdm.ultimoTick).toLocaleString("pt-BR") : "—"}</b> · Visto: {petAdm.visto ? new Date(petAdm.visto).toLocaleString("pt-BR") : "—"}<br/>
+              Onde: <b>{petAdm.local?.poi}</b> · Fazendo: <b>{petAdm.atividade?.tipo || "—"}</b>{petAdm.atividade?.ate ? ` (até ${new Date(petAdm.atividade.ate).toLocaleTimeString("pt-BR")})` : ""} · Humor: <b>{petAdm.humor}</b><br/>
+              Push hoje: {petAdm.push?.n || 0}/{petAdm.config?.push?.max ?? 3}{petAdm.push?.ultimoTipo ? ` (último: ${petAdm.push.ultimoTipo})` : ""} · Biscoitos: {petAdm.inventario?.moedas}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8}}>
+              {["fome","sede","energia","diversao","afeto","higiene"].map(k => (
+                <label key={k} style={{display:"flex",flexDirection:"column",gap:2,fontSize:11,color:"var(--text-3)",textTransform:"capitalize"}}>{k} (0–100, 100 = satisfeito)
+                  <input type="number" min="8" max="100" value={Math.round(necEdit[k] ?? 0)} onChange={e => setNecEdit({ ...necEdit, [k]: e.target.value })} style={{...inp,fontSize:13,padding:"6px 8px"}}/>
+                </label>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button onClick={() => savePetAdm({ necessidades: necEdit })} style={btn()}>Salvar necessidades</button>
+              <button onClick={() => { if (confirm("Voltar as necessidades ao padrão?")) savePetAdm({ reset: true }); }} style={btn("var(--bg-sub)")}>Resetar</button>
+              <button onClick={loadPetAdm} style={btn("var(--bg-sub)")}>Atualizar</button>
+            </div>
+          </>)}
+        </div>
+      )}
     </Modal>
   );
 }
@@ -9618,7 +9667,7 @@ function PedroAdminModal({ onClose }) {
 const PedroScreen = lazy(() => import("./pedro/PedroScreen.jsx"));
 
 // Tela própria do Pedro ("Pedro" na Home). Sem botão flutuante nas outras telas: ele só vive aqui dentro.
-function PedroPage({ onBack }) {
+function PedroPage({ onBack, abrirMsg }) {
   const [adminOpen, setAdminOpen] = useState(false);
   const [notifPerm, setNotifPerm] = useState(() => (typeof Notification !== "undefined" ? Notification.permission : "unsupported"));
 
@@ -9657,7 +9706,7 @@ function PedroPage({ onBack }) {
   return (
     <>
       <Suspense fallback={<div style={{position:"fixed",inset:0,zIndex:1500,background:"#f3e3c8",color:"#4a3524",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>Acordando o Pedro… 🐾</div>}>
-        <PedroScreen useKV={useKV} onBack={onBack} onOpenAdmin={() => setAdminOpen(true)} notifPerm={notifPerm} onEnableNotif={requestNotifPerm}/>
+        <PedroScreen useKV={useKV} onBack={onBack} onOpenAdmin={() => setAdminOpen(true)} notifPerm={notifPerm} onEnableNotif={requestNotifPerm} abrirMsg={abrirMsg}/>
       </Suspense>
       {adminOpen && <div style={{position:"relative",zIndex:1600}}><PedroAdminModal onClose={() => setAdminOpen(false)}/></div>}
     </>
@@ -9871,6 +9920,20 @@ function AppContent() {
     } catch {}
   },[]);
 
+  // Pedro: tocar num push abre a tela dele já com a mensagem na bolha (?pedro=1&msg=...), ou via postMessage do service worker
+  const [pedroMsg, setPedroMsg] = useState(null);
+  useEffect(()=>{
+    if (!PEDRO_ATIVO) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("pedro")) {
+      setPedroMsg(params.get("msg") || null); setPage("pedro");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    const onMsg = (e) => { if (e.data && e.data.type === "pedro-open") { setPedroMsg(e.data.msg || null); setPage("pedro"); } };
+    if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", onMsg);
+    return () => { if ("serviceWorker" in navigator) navigator.serviceWorker.removeEventListener("message", onMsg); };
+  },[]);
+
   // After returning from the Google Calendar OAuth flow, jump straight to Agenda
   useEffect(()=>{
     const params = new URLSearchParams(window.location.search);
@@ -10058,7 +10121,7 @@ function AppContent() {
         <span style={{fontSize:10,color:"var(--border)"}}>{new Date().toLocaleDateString("pt-BR")}</span>
       </footer>
 
-      {PEDRO_ATIVO && page==="pedro" && <PedroPage onBack={()=>setPage("home")}/>}
+      {PEDRO_ATIVO && page==="pedro" && <PedroPage onBack={()=>{setPedroMsg(null);setPage("home");}} abrirMsg={pedroMsg}/>}
       <JarbasCommandBar/>
     </div>
   );

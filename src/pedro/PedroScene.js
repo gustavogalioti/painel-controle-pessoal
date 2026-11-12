@@ -19,7 +19,8 @@ const LEVELS = [
 ];
 
 export class PedroScene {
-  constructor({ canvas, onFrame, onStatus, hourOverride = null, debug = false, forceLevel = null }) {
+  constructor({ canvas, onFrame, onStatus, hourOverride = null, debug = false, forceLevel = null, initial = null }) {
+    this.initial = initial; // { poi, tipo, ate }: onde o servidor diz que o Pedro está e o que ele faz agora
     this.canvas = canvas; this.onFrame = onFrame; this.onStatus = onStatus; this.hourOverride = hourOverride; this.debug = debug;
     this.reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     this.coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
@@ -50,7 +51,8 @@ export class PedroScene {
     this._applyLevel(); this._applyLighting(true);
     this._initFx();
 
-    this.actor = await PedroActor.create({ parent: scene, onProgress });
+    const ini = this.initial && POIS[this.initial.poi] ? POIS[this.initial.poi] : null;
+    this.actor = await PedroActor.create({ parent: scene, onProgress, ...(ini ? { position: new THREE.Vector3(ini.x, 0, ini.z), heading: ini.heading } : {}) });
     this._applyLevel(); this._applyOutfit();
     this._bindInput();
     this.resize();
@@ -170,7 +172,14 @@ export class PedroScene {
     let last = null;
     await this.wait(1.5);
     while (!this._disposed && gen === this._gen) {
-      const next = pickNext({ hour: this._hour(), last, rng: this._rng, needs: this.needs });
+      let next;
+      if (this.initial) { // 1ª atividade = a que o servidor diz que ele está fazendo agora (consistência ao abrir o app)
+        const i = this.initial; this.initial = null;
+        const restanteMin = Math.max(0, (Date.parse(i.ate) - Date.now()) / 60000);
+        next = POIS[i.poi] && ["dormir", "descansar_janela", "esconder", "limpar", "amassar", "sentar", "comer", "beber", "brincar", "explorar", "arranhar"].includes(i.tipo)
+          ? { poi: i.poi, ativ: i.tipo, duracao: Math.min(70, Math.max(12, restanteMin * 0.7)) } : null;
+      }
+      if (!next) next = pickNext({ hour: this._hour(), last, rng: this._rng, needs: this.needs });
       last = next;
       try { await this._doActivity(next, gen); } catch (e) { console.warn("Pedro brain:", e); await this.wait(2); }
     }

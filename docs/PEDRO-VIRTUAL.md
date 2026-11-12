@@ -4,7 +4,7 @@ Evolução do Pedro IA: de "assistente do painel" para **bichinho virtual** (o g
 Gustavo). Spec completa: `PEDRO-VIRTUAL-SPEC.md` (fora do repositório, enviada pelo
 Gustavo). Este arquivo registra o que já foi feito e como operar.
 
-## Estado atual: Fase 3 (interação e cuidados) pronta — Pedro continua em STAND BY
+## Estado atual: Fase 4 (vida fora do app, Diário e push) pronta — Pedro continua em STAND BY
 
 > Decisões do Gustavo: **sem botão flutuante** (o Pedro só vive dentro da tela própria, nunca nas outras
 > telas do painel) e o tile se chama **"Pedro"**.
@@ -169,5 +169,57 @@ O áudio só liga após o primeiro gesto; botão 🔊/🔇 no topo. Nenhum som d
 - O front grava `pedro_pet_v1` de tempos em tempos; se o servidor semear as manias *depois* de o front carregar o estado, a flag `seeds` pode ser sobrescrita uma vez (efeito: uma mania apagada pode reaparecer). Será resolvido na Fase 4, quando o servidor passa a ser dono do estado.
 - Brinquedos e colisões são simples (sem física entre móveis; o gato atravessa móveis baixos). Convites e passeios usam rotas retas entre POIs.
 
-### Fica para as próximas fases
-Fase 4: `advancePet` no servidor (vida com o app fechado), Diário e pushes com orçamento/silêncio. Fase 5: quintal/varanda, passeio, descobertas.
+---
+
+## Fase 4 — vida fora do app, Diário e push
+
+### Arquitetura: o servidor é o dono do estado
+- **`advancePet(state, now, rng)`** (`src/pedro/sim.js`, pura e testada): avança de `ultimoTick` até `agora` em passos de **10 min**: decaimento, escolha de atividade
+  por pesos (hora do dia, necessidades, sorte), efeitos ao concluir (come → fome sobe, dorme → energia sobe…) e **eventos estruturados**
+  (`ev_<ms>_<tipo>`, com extras: passarinho na janela, achou um presente, sonhou, derrubou algo). Catch-up limitado a **48 h**.
+  `advancePetSeeded` deriva o seed do último tick: reprocessar o mesmo trecho gera os mesmos eventos/ids (dedupe do diário).
+- **`api/_pedro-life.js`**: `tickPedro` (avança + grava estado e diário), `applyUpdate` (cuidados/loja/config vindos do app, com validação), diário (`listDiary`, `markDiaryRead`,
+  `reactDiary`) e `runCronTick` (núcleo do cron, injetável e testado). Só toca chaves `pedro_*` (`pedro_pet_v1`, `pedro_diary_v1`, `pedro_chat_v1`, `pedro_push_subs`).
+- **Cron** (`api/pedro-cron.js`, cron-job.org): a cada disparo o Pedro "vive", o Diário é escrito e **no máximo um** push sai, se a política permitir.
+- **App**: `usePedroPet` mantém um espelho do estado do servidor (sincroniza ao abrir e a cada minuto; cuidados são otimistas e confirmados por POST). Ao abrir, o gato **nasce
+  onde o servidor diz que ele está** e continua a atividade (ex.: dormindo no tapete). O chat do servidor recebe o estado **de agora** e o diário recente.
+- Endpoints novos em `/api/pedro`: `pet_state`, `pet_update`, `diary`, `diary_read`, `diary_react`, `admin_diary`, `admin_diary_delete`, `admin_pet`, `admin_pet_set`.
+
+### Diário do Pedro (`pedro_diary_v1`)
+- Entradas `{id, quando, tipo, evento, texto, humor, local, marcante, fonte, lido, reacao}`. **Marcantes** (achou presente, passarinho, sonho, se escondeu, dormiu nos papéis…) viram entrada própria;
+  os **triviais** viram **um resumo por turno** (manhã/tarde/noite) — sem spam.
+- Texto: **templates** na voz do Pedro; o **LLM só reescreve os marcantes**, com orçamento de **4/dia** (uma falha para tudo e mantém o modelo; protege a cota Groq do Jarbas).
+  **Anti-alucinação:** o prompt só recebe os fatos do evento (sonho é fantasia declarada), proíbe cobrar/lamentar e a resposta passa por um filtro (curta, sem lista, sem "agenda/tarefa/painel…").
+- UI: botão 📖 com **badge de novas**, linha do tempo por dia com ícone do evento, **💛** (vira afeto +6 e uma memória "momento", uma vez por entrada) e **copiar** a entrada.
+- Admin: abas **Diário** (ver/apagar) e **Estado** (ver `ultimoTick`, onde está, o que faz, pushes de hoje; editar/zerar necessidades de teste).
+
+### Push e mensagens espontâneas (`src/pedro/push-policy.js`, pura e testada)
+- Limites: **máx. 3/dia** (configurável, 0–6), **silêncio 22h–8h** (configurável), **≥ 2 h** entre pushes, **nunca o mesmo tipo em sequência**, e **cancela se o app foi aberto/usado há menos de 30 min**.
+- Tipos (por prioridade): *descoberta* (marcante com presente/passarinho…), *diário* (outro marcante), *saudade* leve (≥ 10 h sem abrir; 1/dia; **sem cobrança nem culpa**) e *fome* (rara, 1/dia).
+- O texto do push reaproveita o texto do diário. Toque no push **abre a tela do Pedro com a mensagem na bolha** (`/?pedro=1&msg=…` ou `postMessage` se o app já está aberto). A fala também entra no chat.
+- Preferências em `pedro_pet_v1.config.push` (ligar/desligar na lojinha ⚙, limite, janela). Inscrições (`pedro_push_subs`) intactas.
+
+### Custos estimados (registrar também no README)
+| Item | Volume/dia |
+|---|---|
+| Cron a cada **10 min** | 144 chamadas; cada uma: ~4 leituras + ~2 escritas no Neon, **sem LLM** na maioria |
+| LLM do diário | **≤ 4** chamadas (só marcantes); + as do chat (como antes) |
+| Push | **≤ 3** |
+| Cena 3D | 100 % no cliente (zero custo de servidor) |
+
+### Para ativar (quando você aprovar) — checklist
+1. **Backup** (`scripts/pedro-backup.mjs`) e **rotação de segredos** (GitHub, `GROQ_API_KEY`, VAPID privada, `CRON_SECRET`).
+2. Env na Vercel: `PEDRO_ATIVO=1` (+ as chaves existentes de Groq/OpenAI, VAPID, `CRON_SECRET`). No front: `PEDRO_ATIVO = true` em `src/pedro-standby.js`.
+3. No **cron-job.org**: apontar para `…/api/pedro-cron?secret=…` **a cada 10 min** e retomar o job.
+4. Abrir o Pedro, aceitar notificações (🔔) pra registrar a inscrição.
+
+### Testes e verificação
+- `src/pedro-sim.test.mjs`: determinismo, 12 h de ausência (local consistente, necessidades válidas, rotina de gato por hora), teto de 48 h, ids estáveis, efeitos, textos do diário (nada de agenda/culpa), turnos, resumos, dedupe, prompt/sanitização, **política de push** (silêncio, teto, intervalo, tipo repetido, app aberto, novo dia, saudade sem culpa).
+- `api/_pedro-life.test.mjs` (banco falso): `tickPedro` de 12 h, dedupe mesmo com escrita concorrente antiga, LLM do diário (só marcantes, orçamento, falha, resposta imprópria), `applyUpdate` (validação), diário (lido/💛 uma vez), **cron** (silêncio, push com orçamento, intervalo, app aberto, sem VAPID, registro no chat), chat com estado e diário. Isolamento do painel continua verde (inclui `_pedro-life.js`).
+- Navegador (headless): servidor simulado rodando o **código real** de `_pedro-life.js`, partindo de 12 h sem abrir: o gato nasceu no ponto exato do servidor ("dormindo no tapete"), 5 entradas, balão "Enquanto você não tava…", badge 📖, marcar lido e 💛 → afeto + memória.
+- **Não verificado:** push real (web-push/VAPID/SW em aparelho), o cron contra o Neon e o LLM reais, e o import de `../src/pedro/*` pelo bundler da Vercel (padrão comum, mas é a primeira vez neste projeto: se o deploy reclamar, copiar os módulos puros para `api/`).
+
+### Limitações conhecidas
+- O chat (`pedro_chat_v1`) ainda é escrito pelo app e, no push, pelo servidor: se os dois escreverem ao mesmo tempo (app aberto durante o push, o que a política evita), uma fala pode se perder.
+- Escritas concorrentes cron × app no `pedro_pet_v1` são "última vence" (o app só envia deltas via `pet_update`, que relê o estado; o diário usa ids estáveis, então não duplica).
+- Quintal, passeio e descobertas ao ar livre: Fase 5.
