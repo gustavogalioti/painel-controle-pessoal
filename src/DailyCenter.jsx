@@ -978,6 +978,110 @@ function DoingView({ c }) {
   );
 }
 
+// ─── Aba Visão Geral ─────────────────────────────────────────────────────────
+// Uma lista só com tudo o que está ativo: título · status · última atualização. Clicar numa linha abre o card da tarefa.
+const STATUS_PILL = {
+  now: ["De agora", "dcc-pill-alta"], today: ["De hoje", "dcc-pill-plan"], doing: ["Em andamento", "dcc-pill-doing"],
+  todo: ["Pendente", "dcc-pill-neutral"], standby: ["Stand by", "dcc-pill-idea"],
+};
+// "15/10/2026, 10:00:00" → "15/10/2026 · 10:00"
+const fmtUpdDate = d => String(d || "").replace(/:\d{2}$/, "").replace(", ", " · ");
+
+function OverviewView({ c }) {
+  const [q, setQ] = useState("");
+  const all = L.overviewRows(c.tasks);
+  const ql = q.trim().toLowerCase();
+  const rows = !ql ? all : all.filter(t => {
+    const u = L.lastUpdate(t);
+    return t.text.toLowerCase().includes(ql) || (t.tags || []).some(x => x.toLowerCase().includes(ql)) || (u && u.text.toLowerCase().includes(ql));
+  });
+  const open = id => c.setCardId(id);
+  return (
+    <div className="dcc-card dcc-ov">
+      <div className="dcc-sec-head">
+        <h2>Visão geral</h2>
+        <span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input className="dcc-ov-search" type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar tarefa, tag ou atualização…" aria-label="Buscar na visão geral" />
+          <span className="dcc-pill dcc-pill-neutral">{rows.length === all.length ? all.length : `${rows.length} de ${all.length}`} {all.length === 1 ? "tarefa" : "tarefas"}</span>
+        </span>
+      </div>
+      <div className="dcc-sub">Tudo o que está ativo, em ordem: De agora, De hoje, Em andamento, Pendente e Stand by. Concluídas não aparecem. Clique numa linha para abrir a tarefa.</div>
+      {rows.length === 0 ? (
+        <Empty title={all.length ? "Nada encontrado." : "Nenhuma tarefa ativa."}>{all.length ? "Ajuste a busca." : "Adicione uma tarefa pelo Meu Dia."}</Empty>
+      ) : (
+        <table className="dcc-ov-table">
+          <thead><tr><th scope="col">Tarefa</th><th scope="col">Status</th><th scope="col">Última atualização</th></tr></thead>
+          <tbody>
+            {rows.map((t, i) => {
+              const st = L.getStatus(t);
+              const [label, cls] = STATUS_PILL[st];
+              const u = L.lastUpdate(t);
+              const groupStart = i > 0 && L.getStatus(rows[i - 1]) !== st;
+              return (
+                <tr key={t.id} className={groupStart ? "is-group-start" : ""} tabIndex={0} role="button" aria-label={`Abrir tarefa: ${t.text}. Status: ${label}`}
+                  onClick={() => open(t.id)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(t.id); } }}>
+                  <td data-label="Tarefa">
+                    <span className="dcc-ov-title">{t.text}</span>
+                    <span className="dcc-ov-sub">{[areaOf(t) !== "Sem área" ? areaOf(t) : null, t.inbox && st === "todo" ? "caixa de entrada" : null, t.prio === "alta" ? "prioridade alta" : null].filter(Boolean).join(" · ")}</span>
+                  </td>
+                  <td data-label="Status"><span className={`dcc-pill ${cls}`}>{label}</span></td>
+                  <td data-label="Última atualização">
+                    {u ? <><span className="dcc-ov-upd">{u.text}</span><span className="dcc-ov-sub">{fmtUpdDate(u.date)}</span></> : <span className="dcc-ov-none">—</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// Card da tarefa (aberto pela Visão Geral): status, próxima ação, passos e atualizações num lugar só
+function TaskCardModal({ c, id, onClose }) {
+  const t = c.tasks.find(x => x.id === id);
+  useEffect(() => { if (!t) onClose(); }, [t]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!t) return null;
+  const st = L.getStatus(t);
+  const [label, cls] = STATUS_PILL[st] || STATUS_PILL.todo;
+  const due = dueLabel(t, c.today);
+  const doing = st === "doing";
+  const start = () => { c.act.start(t.id); onClose(); c.setFocusOn(t.id); };
+  return (
+    <Sheet title={t.text} onClose={onClose} footer={<>
+      <button className="dcc-btn" onClick={() => { onClose(); c.setEditId(t.id); }}><Ic d="edit" size={14} /> Editar detalhes</button>
+      <span style={{ flex: 1 }} />
+      {st !== "standby" && <button className="dcc-btn" onClick={() => { c.act.archive(t.id); onClose(); }}>Stand by</button>}
+      <button className="dcc-btn" onClick={() => { c.act.defer(t.id, L.addDays(c.today, 1)); onClose(); }}>Adiar p/ amanhã</button>
+      <button className="dcc-btn" style={{ color: "var(--d-ok)", borderColor: "#bfe6d6" }} onClick={() => { c.act.complete(t.id); onClose(); }}><Ic d="check" size={14} /> Concluir</button>
+      <button className="dcc-btn dcc-btn-primary" onClick={start}><Ic d="play" size={13} /> {doing ? "Continuar" : "Iniciar"}</button>
+    </>}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        <TagPill tag={areaOf(t)}>{areaOf(t)}</TagPill>
+        <span className={`dcc-pill ${cls}`}>{label}</span>
+        <span className={`dcc-pill ${t.prio === "alta" ? "dcc-pill-alta" : "dcc-pill-neutral"}`}>{PRIO_LONG[t.prio] || "Prioridade normal"}</span>
+        {t.estimatedMinutes ? <span className="dcc-time">{L.fmtMin(t.estimatedMinutes)}</span> : null}
+        {due && <span className={`dcc-li-meta ${due.late ? "dcc-due-late" : ""}`}>{due.text}</span>}
+        {evText(t) && <span className="dcc-li-meta">🗓 {evText(t)}</span>}
+      </div>
+      <div className="dcc-field">
+        <label htmlFor="tc-move">Mover para</label>
+        <select id="tc-move" value={st} aria-label="Mover para" onChange={e => { if (e.target.value && e.target.value !== st) c.act.moveTo(t.id, e.target.value); }}>
+          {L.MOVE_OPTIONS.map(v => <option key={v} value={v}>{L.STATUS_LABEL[v]}{v === st ? " (atual)" : ""}</option>)}
+          {st === "standby" && <option value="standby">Stand by (atual)</option>}
+        </select>
+      </div>
+      <div className="dcc-field">
+        <label>Próxima ação</label>
+        <NextActionField c={c} t={t} />
+      </div>
+      <StepsList c={c} t={t} />
+      <UpdatesFeed c={c} t={t} />
+    </Sheet>
+  );
+}
+
 // ─── Caixa de Entrada ────────────────────────────────────────────────────────
 function InboxItem({ c, t }) {
   const [text, setText] = useState(t.text);
@@ -1459,7 +1563,7 @@ function Picker({ c, onClose }) {
 }
 
 // ─── contêiner ───────────────────────────────────────────────────────────────
-const TABS = [["day", "Meu Dia"], ["doing", "Em Andamento"], ["inbox", "Caixa de Entrada"], ["upcoming", "Próximos Dias"], ["all", "Todas as Tarefas"], ["history", "Histórico"]];
+const TABS = [["day", "Meu Dia"], ["doing", "Em Andamento"], ["overview", "Visão Geral"], ["inbox", "Caixa de Entrada"], ["upcoming", "Próximos Dias"], ["all", "Todas as Tarefas"], ["history", "Histórico"]];
 
 function DailyCenterInner({ tasks, setTasks, board, synced, sync, ui }) {
   const { useKV } = ui;
@@ -1471,6 +1575,7 @@ function DailyCenterInner({ tasks, setTasks, board, synced, sync, ui }) {
   const [timer, setTimer] = useKV("dcc_focus_timer_v1", {});
   const timerRef = useRef(timer); timerRef.current = timer;
   const [editId, setEditId] = useState(null);
+  const [cardId, setCardId] = useState(null);
   const [ritual, setRitual] = useState(null);
   const [picker, setPicker] = useState(false);
   const [capOpen, setCapOpen] = useState(false);
@@ -1587,7 +1692,7 @@ function DailyCenterInner({ tasks, setTasks, board, synced, sync, ui }) {
   const c = {
     tasks, today, summary, counts, nowTasks, allTags, agenda, prevNote, timer, timerRef, setTimer, reviews: reviews || {}, focusLog: Array.isArray(focusLog) ? focusLog : [],
     synced, sort, setSort, act, mutate, flash, saveReview, logFocus,
-    setEditId, setRitual, setPicker, setFocusOn: openFocus, setView,
+    setEditId, setCardId, setRitual, setPicker, setFocusOn: openFocus, setView,
     patch: (id, p) => mutate(prev => L.patchTask(prev, id, p)),
   };
 
@@ -1618,6 +1723,7 @@ function DailyCenterInner({ tasks, setTasks, board, synced, sync, ui }) {
       )}
       {view === "day" && (synced || tasks.length > 0) && <DayView c={c} />}
       {view === "doing" && <DoingView c={c} />}
+      {view === "overview" && <OverviewView c={c} />}
       {view === "inbox" && <InboxView c={c} />}
       {view === "upcoming" && <UpcomingView c={c} />}
       {view === "all" && board}
@@ -1632,6 +1738,7 @@ function DailyCenterInner({ tasks, setTasks, board, synced, sync, ui }) {
       {ritual === "plan" && <PlanModal c={c} onClose={() => setRitual(null)} />}
       {ritual === "review" && <ReviewModal c={c} onClose={() => setRitual(null)} />}
       {ritual === "close" && <CloseModal c={c} onClose={() => setRitual(null)} />}
+      {cardId && <TaskCardModal c={c} id={cardId} onClose={() => setCardId(null)} />}
       {editing && (
         <TaskEditor key={editing.id} task={editing} tags={allTags} events={agenda.events}
           onClose={() => setEditId(null)}

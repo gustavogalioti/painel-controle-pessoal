@@ -258,3 +258,18 @@ export function lastActivity(t) {
   const times = [t.startedAt, t.date, ...(t.updates || []).map(u => u.at)].filter(Boolean).map(x => new Date(x).getTime()).filter(n => !isNaN(n));
   return times.length ? Math.max(...times) : 0;
 }
+
+// ── aba Visão Geral: uma lista só, por status, sem concluídas ──
+export const OVERVIEW_ORDER = ["now", "today", "doing", "todo", "standby"];
+const PRIO_RANK = { alta: 0, normal: 1, baixa: 2 };
+
+// De agora → De hoje → Em andamento → Pendente → Stand by; dentro de cada status: prioridade, depois atividade mais recente.
+export function overviewRows(tasks) {
+  const rank = t => { const i = OVERVIEW_ORDER.indexOf(getStatus(t)); return i < 0 ? OVERVIEW_ORDER.length : i; };
+  return tasks
+    .filter(t => getStatus(t) !== "done" && OVERVIEW_ORDER.includes(getStatus(t)))
+    .sort((a, b) => rank(a) - rank(b) || (PRIO_RANK[a.prio] ?? 1) - (PRIO_RANK[b.prio] ?? 1) || lastActivity(b) - lastActivity(a));
+}
+
+// Atualização mais recente da tarefa (as atualizações ficam em ordem cronológica) ou null
+export const lastUpdate = t => { const u = t.updates || []; return u.length ? u[u.length - 1] : null; };

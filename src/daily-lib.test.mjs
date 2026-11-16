@@ -128,6 +128,20 @@ assert.equal(L.removeUpdate([mk(2)], 2, 0)[0].updates, undefined); // sem `updat
 assert.equal(L.lastActivity(ts[0]), Math.max(new Date(ts[0].date).getTime(), new Date("2026-10-02T10:00:00.000Z").getTime()));
 assert.equal(L.lastActivity({}), 0);
 
+// visão geral: ordem dos status, sem concluídas; prioridade e atividade dentro do status
+ts = [
+  mk(1, { status: "standby" }), mk(2), mk(3, { status: "doing" }), mk(4, { status: "today" }), mk(5, { status: "now" }),
+  mk(6, { status: "done", done: true }), mk(7, { status: "today", prio: "alta" }), mk(8, { status: "now", prio: "baixa" }),
+  mk(9, { status: "today", updates: [{ text: "x", date: "d", at: "2099-01-01T00:00:00.000Z" }] }),
+  { id: 10, text: "legado", done: true }, // só done:true (sem status) → concluída
+  { id: 11, text: "legado pendente" },      // sem status → todo
+];
+assert.deepEqual(L.overviewRows(ts).map(t => t.id), [5, 8, 7, 9, 4, 3, 2, 11, 1], "now(normal, baixa) → today(alta, mais recente, resto) → doing → todo → standby");
+assert.ok(!L.overviewRows(ts).some(t => t.id === 6 || t.id === 10), "concluídas fora");
+assert.equal(L.lastUpdate(mk(1, { updates: [{ text: "a" }, { text: "b" }] })).text, "b");
+assert.equal(L.lastUpdate(mk(1)), null);
+assert.equal(L.lastUpdate({ id: 1 }), null);
+
 // util
 assert.equal(L.fmtMin(10), "10 min"); assert.equal(L.fmtMin(90), "1h30"); assert.equal(L.fmtMin(120), "2h"); assert.equal(L.fmtMin(""), "");
 assert.equal(L.addDays("2026-10-31", 1), "2026-11-01"); // virada de mês com data fixa (função pura)
