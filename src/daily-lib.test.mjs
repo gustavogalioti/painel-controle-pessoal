@@ -142,6 +142,17 @@ assert.equal(L.lastUpdate(mk(1, { updates: [{ text: "a" }, { text: "b" }] })).te
 assert.equal(L.lastUpdate(mk(1)), null);
 assert.equal(L.lastUpdate({ id: 1 }), null);
 
+// one pager: filtro por tag (sem diferenciar maiúsculas) e tag padrão
+const tg = [mk(1, { tags: ["Pessoal"] }), mk(2, { tags: ["C2LZ", "pessoal"] }), mk(3, { tags: [] }), { id: 4, text: "sem campo tags" }, mk(5, { tags: ["c2"] })];
+assert.deepEqual(L.rowsWithTag(tg, "PESSOAL").map(t => t.id), [1, 2], "ignora maiúsculas e aceita mais de uma tag na tarefa");
+assert.deepEqual(L.rowsWithTag(tg, " c2 ").map(t => t.id), [5], "exato: c2 não casa com C2LZ");
+assert.deepEqual(L.rowsWithTag(tg, "").map(t => t.id), [], "tag vazia não casa com nada");
+assert.equal(L.hasTag({ id: 9 }, "x"), false);
+assert.equal(L.pickDefaultTag(["Pessoal", "c2", "C2LZ"], "C2"), "c2", "prefere o nome exato");
+assert.equal(L.pickDefaultTag(["Pessoal", "C2LZ"], "c2"), "C2LZ", "sem exato, usa a que começa com c2");
+assert.equal(L.pickDefaultTag(["Estudos"], "Pessoal"), "Pessoal", "sem nenhuma, mantém o nome desejado");
+assert.equal(L.pickDefaultTag([], "C2"), "C2");
+
 // util
 assert.equal(L.fmtMin(10), "10 min"); assert.equal(L.fmtMin(90), "1h30"); assert.equal(L.fmtMin(120), "2h"); assert.equal(L.fmtMin(""), "");
 assert.equal(L.addDays("2026-10-31", 1), "2026-11-01"); // virada de mês com data fixa (função pura)

@@ -273,3 +273,15 @@ export function overviewRows(tasks) {
 
 // Atualização mais recente da tarefa (as atualizações ficam em ordem cronológica) ou null
 export const lastUpdate = t => { const u = t.updates || []; return u.length ? u[u.length - 1] : null; };
+
+// ── aba One Pager: quadros por tag ──
+const norm = x => String(x || "").trim().toLowerCase();
+export const hasTag = (t, tag) => !!norm(tag) && (t.tags || []).some(x => norm(x) === norm(tag));
+export const rowsWithTag = (rows, tag) => rows.filter(t => hasTag(t, tag));
+
+// Tag padrão de um quadro: a que bate exatamente (sem diferenciar maiúsculas) com o nome desejado;
+// senão uma que comece com ele (ex.: "c2" → "C2LZ"); senão o próprio nome desejado.
+export function pickDefaultTag(allTags, want) {
+  const w = norm(want);
+  return allTags.find(x => norm(x) === w) || allTags.find(x => norm(x).startsWith(w)) || want;
+}

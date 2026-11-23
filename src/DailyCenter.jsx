@@ -987,6 +987,38 @@ const STATUS_PILL = {
 // "15/10/2026, 10:00:00" → "15/10/2026 · 10:00"
 const fmtUpdDate = d => String(d || "").replace(/:\d{2}$/, "").replace(", ", " · ");
 
+// Tabela Tarefa · Status · Última atualização (usada na Visão Geral e nos quadros do One Pager).
+// `hideTag`: nos quadros por tag, a própria tag do quadro não é repetida na linha de cada tarefa.
+function OverviewTable({ c, rows, hideTag }) {
+  const open = id => c.setCardId(id);
+  return (
+  <table className="dcc-ov-table">
+    <thead><tr><th scope="col">Tarefa</th><th scope="col">Status</th><th scope="col">Última atualização</th></tr></thead>
+    <tbody>
+      {rows.map((t, i) => {
+        const st = L.getStatus(t);
+        const [label, cls] = STATUS_PILL[st];
+        const u = L.lastUpdate(t);
+        const groupStart = i > 0 && L.getStatus(rows[i - 1]) !== st;
+        return (
+          <tr key={t.id} className={groupStart ? "is-group-start" : ""} tabIndex={0} role="button" aria-label={`Abrir tarefa: ${t.text}. Status: ${label}`}
+            onClick={() => open(t.id)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(t.id); } }}>
+            <td data-label="Tarefa">
+              <span className="dcc-ov-title">{t.text}</span>
+              <span className="dcc-ov-sub">{[...(hideTag ? (t.tags || []).filter(x => !L.hasTag({ tags: [x] }, hideTag)) : areaOf(t) !== "Sem área" ? [areaOf(t)] : []), t.inbox && st === "todo" ? "caixa de entrada" : null, t.prio === "alta" ? "prioridade alta" : null].filter(Boolean).join(" · ")}</span>
+            </td>
+            <td data-label="Status"><span className={`dcc-pill ${cls}`}>{label}</span></td>
+            <td data-label="Última atualização">
+              {u ? <><span className="dcc-ov-upd">{u.text}</span><span className="dcc-ov-sub">{fmtUpdDate(u.date)}</span></> : <span className="dcc-ov-none">—</span>}
+            </td>
+          </tr>
+        );
+      })}
+    </tbody>
+  </table>
+  );
+}
+
 function OverviewView({ c }) {
   const [q, setQ] = useState("");
   const all = L.overviewRows(c.tasks);
@@ -995,7 +1027,6 @@ function OverviewView({ c }) {
     const u = L.lastUpdate(t);
     return t.text.toLowerCase().includes(ql) || (t.tags || []).some(x => x.toLowerCase().includes(ql)) || (u && u.text.toLowerCase().includes(ql));
   });
-  const open = id => c.setCardId(id);
   return (
     <div className="dcc-card dcc-ov">
       <div className="dcc-sec-head">
@@ -1009,36 +1040,53 @@ function OverviewView({ c }) {
       {rows.length === 0 ? (
         <Empty title={all.length ? "Nada encontrado." : "Nenhuma tarefa ativa."}>{all.length ? "Ajuste a busca." : "Adicione uma tarefa pelo Meu Dia."}</Empty>
       ) : (
-        <table className="dcc-ov-table">
-          <thead><tr><th scope="col">Tarefa</th><th scope="col">Status</th><th scope="col">Última atualização</th></tr></thead>
-          <tbody>
-            {rows.map((t, i) => {
-              const st = L.getStatus(t);
-              const [label, cls] = STATUS_PILL[st];
-              const u = L.lastUpdate(t);
-              const groupStart = i > 0 && L.getStatus(rows[i - 1]) !== st;
-              return (
-                <tr key={t.id} className={groupStart ? "is-group-start" : ""} tabIndex={0} role="button" aria-label={`Abrir tarefa: ${t.text}. Status: ${label}`}
-                  onClick={() => open(t.id)} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(t.id); } }}>
-                  <td data-label="Tarefa">
-                    <span className="dcc-ov-title">{t.text}</span>
-                    <span className="dcc-ov-sub">{[areaOf(t) !== "Sem área" ? areaOf(t) : null, t.inbox && st === "todo" ? "caixa de entrada" : null, t.prio === "alta" ? "prioridade alta" : null].filter(Boolean).join(" · ")}</span>
-                  </td>
-                  <td data-label="Status"><span className={`dcc-pill ${cls}`}>{label}</span></td>
-                  <td data-label="Última atualização">
-                    {u ? <><span className="dcc-ov-upd">{u.text}</span><span className="dcc-ov-sub">{fmtUpdDate(u.date)}</span></> : <span className="dcc-ov-none">—</span>}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <OverviewTable c={c} rows={rows} />
       )}
     </div>
   );
 }
 
-// Card da tarefa (aberto pela Visão Geral): status, próxima ação, passos e atualizações num lugar só
+// ─── Aba One Pager ───────────────────────────────────────────────────────────
+// Dois quadros no formato da Visão Geral, cada um com a tag escolhida (padrão: Pessoal e C2).
+// A escolha é salva (sincroniza entre dispositivos) em one_pager_tags_v1.
+const ONE_PAGER_DEFAULTS = ["Pessoal", "C2"];
+
+function OnePagerBox({ c, tag, tags, onTag, slot }) {
+  const rows = L.rowsWithTag(L.overviewRows(c.tasks), tag);
+  const options = tags.some(x => L.hasTag({ tags: [x] }, tag)) ? tags : [tag, ...tags];
+  const current = options.find(x => L.hasTag({ tags: [x] }, tag)) || tag;
+  return (
+    <section className="dcc-card dcc-ov dcc-op-box" aria-labelledby={`dcc-op-h${slot}`}>
+      <div className="dcc-sec-head">
+        <h2 id={`dcc-op-h${slot}`}>{current}</h2>
+        <span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select className="dcc-sort" value={current} onChange={e => onTag(e.target.value)} aria-label={`Tag do quadro ${slot}`}>
+            {options.map(x => <option key={x} value={x}>{x}</option>)}
+          </select>
+          <span className="dcc-pill dcc-pill-neutral">{rows.length} {rows.length === 1 ? "tarefa" : "tarefas"}</span>
+        </span>
+      </div>
+      <div className="dcc-sub">Tarefas ativas com a tag <b>{current}</b>, de De agora até Stand by. Clique numa linha para abrir.</div>
+      {rows.length === 0
+        ? <Empty title={`Nenhuma tarefa com a tag ${current}.`}>Classifique uma tarefa com essa tag (editar tarefa → tags) e ela aparece aqui.</Empty>
+        : <OverviewTable c={c} rows={rows} hideTag={current} />}
+    </section>
+  );
+}
+
+function OnePagerView({ c }) {
+  const [saved, setSaved] = c.useKV("one_pager_tags_v1", null);
+  const defaults = ONE_PAGER_DEFAULTS.map(w => L.pickDefaultTag(c.allTags, w));
+  const chosen = Array.isArray(saved) && saved.length === 2 ? saved : defaults;
+  const setTag = (i, tag) => { const next = [...chosen]; next[i] = tag; setSaved(next); };
+  return (
+    <div className="dcc-op-grid">
+      {chosen.map((tag, i) => <OnePagerBox key={i} c={c} slot={i + 1} tag={tag} tags={c.allTags} onTag={x => setTag(i, x)} />)}
+    </div>
+  );
+}
+
+// Card da tarefa (aberto pela Visão Geral e pelo One Pager): status, próxima ação, passos e atualizações num lugar só
 function TaskCardModal({ c, id, onClose }) {
   const t = c.tasks.find(x => x.id === id);
   useEffect(() => { if (!t) onClose(); }, [t]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1563,7 +1611,7 @@ function Picker({ c, onClose }) {
 }
 
 // ─── contêiner ───────────────────────────────────────────────────────────────
-const TABS = [["day", "Meu Dia"], ["doing", "Em Andamento"], ["overview", "Visão Geral"], ["inbox", "Caixa de Entrada"], ["upcoming", "Próximos Dias"], ["all", "Todas as Tarefas"], ["history", "Histórico"]];
+const TABS = [["day", "Meu Dia"], ["doing", "Em Andamento"], ["overview", "Visão Geral"], ["onepager", "One Pager"], ["inbox", "Caixa de Entrada"], ["upcoming", "Próximos Dias"], ["all", "Todas as Tarefas"], ["history", "Histórico"]];
 
 function DailyCenterInner({ tasks, setTasks, board, synced, sync, ui }) {
   const { useKV } = ui;
@@ -1692,7 +1740,7 @@ function DailyCenterInner({ tasks, setTasks, board, synced, sync, ui }) {
   const c = {
     tasks, today, summary, counts, nowTasks, allTags, agenda, prevNote, timer, timerRef, setTimer, reviews: reviews || {}, focusLog: Array.isArray(focusLog) ? focusLog : [],
     synced, sort, setSort, act, mutate, flash, saveReview, logFocus,
-    setEditId, setCardId, setRitual, setPicker, setFocusOn: openFocus, setView,
+    useKV, setEditId, setCardId, setRitual, setPicker, setFocusOn: openFocus, setView,
     patch: (id, p) => mutate(prev => L.patchTask(prev, id, p)),
   };
 
@@ -1724,6 +1772,7 @@ function DailyCenterInner({ tasks, setTasks, board, synced, sync, ui }) {
       {view === "day" && (synced || tasks.length > 0) && <DayView c={c} />}
       {view === "doing" && <DoingView c={c} />}
       {view === "overview" && <OverviewView c={c} />}
+      {view === "onepager" && <OnePagerView c={c} />}
       {view === "inbox" && <InboxView c={c} />}
       {view === "upcoming" && <UpcomingView c={c} />}
       {view === "all" && board}
